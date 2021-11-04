@@ -8,10 +8,7 @@
 #include <vk_types.h>
 #include <vk_initializers.h>
 
-#include "VkBootstrap.h"
 #include "vk_pipeline.h"
-
-#include <iostream>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -30,20 +27,6 @@ const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
 const VkFormat depthMapColorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-
-//we want to immediately abort when there is an error. In normal engines this would give an error message to the user, or perform a dump of state.
-using namespace std;
-#define VK_CHECK(x)                                                 \
-	do                                                              \
-	{                                                               \
-		VkResult err = x;                                           \
-		if (err)                                                    \
-		{                                                           \
-			std::cout <<"Detected Vulkan error: " << err << std::endl; \
-			abort();                                                \
-		}                                                           \
-	} while (0)
-
 
 void VulkanEngine::init()
 {
@@ -79,6 +62,9 @@ void VulkanEngine::init()
 	init_sync_structures();
 	init_descriptors();
 	init_pipelines();
+
+	vulkanCompute.init(_device, _allocator, _computeQueue, _computeQueueFamily);
+
 	init_imgui();
 	init_scene();
 
@@ -209,15 +195,9 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	void* data;
-	vmaMapMemory(_allocator, get_current_frame().cameraBuffer._allocation, &data);
-	memcpy(data, &_camData, sizeof(GPUCameraData));
-	vmaUnmapMemory(_allocator, get_current_frame().cameraBuffer._allocation);
+	cpu_to_gpu(get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
-	void* shadow_map_gpu_data;
-	vmaMapMemory(_allocator, get_current_frame().shadowMapDataBuffer._allocation, &shadow_map_gpu_data);
-	memcpy(shadow_map_gpu_data, &_shadowMapData, sizeof(GPUCameraData));
-	vmaUnmapMemory(_allocator, get_current_frame().shadowMapDataBuffer._allocation);
+	cpu_to_gpu(get_current_frame().shadowMapDataBuffer, &_shadowMapData, sizeof(GPUShadowMapData));
 
 	void* objectData;
 	vmaMapMemory(_allocator, get_current_frame().objectBuffer._allocation, &objectData);
@@ -426,7 +406,7 @@ void VulkanEngine::init_vulkan()
 	auto inst_ret = builder.set_app_name("Example Vulkan Application")
 		.request_validation_layers(bUseValidationLayers)
 		.use_default_debug_messenger()
-		.require_api_version(1, 1, 0)
+		.require_api_version(1, 2, 0)
 		.build();
 
 	vkb::Instance vkb_inst = inst_ret.value();
@@ -444,9 +424,10 @@ void VulkanEngine::init_vulkan()
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
-		.set_minimum_version(1, 1)
+		.set_minimum_version(1, 2)
 		.set_surface(_surface)
 		.set_required_features(physicalDeviceFeatures)
+		.add_required_extension("VK_KHR_shader_non_semantic_info")
 		.select()
 		.value();
 
@@ -462,8 +443,10 @@ void VulkanEngine::init_vulkan()
 
 	// use vkbootstrap to get a Graphics queue
 	_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
-
 	_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+	_computeQueue = vkbDevice.get_queue(vkb::QueueType::compute).value();
+	_computeQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::compute).value();
 
 	VmaAllocatorCreateInfo allocatorInfo = {};
 	allocatorInfo.physicalDevice = _chosenGPU;
@@ -473,8 +456,6 @@ void VulkanEngine::init_vulkan()
 
 	vkGetPhysicalDeviceProperties(_chosenGPU, &_gpuProperties);
 	vkGetPhysicalDeviceFeatures(_chosenGPU, &_gpuFeatures);
-
-	std::cout << "The GPU has a minimum buffer alignment of " << _gpuProperties.limits.minUniformBufferOffsetAlignment << std::endl;
 }
 
 void VulkanEngine::init_swapchain()
@@ -782,8 +763,8 @@ void VulkanEngine::init_commands()
 		});
 	}
 
-	VkCommandPoolCreateInfo uploadCommandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily);
 	//create pool for upload context
+	VkCommandPoolCreateInfo uploadCommandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily);
 	VK_CHECK(vkCreateCommandPool(_device, &uploadCommandPoolInfo, nullptr, &_uploadContext._commandPool));
 
 	_mainDeletionQueue.push_function([=]() {
@@ -822,17 +803,17 @@ void VulkanEngine::init_sync_structures()
 	}
 
 	VkFenceCreateInfo uploadFenceCreateInfo = vkinit::fence_create_info();
-	VK_CHECK(vkCreateFence(_device, &uploadFenceCreateInfo, nullptr, &_uploadContext._uploadFence));
+	VK_CHECK(vkCreateFence(_device, &uploadFenceCreateInfo, nullptr, &_uploadContext._fence));
+
 	_mainDeletionQueue.push_function([=]() {
-		vkDestroyFence(_device, _uploadContext._uploadFence, nullptr);
-		});
+		vkDestroyFence(_device, _uploadContext._fence, nullptr);
+	});
 }
 
 void VulkanEngine::init_descriptors()
 {
 	OPTICK_EVENT();
 
-	//create a descriptor pool that will hold 10 uniform buffers
 	std::vector<VkDescriptorPoolSize> sizes =
 	{
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
@@ -844,7 +825,7 @@ void VulkanEngine::init_descriptors()
 	VkDescriptorPoolCreateInfo pool_info = {};
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	pool_info.flags = 0;
-	pool_info.maxSets = 10;
+	pool_info.maxSets = 1000;
 	pool_info.poolSizeCount = (uint32_t)sizes.size();
 	pool_info.pPoolSizes = sizes.data();
 
@@ -899,9 +880,9 @@ void VulkanEngine::init_descriptors()
 	for (int i = 0; i < FRAME_OVERLAP; i++)
 	{
 		const int MAX_OBJECTS = 10000;
-		_frames[i].objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		_frames[i].cameraBuffer = create_buffer(sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		_frames[i].shadowMapDataBuffer = create_buffer(sizeof(GPUShadowMapData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].objectBuffer = vkinit::create_buffer(_allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].cameraBuffer = vkinit::create_buffer(_allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].shadowMapDataBuffer = vkinit::create_buffer(_allocator, sizeof(GPUShadowMapData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	
 		VkDescriptorSetAllocateInfo allocInfo = {};
 		allocInfo.pNext = nullptr;
@@ -983,25 +964,25 @@ void VulkanEngine::init_pipelines() {
 	OPTICK_EVENT();
 
 	VkShaderModule meshVertShader;
-	if (!vkutil::load_shader_module(*this, "../../shaders/default.vert.spv", &meshVertShader))
+	if (!vkutil::load_shader_module(_device, "../../shaders/default.vert.spv", &meshVertShader))
 	{
 		assert("Default Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule texturedMeshShader;
-	if (!vkutil::load_shader_module(*this, "../../shaders/default.frag.spv", &texturedMeshShader))
+	if (!vkutil::load_shader_module(_device, "../../shaders/default.frag.spv", &texturedMeshShader))
 	{
 		assert("Default Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule shadowMapVertShader;
-	if (!vkutil::load_shader_module(*this, "../../shaders/evsm.vert.spv", &shadowMapVertShader))
+	if (!vkutil::load_shader_module(_device, "../../shaders/evsm.vert.spv", &shadowMapVertShader))
 	{
 		assert("Shadow Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule shadowMapFragShader;
-	if (!vkutil::load_shader_module(*this, "../../shaders/evsm.frag.spv", &shadowMapFragShader))
+	if (!vkutil::load_shader_module(_device, "../../shaders/evsm.frag.spv", &shadowMapFragShader))
 	{
 		assert("Shadow Fragment Shader Loading Issue");
 	}
@@ -1135,10 +1116,10 @@ void VulkanEngine::init_scene()
 		assert(!"Error while loading scene");
 	}
 	if (!warn.empty()) {
-		std::cout << "WARNING: SCENE LOADING: " << error << "\n";
+		printf("WARNING: SCENE LOADING: %s\n", warn);
 	}
 	if (!error.empty()) {
-		std::cout << "ERROR: SCENE LOADING: " << error << "\n";
+		printf("WARNING: SCENE LOADING: %s\n", error);
 	}
 
 	gltf_scene.import_materials(tmodel);
@@ -1267,7 +1248,10 @@ void VulkanEngine::init_scene()
 	}
 
 	Precalculation precalculation;
-	precalculation.voxelize(gltf_scene);
+	int dimX, dimY, dimZ;
+	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
+	Receiver* receivers = precalculation.generate_receivers(128);
+	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
 }
 
 void VulkanEngine::init_imgui()
@@ -1345,16 +1329,11 @@ AllocatedBuffer VulkanEngine::create_upload_buffer(void* buffer_data, size_t siz
 {
 	OPTICK_EVENT();
 
-	AllocatedBuffer stagingBuffer = create_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = vkinit::create_buffer(_allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	
-	void* data;
-	vmaMapMemory(_allocator, stagingBuffer._allocation, &data);
+	cpu_to_gpu(stagingBuffer, buffer_data, size);
 
-	memcpy(data, buffer_data, size);
-
-	vmaUnmapMemory(_allocator, stagingBuffer._allocation);
-
-	AllocatedBuffer new_buffer = create_buffer(size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
+	AllocatedBuffer new_buffer = vkinit::create_buffer(_allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
 
 	immediate_submit([=](VkCommandBuffer cmd) {
 		VkBufferCopy copy;
@@ -1395,33 +1374,6 @@ FrameData& VulkanEngine::get_current_frame()
 	return _frames[_frameNumber % FRAME_OVERLAP];
 }
 
-AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
-{
-	OPTICK_EVENT();
-
-	//allocate vertex buffer
-	VkBufferCreateInfo bufferInfo = {};
-	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferInfo.pNext = nullptr;
-
-	bufferInfo.size = allocSize;
-	bufferInfo.usage = usage;
-
-
-	VmaAllocationCreateInfo vmaallocInfo = {};
-	vmaallocInfo.usage = memoryUsage;
-
-	AllocatedBuffer newBuffer;
-
-	//allocate the buffer
-	VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaallocInfo,
-		&newBuffer._buffer,
-		&newBuffer._allocation,
-		nullptr));
-
-	return newBuffer;
-}
-
 size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
 {
 	OPTICK_EVENT();
@@ -1460,11 +1412,19 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 	//submit command buffer to the queue and execute it.
 	// _uploadFence will now block until the graphic commands finish execution
-	VK_CHECK(vkQueueSubmit(_graphicsQueue, 1, &submit, _uploadContext._uploadFence));
+	VK_CHECK(vkQueueSubmit(_graphicsQueue, 1, &submit, _uploadContext._fence));
 
-	vkWaitForFences(_device, 1, &_uploadContext._uploadFence, true, 9999999999);
-	vkResetFences(_device, 1, &_uploadContext._uploadFence);
+	vkWaitForFences(_device, 1, &_uploadContext._fence, true, 9999999999);
+	vkResetFences(_device, 1, &_uploadContext._fence);
 
 	//clear the command pool. This will free the command buffer too
 	vkResetCommandPool(_device, _uploadContext._commandPool, 0);
+}
+
+void VulkanEngine::cpu_to_gpu(AllocatedBuffer& allocatedBuffer, void* data, size_t size)
+{
+	void* gpuData;
+	vmaMapMemory(_allocator, allocatedBuffer._allocation, &gpuData);
+	memcpy(gpuData, data, size);
+	vmaUnmapMemory(_allocator, allocatedBuffer._allocation);
 }

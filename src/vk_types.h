@@ -32,4 +32,9 @@ struct BasicMaterial {
     int metallic_roughness_texture;
 };
 
+struct CommandContext {
+    VkFence _fence;
+    VkCommandPool _commandPool;
+};
+
 //we will add our main reusable types here

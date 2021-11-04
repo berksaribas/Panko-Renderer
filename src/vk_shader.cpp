@@ -1,7 +1,7 @@
 #include <vk_shader.h>
 #include <fstream>
 
-bool vkutil::load_shader_module(VulkanEngine& engine, const char* filePath, VkShaderModule* outShaderModule)
+bool vkutil::load_shader_module(VkDevice device, const char* filePath, VkShaderModule* outShaderModule)
 {
 	//open the file. With cursor at the end
 	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
@@ -37,7 +37,7 @@ bool vkutil::load_shader_module(VulkanEngine& engine, const char* filePath, VkSh
 
 	//check that the creation goes well.
 	VkShaderModule shaderModule;
-	if (vkCreateShaderModule(engine._device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+	if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
 		return false;
 	}
 	*outShaderModule = shaderModule;

@@ -91,7 +91,7 @@ bool vkutil::load_image_from_memory(VulkanEngine& engine, void* pixels, int widt
 	VkFormat image_format = VK_FORMAT_R8G8B8A8_SRGB;
 
 	//allocate temporary buffer for holding texture data to upload
-	AllocatedBuffer stagingBuffer = engine.create_buffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = vkinit::create_buffer(engine._allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	//copy data to buffer
 	void* data;

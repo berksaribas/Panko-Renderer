@@ -11,6 +11,20 @@
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <gltf_scene.hpp>
+#include <vk_compute.h>
+#include "vk_mem_alloc.h"
+#include "VkBootstrap.h"
+
+#define VK_CHECK(x)                                                 \
+	do                                                              \
+	{                                                               \
+		VkResult err = x;                                           \
+		if (err)                                                    \
+		{                                                           \
+			printf("Detected Vulkan error: %s\n", err); \
+			abort();                                                \
+		}                                                           \
+	} while (0)
 
 struct DeletionQueue
 {
@@ -75,11 +89,6 @@ struct FrameData {
 	VkDescriptorSet shadowMapDataDescriptor;
 };
 
-struct UploadContext {
-	VkFence _uploadFence;
-	VkCommandPool _commandPool;
-};
-
 constexpr unsigned int FRAME_OVERLAP = 2;
 
 class VulkanEngine {
@@ -103,6 +112,9 @@ public:
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
+	VkQueue _computeQueue;
+	uint32_t _computeQueueFamily;
+
 	VkSurfaceKHR _surface;
 	VkSwapchainKHR _swapchain;
 	VkFormat _swachainImageFormat;
@@ -110,6 +122,8 @@ public:
 	std::vector<VkFramebuffer> _framebuffers;
 	std::vector<VkImage> _swapchainImages;
 	std::vector<VkImageView> _swapchainImageViews;
+
+	VulkanCompute vulkanCompute;
 
 	//the format for the depth image
 	VkFormat _depthFormat;
@@ -119,7 +133,8 @@ public:
 	VmaAllocator _allocator;
 	VkDescriptorPool _descriptorPool;
 
-	UploadContext _uploadContext;
+	CommandContext _uploadContext;
+
 	GltfScene gltf_scene;
 	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
@@ -189,11 +204,11 @@ public:
 
 	FrameData& get_current_frame();
 
-	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
-
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
+
+	void cpu_to_gpu(AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 private:
 
 	void init_vulkan();

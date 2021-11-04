@@ -5,7 +5,7 @@ VkCommandPoolCreateInfo vkinit::command_pool_create_info(uint32_t queueFamilyInd
 	VkCommandPoolCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	info.pNext = nullptr;
-
+	info.queueFamilyIndex = queueFamilyIndex;
 	info.flags = flags;
 	return info;
 }
@@ -346,4 +346,28 @@ VkWriteDescriptorSet vkinit::write_descriptor_image(VkDescriptorType type, VkDes
 	write.pImageInfo = imageInfo;
 
 	return write;
+}
+
+AllocatedBuffer vkinit::create_buffer(VmaAllocator allocator, size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags)
+{
+	//allocate vertex buffer
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.pNext = nullptr;
+
+	bufferInfo.size = allocSize;
+	bufferInfo.usage = usage;
+
+	VmaAllocationCreateInfo vmaallocInfo = {};
+	vmaallocInfo.usage = memoryUsage;
+	vmaallocInfo.flags = allocationFlags;
+	AllocatedBuffer newBuffer;
+
+	//allocate the buffer
+	vmaCreateBuffer(allocator, &bufferInfo, &vmaallocInfo,
+		&newBuffer._buffer,
+		&newBuffer._allocation,
+		nullptr);
+
+	return newBuffer;
 }

@@ -3,5 +3,5 @@
 #include <vk_engine.h>
 
 namespace vkutil {
-	bool load_shader_module(VulkanEngine& engine, const char* filePath, VkShaderModule* outShaderModule);
+	bool load_shader_module(VkDevice device, const char* filePath, VkShaderModule* outShaderModule);
 }

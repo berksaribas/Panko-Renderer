@@ -1,0 +1,34 @@
+#version 460
+layout (local_size_x = 256) in;
+
+layout(set = 0, binding = 0) uniform Config{
+    int probeCount;
+    float radius;
+} configData;
+
+layout(std140, set = 0, binding = 1) readonly buffer InputBuffer{
+    vec4 probePositions[];
+} sourceData;
+
+layout(set = 0, binding = 2) buffer OutputBuffer{
+    float weights[];
+} outputData;
+
+void main()
+{
+	uint gID = gl_GlobalInvocationID.x;
+
+    if(gID < configData.probeCount)
+    {
+        float weight = -1.0f;
+        for(int i = 0; i < configData.probeCount; i++) {
+            float distance = distance(sourceData.probePositions[i], sourceData.probePositions[gID]);
+            float t = distance / configData.radius;
+	        if (t >= 0 && t <= 1) {
+		        float tSquared = t * t;
+		        weight += (2 * t * tSquared) - (3 * tSquared) + 1;
+	        }
+        }
+        outputData.weights[gID] = weight;
+    }
+}

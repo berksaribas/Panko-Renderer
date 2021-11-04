@@ -1,4 +1,5 @@
 #version 460
+#extension GL_EXT_debug_printf : enable
 layout (location = 0) in vec3 vPosition;
 layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec2 vTexCoord;
@@ -41,12 +42,14 @@ layout(std140,set = 1, binding = 0) readonly buffer ObjectBuffer{
 
 void main()
 {
+	debugPrintfEXT("My float is %f", 3.1415f);
 	mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].model;
 	vec4 modelPos = modelMatrix * vec4(vPosition, 1.0f);
 	gl_Position = cameraData.viewproj * modelPos;
 	texCoord = vTexCoord;
 	material_id = objectBuffer.objects[gl_BaseInstance].material_id;
 
+	//outNormal = vec3(modelMatrix * vec4(vNormal, 1.0f));
 	outNormal = vNormal;
 	outLightVec = cameraData.lightPos.xyz;
 	outLightColor = cameraData.lightColor.xyz;
