@@ -7,6 +7,8 @@
 #include <fstream>
 #include <optick.h>
 #include <queue>
+#include <vk_initializers.h>
+#include <vk_utils.h>
 
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 
@@ -335,14 +337,12 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 {
 	OPTICK_EVENT();
 
-	std::vector<glm::vec4> probes;
-
 	for (int k = _padding; k < _dimZ - _padding; k++) {
 		for (int j = _padding; j < _dimY - _padding; j++) {
 			for (int i = _padding; i < _dimX - _padding; i++) {
 				int index = i + j * _dimX + k * _dimX * _dimY;
 				if (_voxelData[index] == 3) {
-					probes.push_back({
+					_probes.push_back({
 						_scene->m_dimensions.min.x + _voxelSize * (i - _padding) + _voxelSize / 2.f,
 						_scene->m_dimensions.min.y + _voxelSize * (j - _padding) + _voxelSize / 2.f,
 						_scene->m_dimensions.min.z + _voxelSize * (k - _padding) + _voxelSize / 2.f,
@@ -356,10 +356,10 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 	ComputeInstance instance = {};
 	engine.vulkanCompute.add_buffer(instance, UNIFORM, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(GPUProbeDensityUniformData));
-	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(glm::vec4) * probes.size());
-	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_GPU_TO_CPU, sizeof(float) * probes.size());
+	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(glm::vec4) * _probes.size());
+	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_GPU_TO_CPU, sizeof(float) * _probes.size());
 	engine.vulkanCompute.build(instance, engine._descriptorPool, "../../shaders/precalculate_probe_density_weights.comp.spv");
-	engine.cpu_to_gpu(instance.buffers[1], probes.data(), sizeof(glm::vec4) * probes.size());
+	vkutils::cpu_to_gpu(engine._allocator, instance.buffers[1], _probes.data(), sizeof(glm::vec4) * _probes.size());
 #endif
 
 	int targetProbeCount = _dimX - _padding * 2;
@@ -370,14 +370,14 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 
 	float currMaxWeight = -1;
 	int toRemoveIndex = -1;
-	while (probes.size() > targetProbeCount) {
+	while (_probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
-		GPUProbeDensityUniformData ub = { probes.size(), radius };
-		engine.cpu_to_gpu(instance.buffers[0], &ub, sizeof(GPUProbeDensityUniformData));
-		int groupcount = ((probes.size()) / 256) + 1;
+		GPUProbeDensityUniformData ub = { _probes.size(), radius };
+		vkutils::cpu_to_gpu(engine._allocator, instance.buffers[0], &ub, sizeof(GPUProbeDensityUniformData));
+		int groupcount = ((_probes.size()) / 256) + 1;
 		engine.vulkanCompute.compute(instance, groupcount, 1, 1);
 #endif
-		for (int i = 0; i < probes.size(); i++) {
+		for (int i = 0; i < _probes.size(); i++) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 			void* gpuWeightData;
 			vmaMapMemory(engine._allocator, instance.buffers[2]._allocation, &gpuWeightData);
@@ -397,20 +397,20 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 		glm::vec4* castedGpuProbeData;
 		vmaMapMemory(engine._allocator, instance.buffers[1]._allocation, &gpuProbeData);
 		castedGpuProbeData = (glm::vec4*)gpuProbeData;
-		castedGpuProbeData[toRemoveIndex] = castedGpuProbeData[probes.size() - 1];
+		castedGpuProbeData[toRemoveIndex] = castedGpuProbeData[_probes.size() - 1];
 		vmaUnmapMemory(engine._allocator, instance.buffers[1]._allocation);
 #endif
 
 		if (toRemoveIndex != -1) {
-			probes[toRemoveIndex] = probes[probes.size() - 1];
-			probes.pop_back();
+			_probes[toRemoveIndex] = _probes[_probes.size() - 1];
+			_probes.pop_back();
 			currMaxWeight = -1;
 			toRemoveIndex = -1;
 		}
-		printf("Size of probes %d\n", probes.size());
+		printf("Size of probes %d\n", _probes.size());
 	}
 
-	printf("Found this many probes: %d\n", probes.size());
+	printf("Found this many probes: %d\n", _probes.size());
 
 
 	if (true) {
@@ -466,10 +466,10 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 			}
 		}
 
-		for (int i = 0; i < probes.size(); i++) {
-			float voxelX = probes[i].x;
-			float voxelY = probes[i].y;
-			float voxelZ = probes[i].z;
+		for (int i = 0; i < _probes.size(); i++) {
+			float voxelX = _probes[i].x;
+			float voxelY = _probes[i].y;
+			float voxelZ = _probes[i].z;
 
 			//Vertices
 			file << "v " << voxelX << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
@@ -511,7 +511,7 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	engine.vulkanCompute.destroy_compute_instance(instance);
 #endif
 
-	return probes;
+	return _probes;
 }
 
 Receiver* Precalculation::generate_receivers(int objectResolution)
@@ -594,4 +594,186 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 	printf("Created receivers!\n");
 
 	return _receivers;
+}
+
+struct SceneDesc {
+	uint64_t vertexAddress;
+	uint64_t normalAddress;
+	uint64_t uvAddress;
+	uint64_t indexAddress;
+};
+
+struct MeshInfo {
+	uint32_t indexOffset;
+	uint32_t vertexOffset;
+	int materialIndex;
+	int _pad;
+};
+
+struct ProbeRaycastResult {
+	glm::vec4 worldPos;
+	int objectId;
+	float u, v;
+	int pad_;
+};
+
+//Maybe instead of doing this, do that:
+//Do this in runtime (cast rays from each probe)
+//Then trace another ray from the hit location to light (to realize shadowing)
+//This might help me enabling reflections as well (perhaps)?
+void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
+{
+	RaytracingPipeline rtPipeline = {};
+	VkDescriptorSetLayout rtDescriptorSetLayout;
+	VkDescriptorSet rtDescriptorSet;
+
+	//We need a buffer where we store raytracing results
+	//material_id, u, v
+
+	//Descriptors: Acceleration structure, storage buffer to save results, Materials
+	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding sceneDescBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 1);
+	VkDescriptorSetLayoutBinding meshInfoBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 2);
+	VkDescriptorSetLayoutBinding probeLocationsBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 3);
+	VkDescriptorSetLayoutBinding outBuffer = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 4);
+	VkDescriptorSetLayoutBinding bindings[5] = { tlasBind, sceneDescBind, meshInfoBind, probeLocationsBind, outBuffer };
+	VkDescriptorSetLayoutCreateInfo setinfo = {};
+	setinfo.flags = 0;
+	setinfo.pNext = nullptr;
+	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	setinfo.pBindings = bindings;
+	setinfo.bindingCount = 5;
+	vkCreateDescriptorSetLayout(engine._device, &setinfo, nullptr, &rtDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	allocateInfo.descriptorPool = engine._descriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &rtDescriptorSetLayout;
+	vkAllocateDescriptorSets(engine._device, &allocateInfo, &rtDescriptorSet);
+
+	std::vector<VkWriteDescriptorSet> writes;
+	AllocatedBuffer sceneDescBuffer, meshInfoBuffer, probeLocationsBuffer, outputBuffer;
+
+	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+	descASInfo.accelerationStructureCount = 1;
+	descASInfo.pAccelerationStructures = &engine.vulkanRaytracing.tlas.accel;
+	VkWriteDescriptorSet accelerationStructureWrite{};
+	accelerationStructureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	// The specialized acceleration structure descriptor has to be chained
+	accelerationStructureWrite.pNext = &descASInfo;
+	accelerationStructureWrite.dstSet = rtDescriptorSet;
+	accelerationStructureWrite.dstBinding = 0;
+	accelerationStructureWrite.descriptorCount = 1;
+	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	writes.emplace_back(accelerationStructureWrite);
+
+	VkDescriptorBufferInfo sceneDescBufferInfo;
+	size_t bufferSize = sizeof(SceneDesc);
+	sceneDescBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	sceneDescBufferInfo.buffer = sceneDescBuffer._buffer;
+	sceneDescBufferInfo.offset = 0;
+	sceneDescBufferInfo.range = bufferSize;
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, rtDescriptorSet, &sceneDescBufferInfo, 1));
+
+	
+	VkDescriptorBufferInfo meshInfobufferInfo;
+	bufferSize = sizeof(MeshInfo) * engine.gltf_scene.prim_meshes.size();
+	meshInfoBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	meshInfobufferInfo.buffer = meshInfoBuffer._buffer;
+	meshInfobufferInfo.offset = 0;
+	meshInfobufferInfo.range = bufferSize;
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &meshInfobufferInfo, 2));
+	
+	VkDescriptorBufferInfo probeLocationsBufferInfo;
+	bufferSize = sizeof(glm::vec4) * _probes.size();
+	probeLocationsBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	probeLocationsBufferInfo.buffer = probeLocationsBuffer._buffer;
+	probeLocationsBufferInfo.offset = 0;
+	probeLocationsBufferInfo.range = bufferSize;
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBufferInfo, 3));
+
+	VkDescriptorBufferInfo probeRaycastResultBufferInfo;
+	bufferSize = rays * _probes.size() * sizeof(ProbeRaycastResult);
+	outputBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
+	probeRaycastResultBufferInfo.buffer = outputBuffer._buffer;
+	probeRaycastResultBufferInfo.offset = 0;
+	probeRaycastResultBufferInfo.range = bufferSize;
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeRaycastResultBufferInfo, 4));
+
+	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+	
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+	std::vector<VkDescriptorSetLayout> rtDescSetLayouts = { rtDescriptorSetLayout };
+	pipelineLayoutCreateInfo.setLayoutCount = static_cast<uint32_t>(rtDescSetLayouts.size());
+	pipelineLayoutCreateInfo.pSetLayouts = rtDescSetLayouts.data();
+
+	engine.vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayoutCreateInfo,
+		"../../shaders/precalculate_probe_rt.rgen.spv",
+		"../../shaders/precalculate_probe_rt.rmiss.spv",
+		"../../shaders/precalculate_probe_rt.rchit.spv");
+
+	{
+		SceneDesc desc = {};
+		VkBufferDeviceAddressInfo info = { };
+		info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+
+		info.buffer = engine.vertex_buffer._buffer;
+		desc.vertexAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.normal_buffer._buffer;
+		desc.normalAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.tex_buffer._buffer;
+		desc.uvAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.index_buffer._buffer;
+		desc.indexAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		vkutils::cpu_to_gpu(engine._allocator, sceneDescBuffer, &desc, sizeof(SceneDesc));
+	}
+
+	{
+		vkutils::cpu_to_gpu(engine._allocator, probeLocationsBuffer, _probes.data(), sizeof(glm::vec4) * _probes.size());
+	}
+
+	{
+		void* data;
+		vmaMapMemory(engine._allocator, meshInfoBuffer._allocation, &data);
+		MeshInfo* dataMesh = (MeshInfo*) data;
+		for (int i = 0; i < engine.gltf_scene.prim_meshes.size(); i++) {
+			dataMesh[i].indexOffset = engine.gltf_scene.prim_meshes[i].first_idx;
+			dataMesh[i].vertexOffset = engine.gltf_scene.prim_meshes[i].vtx_offset;
+			dataMesh[i].materialIndex = engine.gltf_scene.prim_meshes[i].material_idx;
+		}
+		vmaUnmapMemory(engine._allocator, meshInfoBuffer._allocation);
+	}
+
+	{
+		VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, true);
+		std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
+		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
+		vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
+			(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
+		vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, rays, _probes.size(), 1);
+		vkutils::submit_and_free_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, cmdBuf, engine.vulkanRaytracing._queue, engine.vulkanRaytracing._raytracingContext._fence);
+	}
+
+	printf("\n\n\n\n\nDone with raytracing!\n\n\n\n\n");
+
+	for (int i = 0; i < rays; i++) {
+		void* data;
+		vmaMapMemory(engine._allocator, outputBuffer._allocation, &data);
+		//printf("Ray cast result: %d\n", ((ProbeRaycastResult*)data)[i].objectId);
+		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
+	}
+	
+	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
+
+	vmaDestroyBuffer(engine._allocator, sceneDescBuffer._buffer, sceneDescBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, meshInfoBuffer._buffer, meshInfoBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
 }

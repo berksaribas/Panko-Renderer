@@ -347,27 +347,3 @@ VkWriteDescriptorSet vkinit::write_descriptor_image(VkDescriptorType type, VkDes
 
 	return write;
 }
-
-AllocatedBuffer vkinit::create_buffer(VmaAllocator allocator, size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags)
-{
-	//allocate vertex buffer
-	VkBufferCreateInfo bufferInfo = {};
-	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferInfo.pNext = nullptr;
-
-	bufferInfo.size = allocSize;
-	bufferInfo.usage = usage;
-
-	VmaAllocationCreateInfo vmaallocInfo = {};
-	vmaallocInfo.usage = memoryUsage;
-	vmaallocInfo.flags = allocationFlags;
-	AllocatedBuffer newBuffer;
-
-	//allocate the buffer
-	vmaCreateBuffer(allocator, &bufferInfo, &vmaallocInfo,
-		&newBuffer._buffer,
-		&newBuffer._allocation,
-		nullptr);
-
-	return newBuffer;
-}

@@ -9,9 +9,7 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device, VkRenderPass pass) {
 	viewportState.pNext = nullptr;
 
 	viewportState.viewportCount = 1;
-	viewportState.pViewports = &_viewport;
 	viewportState.scissorCount = 1;
-	viewportState.pScissors = &_scissor;
 
 	//build the actual pipeline
 	//we now use all of the info structs we have been writing into into this one to create the pipeline
@@ -32,6 +30,12 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device, VkRenderPass pass) {
 	pipelineInfo.renderPass = pass;
 	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+	std::vector<VkDynamicState> dynamicStateEnables = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	VkPipelineDynamicStateCreateInfo dynamicStateCI = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+	dynamicStateCI.dynamicStateCount = dynamicStateEnables.size();
+	dynamicStateCI.pDynamicStates = dynamicStateEnables.data();
+	pipelineInfo.pDynamicState = &dynamicStateCI;
 
 	//it's easy to error out on create graphics pipeline, so we handle it a bit better than the common VK_CHECK case
 	VkPipeline newPipeline;

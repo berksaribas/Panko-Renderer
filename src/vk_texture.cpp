@@ -5,6 +5,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#include <vk_utils.h>
 
 void generate_mipmaps(VkCommandBuffer& cmd, VkImage image, int32_t width, int32_t height, uint32_t mipLevels) {
 	VkImageMemoryBarrier barrier{};
@@ -91,7 +92,7 @@ bool vkutil::load_image_from_memory(VulkanEngine& engine, void* pixels, int widt
 	VkFormat image_format = VK_FORMAT_R8G8B8A8_SRGB;
 
 	//allocate temporary buffer for holding texture data to upload
-	AllocatedBuffer stagingBuffer = vkinit::create_buffer(engine._allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engine._allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	//copy data to buffer
 	void* data;

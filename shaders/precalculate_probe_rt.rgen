@@ -1,0 +1,64 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_debug_printf : enable
+
+#include "common.glsl"
+
+layout(location = 0) rayPayloadEXT HitPayload payload;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(set = 0, binding = 1) uniform _SceneDesc { SceneDesc sceneDesc; };
+layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { MeshInfo meshInfos[]; };
+layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
+layout(set = 0, binding = 4) buffer _ProbeRaycastResult { ProbeRaycastResult results[]; };
+
+layout(buffer_reference, scalar) readonly buffer Vertices { vec3 v[]; };
+layout(buffer_reference, scalar) readonly buffer Indices { uint i[]; };
+layout(buffer_reference, scalar) readonly buffer Normals { vec3 n[]; };
+layout(buffer_reference, scalar) readonly buffer TexCoords { vec2 t[]; };
+
+const float PI  = 3.14159265358979323846264;
+const float SEED = PI;
+
+void main()
+{
+  vec4 origin = probeLocations[gl_LaunchIDEXT.y];
+
+  float fi = float(gl_LaunchIDEXT.x);
+  float theta = 2.0f * PI * goldNoise(vec2(fi * 0.3482f, fi * 2.18622f), SEED);
+  float phi = acos(1.0f - 2.0f * goldNoise(vec2(fi * 1.9013, fi * 0.94312), SEED));
+  float dirX = sin(phi) * cos(theta);
+  float dirY = sin(phi) * sin(theta);
+  float dirZ = cos(phi);
+  vec4 direction = vec4(dirX, dirY, dirZ, 0);
+
+  uint  rayFlags = gl_RayFlagsOpaqueEXT;
+  float tMin     = 0.001;
+  float tMax     = 10000.0;
+
+  traceRayEXT(topLevelAS,     // acceleration structure
+              rayFlags,       // rayFlags
+              0xFF,           // cullMask
+              0,              // sbtRecordOffset
+              0,              // sbtRecordStride
+              0,              // missIndex
+              origin.xyz,     // ray origin
+              tMin,           // ray min range
+              direction.xyz,  // ray direction
+              tMax,           // ray max range
+              0               // payload (location = 0)
+  );
+
+  //debugPrintfEXT("The origin is (probe: %d): %f , %f , %f \n and direction is: %f , %f , %f \n", gl_LaunchIDEXT.y, origin.x, origin.y, origin.z, direction.x, direction.y, direction.z);
+  //debugPrintfEXT("Result object id is: %d\n", payload.objectId);
+
+  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].worldPos = vec4(payload.pos, 1.0);
+  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].u = payload.uv.x;
+  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].v = payload.uv.y;
+  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].objectId = payload.objectId;
+}

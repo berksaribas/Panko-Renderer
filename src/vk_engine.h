@@ -14,17 +14,7 @@
 #include <vk_compute.h>
 #include "vk_mem_alloc.h"
 #include "VkBootstrap.h"
-
-#define VK_CHECK(x)                                                 \
-	do                                                              \
-	{                                                               \
-		VkResult err = x;                                           \
-		if (err)                                                    \
-		{                                                           \
-			printf("Detected Vulkan error: %s\n", err); \
-			abort();                                                \
-		}                                                           \
-	} while (0)
+#include <vk_raytracing.h>
 
 struct DeletionQueue
 {
@@ -102,7 +92,8 @@ public:
 	struct SDL_Window* _window{ nullptr };
 
 	VkPhysicalDeviceFeatures _gpuFeatures;
-	VkPhysicalDeviceProperties _gpuProperties;
+	VkPhysicalDeviceProperties2 _gpuProperties;
+	VkPhysicalDeviceRayTracingPipelinePropertiesKHR _gpuRaytracingProperties;
 
 	VkInstance _instance;
 	VkDebugUtilsMessengerEXT _debug_messenger;
@@ -124,6 +115,7 @@ public:
 	std::vector<VkImageView> _swapchainImageViews;
 
 	VulkanCompute vulkanCompute;
+	VulkanRaytracing vulkanRaytracing;
 
 	//the format for the depth image
 	VkFormat _depthFormat;
@@ -207,8 +199,6 @@ public:
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
-
-	void cpu_to_gpu(AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 private:
 
 	void init_vulkan();
@@ -234,4 +224,6 @@ private:
 	void init_scene();
 
 	void init_imgui();
+
+	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
 };

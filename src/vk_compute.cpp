@@ -3,6 +3,7 @@
 #include <vk_shader.h>
 #include <VkBootstrap.h>
 #include <vk_engine.h>
+#include <vk_utils.h>
 
 // TODO: This only supports storage and uniform buffers at the moment.
 // Potentially it will be able to write to textures as well
@@ -67,7 +68,7 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 		VkBufferUsageFlagBits bufferUsage = computeBufferUsageBits[computeInstance.bufferTypes[i]];
 		VkDescriptorType descriptorType = computeDescriptorTypes[computeInstance.bufferTypes[i]];
 		computeInstance.buffers.push_back(
-			vkinit::create_buffer(_allocator, size, bufferUsage, memoryUsage));
+			vkutils::create_buffer(_allocator, size, bufferUsage, memoryUsage));
 
 		VkDescriptorBufferInfo bufferInfo;
 		bufferInfo.buffer = computeInstance.buffers[i]._buffer;
@@ -100,27 +101,13 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 
 void VulkanCompute::compute(ComputeInstance computeInstance, int x, int y, int z)
 {
-	VkCommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(_computeContext._commandPool, 1);
-
-	VkCommandBuffer cmd;
-	VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &cmd));
-
-	VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+	VkCommandBuffer cmd = vkutils::create_command_buffer(_device, _computeContext._commandPool, true);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeInstance.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeInstance.pipelineLayout, 0, 1, &computeInstance.descriptorSet, 0, nullptr);
 	vkCmdDispatch(cmd, x, y, z);
 
-	VK_CHECK(vkEndCommandBuffer(cmd));
-
-	VkSubmitInfo submit = vkinit::submit_info(&cmd);
-	VK_CHECK(vkQueueSubmit(_computeQueue, 1, &submit, _computeContext._fence));
-
-	vkWaitForFences(_device, 1, &_computeContext._fence, true, 9999999999);
-	vkResetFences(_device, 1, &_computeContext._fence);
-
-	vkResetCommandPool(_device, _computeContext._commandPool, 0);
+	vkutils::submit_and_free_command_buffer(_device, _computeContext._commandPool, cmd, _computeQueue, _computeContext._fence);
 }
 
 void VulkanCompute::destroy_compute_instance(ComputeInstance& computeInstance)

@@ -22,7 +22,10 @@
 #include "imgui_impl_vulkan.h"
 #include <precalculation.h>
 #include <optick.h>
+#include <vk_utils.h>
+#include <vk_extensions.h>
 
+Precalculation precalculation;
 const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
@@ -64,6 +67,7 @@ void VulkanEngine::init()
 	init_pipelines();
 
 	vulkanCompute.init(_device, _allocator, _computeQueue, _computeQueueFamily);
+	vulkanRaytracing.init(_device, _gpuRaytracingProperties, _allocator, _computeQueue, _computeQueueFamily);
 
 	init_imgui();
 	init_scene();
@@ -195,9 +199,9 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	cpu_to_gpu(get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
+	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
-	cpu_to_gpu(get_current_frame().shadowMapDataBuffer, &_shadowMapData, sizeof(GPUShadowMapData));
+	vkutils::cpu_to_gpu(_allocator, get_current_frame().shadowMapDataBuffer, &_shadowMapData, sizeof(GPUShadowMapData));
 
 	void* objectData;
 	vmaMapMemory(_allocator, get_current_frame().objectBuffer._allocation, &objectData);
@@ -246,6 +250,8 @@ void VulkanEngine::draw()
 			rpInfo.pClearValues = clearValues;
 
 			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+	
+			cmd_viewport_scissor(cmd, _shadowMapExtent);
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowMapPipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowMapPipelineLayout, 0, 1, &get_current_frame().shadowMapDataDescriptor, 0, nullptr);
@@ -271,6 +277,9 @@ void VulkanEngine::draw()
 			rpInfo.pClearValues = clearValues;
 
 			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			cmd_viewport_scissor(cmd, _windowExtent);
+
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
@@ -279,6 +288,7 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
+
 			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
@@ -419,27 +429,47 @@ void VulkanEngine::init_vulkan()
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = VkPhysicalDeviceFeatures();
 	physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
+	physicalDeviceFeatures.shaderInt64 = true;
+
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR featureRt = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR featureAccel = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+	
+	features12.bufferDeviceAddress = true;
+	features12.pNext = &featureRt;
+	featureRt.rayTracingPipeline = true;
+	featureRt.pNext = &featureAccel;
+	featureAccel.accelerationStructure = true;
 
 	//use vkbootstrap to select a gpu. 
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
-	vkb::PhysicalDevice physicalDevice = selector
+	auto physicalDeviceSelectionResult = selector
 		.set_minimum_version(1, 2)
 		.set_surface(_surface)
 		.set_required_features(physicalDeviceFeatures)
-		.add_required_extension("VK_KHR_shader_non_semantic_info")
-		.select()
-		.value();
+		.add_required_extension(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME)
+		.add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+		.add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
+		.add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+		.add_required_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
+		.select();
+	
+	//printf(physicalDeviceSelectionResult.error().message().c_str());
+
+	auto physicalDevice = physicalDeviceSelectionResult.value();
 
 	//create the final vulkan device
-
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
-
+	deviceBuilder.add_pNext(&features12);
 	vkb::Device vkbDevice = deviceBuilder.build().value();
 
 	// Get the VkDevice handle used in the rest of a vulkan application
 	_device = vkbDevice.device;
 	_chosenGPU = physicalDevice.physical_device;
+
+	//Get extension pointers
+	load_VK_EXTENSIONS(_instance, vkGetInstanceProcAddr, _device, vkGetDeviceProcAddr);
 
 	// use vkbootstrap to get a Graphics queue
 	_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
@@ -452,9 +482,16 @@ void VulkanEngine::init_vulkan()
 	allocatorInfo.physicalDevice = _chosenGPU;
 	allocatorInfo.device = _device;
 	allocatorInfo.instance = _instance;
+	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 	vmaCreateAllocator(&allocatorInfo, &_allocator);
 
-	vkGetPhysicalDeviceProperties(_chosenGPU, &_gpuProperties);
+	_gpuRaytracingProperties = {};
+	_gpuProperties = {};
+
+	_gpuRaytracingProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+	_gpuProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+	_gpuProperties.pNext = &_gpuRaytracingProperties;
+	vkGetPhysicalDeviceProperties2(_chosenGPU, &_gpuProperties);
 	vkGetPhysicalDeviceFeatures(_chosenGPU, &_gpuFeatures);
 }
 
@@ -853,14 +890,14 @@ void VulkanEngine::init_descriptors()
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_objectSetLayout);
 
 	//binding for texture data
-	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
 	textureBind.descriptorCount = MAX_TEXTURES;
 	setinfo.pBindings = &textureBind;
 	setinfo.bindingCount = 1;
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_textureSetLayout);
 
 	//binding for materials
-	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
 	setinfo.pBindings = &materialBind;
 	setinfo.bindingCount = 1;
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_materialSetLayout);
@@ -880,9 +917,9 @@ void VulkanEngine::init_descriptors()
 	for (int i = 0; i < FRAME_OVERLAP; i++)
 	{
 		const int MAX_OBJECTS = 10000;
-		_frames[i].objectBuffer = vkinit::create_buffer(_allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		_frames[i].cameraBuffer = vkinit::create_buffer(_allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		_frames[i].shadowMapDataBuffer = vkinit::create_buffer(_allocator, sizeof(GPUShadowMapData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].objectBuffer = vkutils::create_buffer(_allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].cameraBuffer = vkutils::create_buffer(_allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		_frames[i].shadowMapDataBuffer = vkutils::create_buffer(_allocator, sizeof(GPUShadowMapData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	
 		VkDescriptorSetAllocateInfo allocInfo = {};
 		allocInfo.pNext = nullptr;
@@ -1015,17 +1052,6 @@ void VulkanEngine::init_pipelines() {
 	//we are just going to draw triangle list
 	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
-	//build viewport and scissor from the swapchain extents
-	pipelineBuilder._viewport.x = 0.0f;
-	pipelineBuilder._viewport.y = 0.0f;
-	pipelineBuilder._viewport.width = (float)_windowExtent.width;
-	pipelineBuilder._viewport.height = (float)_windowExtent.height;
-	pipelineBuilder._viewport.minDepth = 0.0f;
-	pipelineBuilder._viewport.maxDepth = 1.0f;
-
-	pipelineBuilder._scissor.offset = { 0, 0 };
-	pipelineBuilder._scissor.extent = _windowExtent;
-
 	//configure the rasterizer to draw filled triangles
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
 
@@ -1069,17 +1095,6 @@ void VulkanEngine::init_pipelines() {
 	pipelineBuilder._shaderStages.push_back(
 		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, shadowMapFragShader));
 	//pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(0, nullptr);
-
-	//build viewport and scissor from the swapchain extents
-	pipelineBuilder._viewport.x = 0.0f;
-	pipelineBuilder._viewport.y = 0.0f;
-	pipelineBuilder._viewport.width = (float)_shadowMapExtent.width;
-	pipelineBuilder._viewport.height = (float)_shadowMapExtent.height;
-	pipelineBuilder._viewport.minDepth = 0.0f;
-	pipelineBuilder._viewport.maxDepth = 1.0f;
-
-	pipelineBuilder._scissor.offset = { 0, 0 };
-	pipelineBuilder._scissor.extent = _shadowMapExtent;
 
 	//pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
 	pipelineBuilder._pipelineLayout = _shadowMapPipelineLayout;
@@ -1141,16 +1156,16 @@ void VulkanEngine::init_scene()
 	}
 
 	vertex_buffer = create_upload_buffer(gltf_scene.positions.data(), gltf_scene.positions.size() * sizeof(glm::vec3),
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	index_buffer = create_upload_buffer(gltf_scene.indices.data(), gltf_scene.indices.size() * sizeof(uint32_t),
-		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	normal_buffer = create_upload_buffer(gltf_scene.normals.data(), gltf_scene.normals.size() * sizeof(glm::vec3),
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	tex_buffer = create_upload_buffer(gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);	
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	material_buffer = create_upload_buffer(materials.data(), materials.size() * sizeof(BasicMaterial),
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -1183,7 +1198,7 @@ void VulkanEngine::init_scene()
 
 	samplerInfo.anisotropyEnable = _gpuFeatures.samplerAnisotropy;
 	samplerInfo.maxAnisotropy = _gpuFeatures.samplerAnisotropy
-		? _gpuProperties.limits.maxSamplerAnisotropy
+		? _gpuProperties.properties.limits.maxSamplerAnisotropy
 		: 1.0f;
 
 	VkSampler blockySampler;
@@ -1247,11 +1262,15 @@ void VulkanEngine::init_scene()
 		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
 	}
 
-	Precalculation precalculation;
+	vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, vertex_buffer, index_buffer);
+	vulkanRaytracing.build_blas(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+	vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR, false);
+	
 	int dimX, dimY, dimZ;
 	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
 	Receiver* receivers = precalculation.generate_receivers(128);
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
+	precalculation.probe_raycast(*this, 128);
 }
 
 void VulkanEngine::init_imgui()
@@ -1325,15 +1344,31 @@ void VulkanEngine::init_imgui()
 		});
 }
 
+void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
+{
+	VkViewport viewport;
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float)extent.width;
+	viewport.height = (float)extent.height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	VkRect2D scissor;
+	scissor.offset = { 0, 0 };
+	scissor.extent = extent;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+}
+
 AllocatedBuffer VulkanEngine::create_upload_buffer(void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
 {
 	OPTICK_EVENT();
 
-	AllocatedBuffer stagingBuffer = vkinit::create_buffer(_allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = vkutils::create_buffer(_allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	
-	cpu_to_gpu(stagingBuffer, buffer_data, size);
+	vkutils::cpu_to_gpu(_allocator, stagingBuffer, buffer_data, size);
 
-	AllocatedBuffer new_buffer = vkinit::create_buffer(_allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
+	AllocatedBuffer new_buffer = vkutils::create_buffer(_allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
 
 	immediate_submit([=](VkCommandBuffer cmd) {
 		VkBufferCopy copy;
@@ -1379,7 +1414,7 @@ size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
 	OPTICK_EVENT();
 
 	// Calculate required alignment based on minimum device offset alignment
-	size_t minUboAlignment = _gpuProperties.limits.minUniformBufferOffsetAlignment;
+	size_t minUboAlignment = _gpuProperties.properties.limits.minUniformBufferOffsetAlignment;
 	size_t alignedSize = originalSize;
 	if (minUboAlignment > 0) {
 		alignedSize = (alignedSize + minUboAlignment - 1) & ~(minUboAlignment - 1);
@@ -1419,12 +1454,4 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 	//clear the command pool. This will free the command buffer too
 	vkResetCommandPool(_device, _uploadContext._commandPool, 0);
-}
-
-void VulkanEngine::cpu_to_gpu(AllocatedBuffer& allocatedBuffer, void* data, size_t size)
-{
-	void* gpuData;
-	vmaMapMemory(_allocator, allocatedBuffer._allocation, &gpuData);
-	memcpy(gpuData, data, size);
-	vmaUnmapMemory(_allocator, allocatedBuffer._allocation);
 }
