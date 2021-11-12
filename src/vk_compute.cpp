@@ -44,20 +44,11 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 		assert("Compute Shader Loading Issue");
 	}
 
-	VkDescriptorSetLayoutCreateInfo setinfo = {};
-	setinfo.flags = 0;
-	setinfo.pNext = nullptr;
-	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	setinfo.pBindings = computeInstance.bindings.data();
-	setinfo.bindingCount = computeInstance.bindings.size();
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(computeInstance.bindings.data(), computeInstance.bindings.size());
 	VK_CHECK(vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &computeInstance.descriptorSetLayout));
 
-	VkDescriptorSetAllocateInfo allocInfo = {};
-	allocInfo.pNext = nullptr;
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &computeInstance.descriptorSetLayout;
+	VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(descriptorPool, &computeInstance.descriptorSetLayout, 1);
+
 	vkAllocateDescriptorSets(_device, &allocInfo, &computeInstance.descriptorSet);
 
 	std::vector<VkWriteDescriptorSet> descriptorSets;
@@ -70,20 +61,13 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 		computeInstance.buffers.push_back(
 			vkutils::create_buffer(_allocator, size, bufferUsage, memoryUsage));
 
-		VkDescriptorBufferInfo bufferInfo;
-		bufferInfo.buffer = computeInstance.buffers[i]._buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = size;
-
-		VkWriteDescriptorSet descriptorSet = vkinit::write_descriptor_buffer(descriptorType, computeInstance.descriptorSet, &bufferInfo, i);
+		VkWriteDescriptorSet descriptorSet = vkinit::write_descriptor_buffer(descriptorType, computeInstance.descriptorSet, &computeInstance.buffers[i]._descriptorBufferInfo, i);
 		vkUpdateDescriptorSets(_device, 1, &descriptorSet, 0, nullptr);
 	}
 
 
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
 	VkDescriptorSetLayout setLayouts[] = { computeInstance.descriptorSetLayout };
-	pipeline_layout_info.setLayoutCount = 1;
-	pipeline_layout_info.pSetLayouts = setLayouts;
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
 	VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &computeInstance.pipelineLayout));
 
 	VkPipelineShaderStageCreateInfo stage =

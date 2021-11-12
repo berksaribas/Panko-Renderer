@@ -596,33 +596,14 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 	return _receivers;
 }
 
-struct SceneDesc {
-	uint64_t vertexAddress;
-	uint64_t normalAddress;
-	uint64_t uvAddress;
-	uint64_t indexAddress;
-};
-
-struct MeshInfo {
-	uint32_t indexOffset;
-	uint32_t vertexOffset;
-	int materialIndex;
-	int _pad;
-};
-
-struct ProbeRaycastResult {
-	glm::vec4 worldPos;
-	int objectId;
-	float u, v;
-	int pad_;
-};
-
 //Maybe instead of doing this, do that:
 //Do this in runtime (cast rays from each probe)
 //Then trace another ray from the hit location to light (to realize shadowing)
 //This might help me enabling reflections as well (perhaps)?
 void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 {
+	_raysPerProbe = rays;
+
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
 	VkDescriptorSet rtDescriptorSet;
@@ -640,22 +621,15 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 3);
 	VkDescriptorSetLayoutBinding outBuffer = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 4);
 	VkDescriptorSetLayoutBinding bindings[5] = { tlasBind, sceneDescBind, meshInfoBind, probeLocationsBind, outBuffer };
-	VkDescriptorSetLayoutCreateInfo setinfo = {};
-	setinfo.flags = 0;
-	setinfo.pNext = nullptr;
-	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	setinfo.pBindings = bindings;
-	setinfo.bindingCount = 5;
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 5);
 	vkCreateDescriptorSetLayout(engine._device, &setinfo, nullptr, &rtDescriptorSetLayout);
 
-	VkDescriptorSetAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-	allocateInfo.descriptorPool = engine._descriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &rtDescriptorSetLayout;
+	VkDescriptorSetAllocateInfo allocateInfo =
+		vkinit::descriptorset_allocate_info(engine._descriptorPool, &rtDescriptorSetLayout, 1);
+
 	vkAllocateDescriptorSets(engine._device, &allocateInfo, &rtDescriptorSet);
 
 	std::vector<VkWriteDescriptorSet> writes;
-	AllocatedBuffer sceneDescBuffer, meshInfoBuffer, probeLocationsBuffer, outputBuffer;
 
 	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
 	descASInfo.accelerationStructureCount = 1;
@@ -670,45 +644,21 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	writes.emplace_back(accelerationStructureWrite);
 
-	VkDescriptorBufferInfo sceneDescBufferInfo;
-	size_t bufferSize = sizeof(SceneDesc);
-	sceneDescBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	sceneDescBufferInfo.buffer = sceneDescBuffer._buffer;
-	sceneDescBufferInfo.offset = 0;
-	sceneDescBufferInfo.range = bufferSize;
-	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, rtDescriptorSet, &sceneDescBufferInfo, 1));
+	AllocatedBuffer sceneDescBuffer = vkutils::create_buffer(engine._allocator, sizeof(SceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, rtDescriptorSet, &sceneDescBuffer._descriptorBufferInfo, 1));
 
+	AllocatedBuffer meshInfoBuffer = vkutils::create_buffer(engine._allocator, sizeof(MeshInfo) * engine.gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &meshInfoBuffer._descriptorBufferInfo, 2));
 	
-	VkDescriptorBufferInfo meshInfobufferInfo;
-	bufferSize = sizeof(MeshInfo) * engine.gltf_scene.prim_meshes.size();
-	meshInfoBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	meshInfobufferInfo.buffer = meshInfoBuffer._buffer;
-	meshInfobufferInfo.offset = 0;
-	meshInfobufferInfo.range = bufferSize;
-	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &meshInfobufferInfo, 2));
-	
-	VkDescriptorBufferInfo probeLocationsBufferInfo;
-	bufferSize = sizeof(glm::vec4) * _probes.size();
-	probeLocationsBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	probeLocationsBufferInfo.buffer = probeLocationsBuffer._buffer;
-	probeLocationsBufferInfo.offset = 0;
-	probeLocationsBufferInfo.range = bufferSize;
-	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBufferInfo, 3));
+	AllocatedBuffer probeLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(glm::vec4) * _probes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBuffer._descriptorBufferInfo, 3));
 
-	VkDescriptorBufferInfo probeRaycastResultBufferInfo;
-	bufferSize = rays * _probes.size() * sizeof(ProbeRaycastResult);
-	outputBuffer = vkutils::create_buffer(engine._allocator, bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
-	probeRaycastResultBufferInfo.buffer = outputBuffer._buffer;
-	probeRaycastResultBufferInfo.offset = 0;
-	probeRaycastResultBufferInfo.range = bufferSize;
-	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeRaycastResultBufferInfo, 4));
+	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, rays * _probes.size() * sizeof(ProbeRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 4));
 
 	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 	
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	std::vector<VkDescriptorSetLayout> rtDescSetLayouts = { rtDescriptorSetLayout };
-	pipelineLayoutCreateInfo.setLayoutCount = static_cast<uint32_t>(rtDescSetLayouts.size());
-	pipelineLayoutCreateInfo.pSetLayouts = rtDescSetLayouts.data();
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vkinit::pipeline_layout_create_info(&rtDescriptorSetLayout, 1);
 
 	engine.vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayoutCreateInfo,
 		"../../shaders/precalculate_probe_rt.rgen.spv",
@@ -763,12 +713,12 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 
 	printf("\n\n\n\n\nDone with raytracing!\n\n\n\n\n");
 
-	for (int i = 0; i < rays; i++) {
-		void* data;
-		vmaMapMemory(engine._allocator, outputBuffer._allocation, &data);
-		//printf("Ray cast result: %d\n", ((ProbeRaycastResult*)data)[i].objectId);
-		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
-	}
+	void* mappedOutputData;
+	vmaMapMemory(engine._allocator, outputBuffer._allocation, &mappedOutputData);
+	//printf("Ray cast result: %d\n", ((ProbeRaycastResult*)data)[i].objectId);
+	_probeRaycastResult = (ProbeRaycastResult*) malloc(rays * _probes.size() * sizeof(ProbeRaycastResult));
+	memcpy(_probeRaycastResult, mappedOutputData, rays* _probes.size() * sizeof(ProbeRaycastResult));
+	vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 	
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 

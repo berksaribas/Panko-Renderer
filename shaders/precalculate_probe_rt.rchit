@@ -34,17 +34,21 @@ void main()
 
     uint indexOffset = meshInfo.indexOffset + 3 * gl_PrimitiveID;
   
-    const vec3 v0 = vertices.v[indexOffset + 0 + meshInfo.vertexOffset];
-    const vec3 v1 = vertices.v[indexOffset + 1 + meshInfo.vertexOffset];
-    const vec3 v2 = vertices.v[indexOffset + 2 + meshInfo.vertexOffset];
+    const uint ind0 = indices.i[indexOffset + 0];
+    const uint ind1 = indices.i[indexOffset + 1];
+    const uint ind2 = indices.i[indexOffset + 2];
 
-    const vec3 n0 = normals.n[indexOffset + 0 + meshInfo.vertexOffset];
-    const vec3 n1 = normals.n[indexOffset + 1 + meshInfo.vertexOffset];
-    const vec3 n2 = normals.n[indexOffset + 2 + meshInfo.vertexOffset];
+    const vec3 v0 = vertices.v[ind0 + meshInfo.vertexOffset];
+    const vec3 v1 = vertices.v[ind1 + meshInfo.vertexOffset];
+    const vec3 v2 = vertices.v[ind2 + meshInfo.vertexOffset];
 
-    const vec2 uv0 = texCoords.t[indexOffset + 0 + meshInfo.vertexOffset];
-    const vec2 uv1 = texCoords.t[indexOffset + 1 + meshInfo.vertexOffset];
-    const vec2 uv2 = texCoords.t[indexOffset + 2 + meshInfo.vertexOffset];
+    const vec3 n0 = normals.n[ind0 + meshInfo.vertexOffset];
+    const vec3 n1 = normals.n[ind1 + meshInfo.vertexOffset];
+    const vec3 n2 = normals.n[ind2 + meshInfo.vertexOffset];
+
+    const vec2 uv0 = texCoords.t[ind0 + meshInfo.vertexOffset];
+    const vec2 uv1 = texCoords.t[ind1 + meshInfo.vertexOffset];
+    const vec2 uv2 = texCoords.t[ind2 + meshInfo.vertexOffset];
 
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
@@ -60,5 +64,5 @@ void main()
     payload.uv = uv;
     payload.objectId = gl_InstanceID;
 
-    debugPrintfEXT("->RAY CLOSEST HIT! The object id is: %d -- the coordinates are %f, %f, %f\n", gl_InstanceID, worldPos.x, worldPos.y, worldPos.z);
+    //debugPrintfEXT("->RAY CLOSEST HIT! The object id is: %d -- the coordinates are %f, %f, %f\n", gl_InstanceID, worldPos.x, worldPos.y, worldPos.z);
 }

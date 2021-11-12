@@ -10,6 +10,7 @@
 struct AllocatedBuffer {
     VkBuffer _buffer;
     VmaAllocation _allocation;
+    VkDescriptorBufferInfo _descriptorBufferInfo;
 };
 
 struct AllocatedImage {

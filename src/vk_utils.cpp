@@ -56,6 +56,11 @@ AllocatedBuffer vkutils::create_buffer(VmaAllocator allocator, size_t allocSize,
 		&newBuffer._allocation,
 		nullptr);
 
+	
+	newBuffer._descriptorBufferInfo.buffer = newBuffer._buffer;
+	newBuffer._descriptorBufferInfo.offset = 0;
+	newBuffer._descriptorBufferInfo.range = allocSize;
+
 	return newBuffer;
 }
 

@@ -217,15 +217,15 @@ VkPipelineColorBlendStateCreateInfo vkinit::color_blend_state_create_info(int at
 	return colorBlending;
 }
 
-VkPipelineLayoutCreateInfo vkinit::pipeline_layout_create_info() {
+VkPipelineLayoutCreateInfo vkinit::pipeline_layout_create_info(VkDescriptorSetLayout* layouts, int numLayouts) {
 	VkPipelineLayoutCreateInfo info{};
 	info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	info.pNext = nullptr;
 
 	//empty defaults
 	info.flags = 0;
-	info.setLayoutCount = 0;
-	info.pSetLayouts = nullptr;
+	info.setLayoutCount = numLayouts;
+	info.pSetLayouts = layouts;
 	info.pushConstantRangeCount = 0;
 	info.pPushConstantRanges = nullptr;
 	return info;
@@ -285,6 +285,31 @@ VkPipelineDepthStencilStateCreateInfo vkinit::depth_stencil_create_info(bool bDe
 	info.stencilTestEnable = VK_FALSE;
 
 	return info;
+}
+
+VkDescriptorSetLayoutCreateInfo vkinit::descriptorset_layout_create_info(VkDescriptorSetLayoutBinding* bindings, int numBindings)
+{
+	VkDescriptorSetLayoutCreateInfo setinfo = {};
+	setinfo.flags = 0;
+	setinfo.pNext = nullptr;
+	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	setinfo.bindingCount = 1;
+	setinfo.pBindings = bindings;
+	setinfo.bindingCount = numBindings;
+
+	return setinfo;
+}
+
+VkDescriptorSetAllocateInfo vkinit::descriptorset_allocate_info(VkDescriptorPool descriptorPool, VkDescriptorSetLayout* layouts, int numLayouts)
+{
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.pNext = nullptr;
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = numLayouts;
+	allocInfo.pSetLayouts = layouts;
+
+	return allocInfo;
 }
 
 VkDescriptorSetLayoutBinding vkinit::descriptorset_layout_binding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding)

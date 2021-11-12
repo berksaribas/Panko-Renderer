@@ -24,7 +24,9 @@
 #include <optick.h>
 #include <vk_utils.h>
 #include <vk_extensions.h>
+#include <vk_debug_renderer.h>
 
+VulkanDebugRenderer vkDebugRenderer;
 Precalculation precalculation;
 const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
@@ -68,6 +70,7 @@ void VulkanEngine::init()
 
 	vulkanCompute.init(_device, _allocator, _computeQueue, _computeQueueFamily);
 	vulkanRaytracing.init(_device, _gpuRaytracingProperties, _allocator, _computeQueue, _computeQueueFamily);
+	vkDebugRenderer.init(_device, _allocator, _renderPass, _globalSetLayout);
 
 	init_imgui();
 	init_scene();
@@ -199,6 +202,20 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
+	for (int i = 0; i < precalculation._probes.size(); i++) {
+		vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, {1, 0, 0});
+		for (int j = 0; j < 16; j++) {
+			auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
+			if (ray.objectId != -1) {
+				vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
+					glm::vec3(ray.worldPos) * sceneScale,
+					{ 0, 0, 1 });
+
+				vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
+			}
+		}
+	}
+
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().shadowMapDataBuffer, &_shadowMapData, sizeof(GPUShadowMapData));
@@ -288,6 +305,8 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
+
+			vkDebugRenderer.render(cmd, get_current_frame().globalDescriptor);
 
 			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 			//finalize the render pass
@@ -677,16 +696,16 @@ void VulkanEngine::init_shadowmap_renderpass()
 	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[0].dstSubpass = 0;
 	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 	dependencies[1].srcSubpass = 0;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
@@ -865,54 +884,45 @@ void VulkanEngine::init_descriptors()
 	pool_info.maxSets = 1000;
 	pool_info.poolSizeCount = (uint32_t)sizes.size();
 	pool_info.pPoolSizes = sizes.data();
-
 	vkCreateDescriptorPool(_device, &pool_info, nullptr, &_descriptorPool);
 
-	//Main set info
 	VkDescriptorSetLayoutCreateInfo setinfo = {};
-	setinfo.flags = 0;
-	setinfo.pNext = nullptr;
-	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	setinfo.bindingCount = 1;
 
-	//binding for camera data + shadow map data
-	VkDescriptorSetLayoutBinding cameraBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-	VkDescriptorSetLayoutBinding shadowMapDataDefaultBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1);
-	VkDescriptorSetLayoutBinding bindings[2] = { cameraBind, shadowMapDataDefaultBind };
-	setinfo.pBindings = bindings;
-	setinfo.bindingCount = 2;
+	//binding set for camera data + shadow map data
+	VkDescriptorSetLayoutBinding bindings[2] = { 
+		// camera
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
+		// shadow map data
+		 vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1)
+	};
+	setinfo = vkinit::descriptorset_layout_create_info(bindings, 2);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_globalSetLayout);
 
-	//binding for object data
+	//binding set for object data
 	VkDescriptorSetLayoutBinding objectBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-	setinfo.pBindings = &objectBind;
-	setinfo.bindingCount = 1;
+	setinfo = vkinit::descriptorset_layout_create_info(&objectBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_objectSetLayout);
 
-	//binding for texture data
+	//binding set for texture data
 	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
 	textureBind.descriptorCount = MAX_TEXTURES;
-	setinfo.pBindings = &textureBind;
-	setinfo.bindingCount = 1;
+	setinfo = vkinit::descriptorset_layout_create_info(&textureBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_textureSetLayout);
 
-	//binding for materials
+	//binding set for materials
 	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-	setinfo.pBindings = &materialBind;
-	setinfo.bindingCount = 1;
+	setinfo = vkinit::descriptorset_layout_create_info(&materialBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_materialSetLayout);
 
-	//binding for shadow map data
+	//binding set for shadow map data
 	VkDescriptorSetLayoutBinding shadowMapDataBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-	setinfo.pBindings = &shadowMapDataBind;
-	setinfo.bindingCount = 1;
+	setinfo = vkinit::descriptorset_layout_create_info(&shadowMapDataBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_shadowMapDataSetLayout);
 
+	//binding set for shadow map texture
 	VkDescriptorSetLayoutBinding shadowMapTextureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-	setinfo.pBindings = &shadowMapTextureBind;
-	setinfo.bindingCount = 1;
+	setinfo = vkinit::descriptorset_layout_create_info(&shadowMapTextureBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_shadowMapTextureSetLayout);
-
 
 	for (int i = 0; i < FRAME_OVERLAP; i++)
 	{
@@ -922,40 +932,21 @@ void VulkanEngine::init_descriptors()
 		_frames[i].shadowMapDataBuffer = vkutils::create_buffer(_allocator, sizeof(GPUShadowMapData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	
 		VkDescriptorSetAllocateInfo allocInfo = {};
-		allocInfo.pNext = nullptr;
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = _descriptorPool;
-		allocInfo.descriptorSetCount = 1;
 
-		allocInfo.pSetLayouts = &_globalSetLayout;
+		allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_globalSetLayout, 1);
 		vkAllocateDescriptorSets(_device, &allocInfo, &_frames[i].globalDescriptor);
 
-		allocInfo.pSetLayouts = &_objectSetLayout;
+		allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_objectSetLayout, 1);
 		vkAllocateDescriptorSets(_device, &allocInfo, &_frames[i].objectDescriptor);
-
-		allocInfo.pSetLayouts = &_shadowMapDataSetLayout;
+		
+		allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_shadowMapDataSetLayout, 1);
 		vkAllocateDescriptorSets(_device, &allocInfo, &_frames[i].shadowMapDataDescriptor);
 
-		VkDescriptorBufferInfo cameraBufferInfo;
-		cameraBufferInfo.buffer = _frames[i].cameraBuffer._buffer;
-		cameraBufferInfo.offset = 0;
-		cameraBufferInfo.range = sizeof(GPUCameraData);
-
-		VkDescriptorBufferInfo objectBufferInfo;
-		objectBufferInfo.buffer = _frames[i].objectBuffer._buffer;
-		objectBufferInfo.offset = 0;
-		objectBufferInfo.range = sizeof(GPUObjectData) * MAX_OBJECTS;
-
-		VkDescriptorBufferInfo shadowMapDataBufferInfo;
-		shadowMapDataBufferInfo.buffer = _frames[i].shadowMapDataBuffer._buffer;
-		shadowMapDataBufferInfo.offset = 0;
-		shadowMapDataBufferInfo.range = sizeof(GPUShadowMapData);
-
-		VkWriteDescriptorSet cameraWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].globalDescriptor, &cameraBufferInfo, 0);
-		VkWriteDescriptorSet shadowMapDataDefaultWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].globalDescriptor, &shadowMapDataBufferInfo, 1);
+		VkWriteDescriptorSet cameraWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].globalDescriptor, &_frames[i].cameraBuffer._descriptorBufferInfo, 0);
+		VkWriteDescriptorSet shadowMapDataDefaultWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].globalDescriptor, &_frames[i].shadowMapDataBuffer._descriptorBufferInfo, 1);
 		
-		VkWriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _frames[i].objectDescriptor, &objectBufferInfo, 0);
-		VkWriteDescriptorSet shadowMapDataWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].shadowMapDataDescriptor, &shadowMapDataBufferInfo, 0);
+		VkWriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _frames[i].objectDescriptor, &_frames[i].objectBuffer._descriptorBufferInfo, 0);
+		VkWriteDescriptorSet shadowMapDataWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i].shadowMapDataDescriptor, &_frames[i].shadowMapDataBuffer._descriptorBufferInfo, 0);
 
 		VkWriteDescriptorSet setWrites[] = { cameraWrite, shadowMapDataDefaultWrite, objectWrite, shadowMapDataWrite };
 
@@ -969,12 +960,7 @@ void VulkanEngine::init_descriptors()
 		imageBufferInfo.imageView = _shadowMapColorImageView;
 		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		VkDescriptorSetAllocateInfo allocInfo = {};
-		allocInfo.pNext = nullptr;
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = _descriptorPool;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.pSetLayouts = &_shadowMapTextureSetLayout;
+		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_shadowMapTextureSetLayout, 1);
 
 		vkAllocateDescriptorSets(_device, &allocInfo, &shadowMapTextureDescriptor);
 
@@ -1026,19 +1012,15 @@ void VulkanEngine::init_pipelines() {
 
 	//MESH PIPELINE LAYOUT INFO
 	{
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
 		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _shadowMapTextureSetLayout };
-		pipeline_layout_info.setLayoutCount = 5;
-		pipeline_layout_info.pSetLayouts = setLayouts;
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
 		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_meshPipelineLayout));
 	}
 
 	//SHADOWMAP PIPELINE LAYOUT INFO
 	{
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
 		VkDescriptorSetLayout setLayouts[] = { _shadowMapDataSetLayout, _objectSetLayout };
-		pipeline_layout_info.setLayoutCount = 2;
-		pipeline_layout_info.pSetLayouts = setLayouts;
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
 		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_shadowMapPipelineLayout));
 	}
 
@@ -1105,6 +1087,7 @@ void VulkanEngine::init_pipelines() {
 	vkDestroyShaderModule(_device, meshVertShader, nullptr);
 	vkDestroyShaderModule(_device, texturedMeshShader, nullptr);
 	vkDestroyShaderModule(_device, shadowMapVertShader, nullptr);
+	vkDestroyShaderModule(_device, shadowMapFragShader, nullptr);
 
 	_mainDeletionQueue.push_function([=]() {
 		vkDestroyPipeline(_device, _meshPipeline, nullptr);
@@ -1172,21 +1155,12 @@ void VulkanEngine::init_scene()
 
 	// MATERIAL DESCRIPTOR
 	{
-		VkDescriptorSetAllocateInfo materialSetAlloc = {};
-		materialSetAlloc.pNext = nullptr;
-		materialSetAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		materialSetAlloc.descriptorPool = _descriptorPool;
-		materialSetAlloc.descriptorSetCount = 1;
-		materialSetAlloc.pSetLayouts = &_materialSetLayout;
+		VkDescriptorSetAllocateInfo materialSetAlloc =
+			vkinit::descriptorset_allocate_info(_descriptorPool, &_materialSetLayout, 1);
 
 		vkAllocateDescriptorSets(_device, &materialSetAlloc, &materialDescriptor);
 
-		VkDescriptorBufferInfo materialBufferInfo;
-		materialBufferInfo.buffer = material_buffer._buffer;
-		materialBufferInfo.offset = 0;
-		materialBufferInfo.range = sizeof(BasicMaterial) * materials.size();
-
-		VkWriteDescriptorSet materialWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, materialDescriptor, &materialBufferInfo, 0);
+		VkWriteDescriptorSet materialWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, materialDescriptor, &material_buffer._descriptorBufferInfo, 0);
 		vkUpdateDescriptorSets(_device, 1, &materialWrite, 0, nullptr);
 	}
 	std::vector<VkDescriptorImageInfo> image_infos;
@@ -1248,12 +1222,8 @@ void VulkanEngine::init_scene()
 
 	// TEXTURE DESCRIPTOR
 	{
-		VkDescriptorSetAllocateInfo allocInfo = {};
-		allocInfo.pNext = nullptr;
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = _descriptorPool;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.pSetLayouts = &_textureSetLayout;
+		VkDescriptorSetAllocateInfo allocInfo =
+			vkinit::descriptorset_allocate_info(_descriptorPool, &_textureSetLayout, 1);
 
 		vkAllocateDescriptorSets(_device, &allocInfo, &textureDescriptor);
 
@@ -1270,7 +1240,7 @@ void VulkanEngine::init_scene()
 	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
 	Receiver* receivers = precalculation.generate_receivers(128);
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
-	precalculation.probe_raycast(*this, 128);
+	precalculation.probe_raycast(*this, 8000);
 }
 
 void VulkanEngine::init_imgui()
