@@ -116,7 +116,7 @@ void VulkanEngine::draw()
 	projection[1][1] *= -1;
 
 	//fill a GPU camera data struct
-	_camData.projection = projection;
+	_camData.proj = projection;
 	_camData.view = view;
 	_camData.viewproj = projection * view;
 
@@ -229,7 +229,7 @@ void VulkanEngine::draw()
 		auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
 		glm::mat4 scale = glm::mat4{ 1 };
 		scale = glm::scale(scale, { sceneScale, sceneScale, sceneScale });
-		objectSSBO[i].modelMatrix = scale * gltf_scene.nodes[i].world_matrix;
+		objectSSBO[i].model = scale * gltf_scene.nodes[i].world_matrix;
 		objectSSBO[i].material_id = mesh.material_idx;
 	}
 	vmaUnmapMemory(_allocator, get_current_frame().objectBuffer._allocation);
@@ -1124,10 +1124,10 @@ void VulkanEngine::init_scene()
 	gltf_scene.import_drawable_nodes(tmodel, GltfAttributes::Normal |
 		GltfAttributes::Texcoord_0);
 	
-	std::vector<BasicMaterial> materials;
+	std::vector<GPUBasicMaterialData> materials;
 
 	for (int i = 0; i < gltf_scene.materials.size(); i++) {
-		BasicMaterial material = {};
+		GPUBasicMaterialData material = {};
 		material.base_color = gltf_scene.materials[i].base_color_factor;
 		material.emissive_color = gltf_scene.materials[i].emissive_factor;
 		material.metallic_factor = gltf_scene.materials[i].metallic_factor;
@@ -1150,7 +1150,7 @@ void VulkanEngine::init_scene()
 	tex_buffer = create_upload_buffer(gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	material_buffer = create_upload_buffer(materials.data(), materials.size() * sizeof(BasicMaterial),
+	material_buffer = create_upload_buffer(materials.data(), materials.size() * sizeof(GPUBasicMaterialData),
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	// MATERIAL DESCRIPTOR

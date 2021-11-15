@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <gltf_scene.hpp>
 #include <vk_engine.h>
+#include "../shaders/common.glsl"
 
 struct Receiver {
 	glm::vec3 position;
@@ -16,27 +17,6 @@ struct GPUProbeDensityUniformData {
 	float radius;
 };
 
-struct SceneDesc {
-	uint64_t vertexAddress;
-	uint64_t normalAddress;
-	uint64_t uvAddress;
-	uint64_t indexAddress;
-};
-
-struct MeshInfo {
-	uint32_t indexOffset;
-	uint32_t vertexOffset;
-	int materialIndex;
-	int _pad;
-};
-
-struct ProbeRaycastResult {
-	glm::vec4 worldPos;
-	int objectId;
-	float u, v;
-	int pad_;
-};
-
 class Precalculation {
 public:
 	uint8_t* voxelize(GltfScene& scene, float voxelSize, int padding, bool save = false);
@@ -45,7 +25,7 @@ public:
 	void probe_raycast(VulkanEngine& engine, int rays);
 	//void receiver_raycast(VulkanEngine& engine);
 	std::vector<glm::vec4> _probes;
-	ProbeRaycastResult* _probeRaycastResult;
+	GPUProbeRaycastResult* _probeRaycastResult;
 	int _raysPerProbe;
 private:
 	GltfScene* _scene;

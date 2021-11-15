@@ -9,13 +9,13 @@
 
 #include "common.glsl"
 
-layout(location = 0) rayPayloadEXT HitPayload payload;
+layout(location = 0) rayPayloadEXT GPUHitPayload payload;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout(set = 0, binding = 1) uniform _SceneDesc { SceneDesc sceneDesc; };
-layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { MeshInfo meshInfos[]; };
+layout(set = 0, binding = 1) uniform _SceneDesc { GPUSceneDesc sceneDesc; };
+layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo meshInfos[]; };
 layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
-layout(set = 0, binding = 4) buffer _ProbeRaycastResult { ProbeRaycastResult results[]; };
+layout(set = 0, binding = 4) buffer _ProbeRaycastResult { GPUProbeRaycastResult results[]; };
 
 layout(buffer_reference, scalar) readonly buffer Vertices { vec3 v[]; };
 layout(buffer_reference, scalar) readonly buffer Indices { uint i[]; };

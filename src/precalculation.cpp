@@ -644,16 +644,16 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 	writes.emplace_back(accelerationStructureWrite);
 
-	AllocatedBuffer sceneDescBuffer = vkutils::create_buffer(engine._allocator, sizeof(SceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	AllocatedBuffer sceneDescBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUSceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, rtDescriptorSet, &sceneDescBuffer._descriptorBufferInfo, 1));
 
-	AllocatedBuffer meshInfoBuffer = vkutils::create_buffer(engine._allocator, sizeof(MeshInfo) * engine.gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	AllocatedBuffer meshInfoBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUMeshInfo) * engine.gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &meshInfoBuffer._descriptorBufferInfo, 2));
 	
 	AllocatedBuffer probeLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(glm::vec4) * _probes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBuffer._descriptorBufferInfo, 3));
 
-	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, rays * _probes.size() * sizeof(ProbeRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
+	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, rays * _probes.size() * sizeof(GPUProbeRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 4));
 
 	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -666,7 +666,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 		"../../shaders/precalculate_probe_rt.rchit.spv");
 
 	{
-		SceneDesc desc = {};
+		GPUSceneDesc desc = {};
 		VkBufferDeviceAddressInfo info = { };
 		info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 
@@ -682,7 +682,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 		info.buffer = engine.index_buffer._buffer;
 		desc.indexAddress = vkGetBufferDeviceAddress(engine._device, &info);
 
-		vkutils::cpu_to_gpu(engine._allocator, sceneDescBuffer, &desc, sizeof(SceneDesc));
+		vkutils::cpu_to_gpu(engine._allocator, sceneDescBuffer, &desc, sizeof(GPUSceneDesc));
 	}
 
 	{
@@ -692,7 +692,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	{
 		void* data;
 		vmaMapMemory(engine._allocator, meshInfoBuffer._allocation, &data);
-		MeshInfo* dataMesh = (MeshInfo*) data;
+		GPUMeshInfo* dataMesh = (GPUMeshInfo*) data;
 		for (int i = 0; i < engine.gltf_scene.prim_meshes.size(); i++) {
 			dataMesh[i].indexOffset = engine.gltf_scene.prim_meshes[i].first_idx;
 			dataMesh[i].vertexOffset = engine.gltf_scene.prim_meshes[i].vtx_offset;
@@ -716,8 +716,8 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	void* mappedOutputData;
 	vmaMapMemory(engine._allocator, outputBuffer._allocation, &mappedOutputData);
 	//printf("Ray cast result: %d\n", ((ProbeRaycastResult*)data)[i].objectId);
-	_probeRaycastResult = (ProbeRaycastResult*) malloc(rays * _probes.size() * sizeof(ProbeRaycastResult));
-	memcpy(_probeRaycastResult, mappedOutputData, rays* _probes.size() * sizeof(ProbeRaycastResult));
+	_probeRaycastResult = (GPUProbeRaycastResult*) malloc(rays * _probes.size() * sizeof(GPUProbeRaycastResult));
+	memcpy(_probeRaycastResult, mappedOutputData, rays* _probes.size() * sizeof(GPUProbeRaycastResult));
 	vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 	
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);

@@ -15,6 +15,7 @@
 #include "vk_mem_alloc.h"
 #include "VkBootstrap.h"
 #include <vk_raytracing.h>
+#include "../shaders/common.glsl"
 
 struct DeletionQueue
 {
@@ -37,29 +38,6 @@ struct DeletionQueue
 struct Camera {
 	glm::vec3 pos;
 	glm::vec3 rotation;
-};
-
-struct GPUCameraData {
-	glm::mat4 view;
-	glm::mat4 projection;
-	glm::mat4 viewproj;
-
-	glm::vec4 lightPos;
-	glm::vec4 lightColor;
-};
-
-struct GPUObjectData {
-	glm::mat4 modelMatrix;
-	int material_id;
-	float pad0, pad1, pad2;
-};
-
-struct GPUShadowMapData {
-	glm::mat4 depthMVP;
-	float positiveExponent; //40
-	float negativeExponent; //5
-	float LightBleedingReduction; //0
-	float VSMBias; //0.01
 };
 
 struct FrameData {

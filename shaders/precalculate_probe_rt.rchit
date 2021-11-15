@@ -11,10 +11,10 @@
 
 hitAttributeEXT vec2 attribs;
 
-layout(location = 0) rayPayloadInEXT HitPayload payload;
+layout(location = 0) rayPayloadInEXT GPUHitPayload payload;
 
-layout(set = 0, binding = 1) uniform _SceneDesc { SceneDesc sceneDesc; };
-layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { MeshInfo meshInfos[]; };
+layout(set = 0, binding = 1) uniform _SceneDesc { GPUSceneDesc sceneDesc; };
+layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo meshInfos[]; };
 layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
 
 layout(buffer_reference, scalar) readonly buffer Vertices { vec3 v[]; };
@@ -25,7 +25,7 @@ layout(buffer_reference, scalar) readonly buffer TexCoords { vec2 t[]; };
 void main()
 {
     // Object data
-    MeshInfo meshInfo = meshInfos[gl_InstanceCustomIndexEXT];
+    GPUMeshInfo meshInfo = meshInfos[gl_InstanceCustomIndexEXT];
 
     Indices indices = Indices(sceneDesc.indexAddress);
     Vertices vertices = Vertices(sceneDesc.vertexAddress);

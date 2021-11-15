@@ -23,16 +23,6 @@ struct Texture {
     VkImageView imageView;
 };
 
-struct BasicMaterial {
-    glm::vec4 base_color;
-    glm::vec3 emissive_color;
-    float metallic_factor;
-    float roughness_factor;
-    int texture;
-    int normal_texture;
-    int metallic_roughness_texture;
-};
-
 struct CommandContext {
     VkFence _fence;
     VkCommandPool _commandPool;

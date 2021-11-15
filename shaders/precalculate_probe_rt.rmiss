@@ -6,7 +6,7 @@
 
 #include "common.glsl"
 
-layout(location = 0) rayPayloadInEXT HitPayload payload;
+layout(location = 0) rayPayloadInEXT GPUHitPayload payload;
 
 void main()
 {
