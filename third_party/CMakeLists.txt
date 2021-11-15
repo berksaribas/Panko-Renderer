@@ -1,3 +1,9 @@
+set(EIGEN3_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/eigen")
+set(EIGEN3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/eigen/cmake")
+SET( CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/eigen/cmake")
+
+find_package(Eigen3 3.4.0 REQUIRED)
+
 find_package(Vulkan REQUIRED)
 
 add_library(vkbootstrap STATIC)
@@ -12,6 +18,10 @@ add_library(stb_image INTERFACE)
 
 add_library(optick STATIC)
 
+add_library(spherical_harmonics STATIC)
+
+add_library(eigen INTERFACE)
+
 target_sources(vkbootstrap PRIVATE 
     vkbootstrap/VkBootstrap.h
     vkbootstrap/VkBootstrap.cpp
@@ -22,9 +32,18 @@ file(GLOB SRC_FILES_OPTICK
     "optick/*.h"
 )
 
+file(GLOB SRC_FILES_SPHERICAL  
+    "spherical_harmonics/*.cc"
+    "spherical_harmonics/*.h"
+)
+
 target_sources(optick PRIVATE 
     ${SRC_FILES_OPTICK}
     )
+
+target_sources(spherical_harmonics PRIVATE 
+    ${SRC_FILES_SPHERICAL}
+)
 
 target_include_directories(optick PUBLIC optick)
 target_link_libraries(optick PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
@@ -36,6 +55,10 @@ target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_D
 target_include_directories(vma INTERFACE vma)
 target_include_directories(glm INTERFACE glm)
 target_include_directories(tinygltf INTERFACE tinygltf)
+target_include_directories(eigen INTERFACE ${EIGEN3_INCLUDE_DIR})
+
+target_include_directories(spherical_harmonics PUBLIC spherical_harmonics)
+target_link_libraries(spherical_harmonics PUBLIC eigen $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
 
 target_sources(tinyobjloader PRIVATE 
     tinyobjloader/tiny_obj_loader.h
