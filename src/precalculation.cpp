@@ -1,6 +1,7 @@
 #include "precalculation.h"
 #include <triangle_box_intersection.h>
 #include <omp.h>
+#include "spherical_harmonics.h"
 
 #define VOXELIZER_IMPLEMENTATION
 #include "triangle_box_intersection.h"
@@ -11,6 +12,7 @@
 #include <vk_utils.h>
 
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
+#define M_PI    3.14159265358979323846264338327950288
 
 /*
 	DONE
@@ -720,6 +722,24 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	memcpy(_probeRaycastResult, mappedOutputData, rays* _probes.size() * sizeof(GPUProbeRaycastResult));
 	vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 	
+	_probeRaycastBasisFunctions = (float*) malloc(rays * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * sizeof(float));
+
+	for (int i = 0; i < rays * _probes.size(); i++) {
+		//printf("Current probe: %d and current ray: %d\n", i / rays, i % rays);
+		//printf("%f %f %f\n", _probeRaycastResult[i].direction.x, _probeRaycastResult[i].direction.y, _probeRaycastResult[i].direction.z);
+		Eigen::Vector3d dir(_probeRaycastResult[i].direction.x,
+			_probeRaycastResult[i].direction.y,
+			_probeRaycastResult[i].direction.z);
+		dir.normalize();
+		int ctr = 0;
+		for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) { // Degree 7
+			for (int m = -l; m <= l; m++) {
+				_probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
+				ctr++;
+			}
+		}
+	}
+
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 
 	vmaDestroyBuffer(engine._allocator, sceneDescBuffer._buffer, sceneDescBuffer._allocation);

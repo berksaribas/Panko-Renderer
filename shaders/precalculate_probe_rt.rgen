@@ -27,38 +27,55 @@ const float SEED = PI;
 
 void main()
 {
-  vec4 origin = probeLocations[gl_LaunchIDEXT.y];
+    vec4 origin = probeLocations[gl_LaunchIDEXT.y];
+    
+    //This technique evenly distributes. Maybe it's not what I want
+    float dirY = 1 - (gl_LaunchIDEXT.x / float(gl_LaunchSizeEXT.x - 1)) * 2;
+    float radius = sqrt(1 - dirY * dirY);
+    float theta = PHI * PI * gl_LaunchIDEXT.x;
+    float dirX = cos(theta) * radius;
+    float dirZ = sin(theta) * radius;
+    vec4 direction = vec4(dirX, dirY, dirZ, 0);
 
-  float fi = float(gl_LaunchIDEXT.x);
-  float theta = 2.0f * PI * goldNoise(vec2(fi * 0.3482f, fi * 2.18622f), SEED);
-  float phi = acos(1.0f - 2.0f * goldNoise(vec2(fi * 1.9013, fi * 0.94312), SEED));
-  float dirX = sin(phi) * cos(theta);
-  float dirY = sin(phi) * sin(theta);
-  float dirZ = cos(phi);
-  vec4 direction = vec4(dirX, dirY, dirZ, 0);
+    /*
+    //This method uniformly and randomly distributes points. But some directions are nan so using the other method
+    float fi = float(gl_LaunchIDEXT.x);
+    float theta = 2.0f * PI * goldNoise(vec2(fi * 0.3482f, fi * 2.18622f), SEED);
+    float phi = acos(1.0f - 2.0f * goldNoise(vec2(fi * 1.9013, fi * 0.94312), SEED));
+    float dirX = sin(phi) * cos(theta);
+    float dirY = sin(phi) * sin(theta);
+    float dirZ = cos(phi);
+    vec4 direction = vec4(dirX, dirY, dirZ, 0);
+    */
 
-  uint  rayFlags = gl_RayFlagsOpaqueEXT;
-  float tMin     = 0.001;
-  float tMax     = 10000.0;
+    //if(gl_LaunchIDEXT.x == 2087 && gl_LaunchIDEXT.y == 0) {
+    //    debugPrintfEXT("WAITED ARGUMENT: %f %f %f\n", dirX, dirY, dirZ);
+    //}
 
-  traceRayEXT(topLevelAS,     // acceleration structure
-              rayFlags,       // rayFlags
-              0xFF,           // cullMask
-              0,              // sbtRecordOffset
-              0,              // sbtRecordStride
-              0,              // missIndex
-              origin.xyz,     // ray origin
-              tMin,           // ray min range
-              direction.xyz,  // ray direction
-              tMax,           // ray max range
-              0               // payload (location = 0)
-  );
 
-  //debugPrintfEXT("The origin is (probe: %d): %f , %f , %f \n and direction is: %f , %f , %f \n", gl_LaunchIDEXT.y, origin.x, origin.y, origin.z, direction.x, direction.y, direction.z);
-  //debugPrintfEXT("Result object id is: %d\n", payload.objectId);
+    uint  rayFlags = gl_RayFlagsOpaqueEXT;
+    float tMin     = 0.001;
+    float tMax     = 10000.0;
 
-  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].worldPos = vec4(payload.pos, 1.0);
-  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].u = payload.uv.x;
-  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].v = payload.uv.y;
-  results[gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y].objectId = payload.objectId;
+    traceRayEXT(topLevelAS,     // acceleration structure
+                rayFlags,       // rayFlags
+                0xFF,           // cullMask
+                0,              // sbtRecordOffset
+                0,              // sbtRecordStride
+                0,              // missIndex
+                origin.xyz,     // ray origin
+                tMin,           // ray min range
+                direction.xyz,  // ray direction
+                tMax,           // ray max range
+                0               // payload (location = 0)
+    );
+
+    //debugPrintfEXT("The origin is (probe: %d): %f , %f , %f \n and direction is: %f , %f , %f \n", gl_LaunchIDEXT.y, origin.x, origin.y, origin.z, direction.x, direction.y, direction.z);
+
+    uint index = gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y;
+    results[index].worldPos = vec4(payload.pos, 1.0);
+    results[index].u = payload.uv.x;
+    results[index].v = payload.uv.y;
+    results[index].objectId = payload.objectId;
+    results[index].direction = direction;
 }

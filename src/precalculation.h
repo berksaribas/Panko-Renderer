@@ -6,6 +6,9 @@
 #include <vk_engine.h>
 #include "../shaders/common.glsl"
 
+#define SPHERICAL_HARMONICS_ORDER 7
+#define SPHERICAL_HARMONICS_NUM_COEFF ((SPHERICAL_HARMONICS_ORDER + 1) * (SPHERICAL_HARMONICS_ORDER + 1))
+
 struct Receiver {
 	glm::vec3 position;
 	glm::vec3 normal;
@@ -26,6 +29,7 @@ public:
 	//void receiver_raycast(VulkanEngine& engine);
 	std::vector<glm::vec4> _probes;
 	GPUProbeRaycastResult* _probeRaycastResult;
+	float* _probeRaycastBasisFunctions;
 	int _raysPerProbe;
 private:
 	GltfScene* _scene;

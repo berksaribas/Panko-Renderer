@@ -60,6 +60,7 @@ struct GPUMeshInfo {
 
 struct GPUProbeRaycastResult {
 	vec4 worldPos;
+	vec4 direction;
 	int objectId;
 	float u, v;
 	int pad_;

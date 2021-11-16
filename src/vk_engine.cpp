@@ -1238,7 +1238,7 @@ void VulkanEngine::init_scene()
 	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
 	Receiver* receivers = precalculation.generate_receivers(128);
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
-	precalculation.probe_raycast(*this, 8000);
+	precalculation.probe_raycast(*this, 128);
 }
 
 void VulkanEngine::init_imgui()
