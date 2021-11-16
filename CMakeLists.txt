@@ -27,6 +27,9 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/*.rmiss"
     "${PROJECT_SOURCE_DIR}/shaders/*.rchit"
     )
+file(GLOB_RECURSE GLSL_HEADER_FILES
+    "${PROJECT_SOURCE_DIR}/shaders/*.glsl"
+    )
 
 ## iterate each shader
 foreach(GLSL ${GLSL_SOURCE_FILES})
@@ -49,4 +52,5 @@ add_custom_target(
 
 target_sources(Shaders PRIVATE 
     ${GLSL_SOURCE_FILES}
+    ${GLSL_HEADER_FILES}
     )

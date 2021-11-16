@@ -1,6 +1,5 @@
 #include "vk_compute.h"
 #include "vk_initializers.h"
-#include <vk_shader.h>
 #include <VkBootstrap.h>
 #include <vk_engine.h>
 #include <vk_utils.h>
@@ -39,7 +38,7 @@ void VulkanCompute::add_buffer(ComputeInstance& computeInstance, ComputeBufferTy
 void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader)
 {
 	VkShaderModule shader;
-	if (!vkutil::load_shader_module(_device, computeShader, &shader))
+	if (!vkutils::load_shader_module(_device, computeShader, &shader))
 	{
 		assert("Compute Shader Loading Issue");
 	}

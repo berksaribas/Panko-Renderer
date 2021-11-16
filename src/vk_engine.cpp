@@ -14,8 +14,6 @@
 #include "vk_mem_alloc.h"
 
 #include <glm/gtx/transform.hpp>
-#include "vk_texture.h"
-#include "vk_shader.h"
 
 #include "imgui.h"
 #include "imgui_impl_sdl.h"
@@ -987,25 +985,25 @@ void VulkanEngine::init_pipelines() {
 	OPTICK_EVENT();
 
 	VkShaderModule meshVertShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/default.vert.spv", &meshVertShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/default.vert.spv", &meshVertShader))
 	{
 		assert("Default Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule texturedMeshShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/default.frag.spv", &texturedMeshShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/default.frag.spv", &texturedMeshShader))
 	{
 		assert("Default Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule shadowMapVertShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/evsm.vert.spv", &shadowMapVertShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/evsm.vert.spv", &shadowMapVertShader))
 	{
 		assert("Shadow Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule shadowMapFragShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/evsm.frag.spv", &shadowMapFragShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/evsm.frag.spv", &shadowMapFragShader))
 	{
 		assert("Shadow Fragment Shader Loading Issue");
 	}
@@ -1182,7 +1180,7 @@ void VulkanEngine::init_scene()
 	if (tmodel.images.size() == 0) {
 		AllocatedImage allocated_image;
 		uint32_t mipLevels;
-		vkutil::load_image_from_memory(*this, nil.data(), 1, 1, allocated_image, mipLevels);
+		vkutils::load_image_from_memory(*this, nil.data(), 1, 1, allocated_image, mipLevels);
 
 		VkImageView imageView;
 		VkImageViewCreateInfo imageinfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_SRGB, allocated_image._image, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
@@ -1202,10 +1200,10 @@ void VulkanEngine::init_scene()
 		uint32_t mipLevels;
 
 		if (gltf_img.image.size() == 0 || gltf_img.width == -1 || gltf_img.height == -1) {
-			vkutil::load_image_from_memory(*this, nil.data(), 1, 1, allocated_image, mipLevels);
+			vkutils::load_image_from_memory(*this, nil.data(), 1, 1, allocated_image, mipLevels);
 		}
 		else {
-			vkutil::load_image_from_memory(*this, gltf_img.image.data(), gltf_img.width, gltf_img.height, allocated_image, mipLevels);
+			vkutils::load_image_from_memory(*this, gltf_img.image.data(), gltf_img.width, gltf_img.height, allocated_image, mipLevels);
 		}
 	
 		VkImageView imageView;

@@ -2,7 +2,6 @@
 #include <vk_pipeline.h>
 #include <vk_initializers.h>
 #include <vk_utils.h>
-#include <vk_shader.h>
 
 void VulkanDebugRenderer::init(VkDevice device, VmaAllocator allocator, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout)
 {
@@ -10,13 +9,13 @@ void VulkanDebugRenderer::init(VkDevice device, VmaAllocator allocator, VkRender
 	_allocator = allocator;
 
 	VkShaderModule unlitVertShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/debug_unlit.vert.spv", &unlitVertShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/debug_unlit.vert.spv", &unlitVertShader))
 	{
 		assert("Unlit Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule unlitFragShader;
-	if (!vkutil::load_shader_module(_device, "../../shaders/debug_unlit.frag.spv", &unlitFragShader))
+	if (!vkutils::load_shader_module(_device, "../../shaders/debug_unlit.frag.spv", &unlitFragShader))
 	{
 		assert("Unlit Fragment Shader Loading Issue");
 	}

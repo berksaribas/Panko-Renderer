@@ -2,7 +2,6 @@
 #include <vk_initializers.h>
 #include <vk_engine.h>
 #include <vk_utils.h>
-#include <vk_shader.h>
 
 static bool hasFlag(VkFlags item, VkFlags flag) {
 	return (item & flag) == flag;
@@ -239,15 +238,15 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 	// Raygen
 	stage.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
 	stages[eRaygen] = stage;
-	vkutil::load_shader_module(_device, rgenPath, &stages[eRaygen].module);
+	vkutils::load_shader_module(_device, rgenPath, &stages[eRaygen].module);
 	// Miss
 	stage.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
 	stages[eMiss] = stage;
-	vkutil::load_shader_module(_device, missPath, &stages[eMiss].module);
+	vkutils::load_shader_module(_device, missPath, &stages[eMiss].module);
 	// Hit Group - Closest Hit
 	stage.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 	stages[eClosestHit] = stage;
-	vkutil::load_shader_module(_device, hitPath, &stages[eClosestHit].module);
+	vkutils::load_shader_module(_device, hitPath, &stages[eClosestHit].module);
 
 	VkRayTracingShaderGroupCreateInfoKHR group{ VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR };
 	group.anyHitShader = VK_SHADER_UNUSED_KHR;
