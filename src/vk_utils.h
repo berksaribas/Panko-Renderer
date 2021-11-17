@@ -9,7 +9,7 @@
 		VkResult err = x;                                           \
 		if (err)                                                    \
 		{                                                           \
-			printf("Detected Vulkan error: %s\n", err); \
+			printf("Detected Vulkan error: %d\n", err); \
 			abort();                                                \
 		}                                                           \
 	} while (0)

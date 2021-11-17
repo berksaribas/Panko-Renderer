@@ -24,21 +24,18 @@ class Precalculation {
 public:
 	uint8_t* voxelize(GltfScene& scene, float voxelSize, int padding, bool save = false);
 	std::vector<glm::vec4> place_probes(VulkanEngine& engine, int overlaps);
-	Receiver* generate_receivers(int objectResolution);
+	Receiver* generate_receivers();
 	void probe_raycast(VulkanEngine& engine, int rays);
 	//void receiver_raycast(VulkanEngine& engine);
 	std::vector<glm::vec4> _probes;
 	GPUProbeRaycastResult* _probeRaycastResult;
 	float* _probeRaycastBasisFunctions;
 	int _raysPerProbe;
+	Receiver* _receivers;
 private:
 	GltfScene* _scene;
 	uint8_t* _voxelData;
 	float _voxelSize;
 	int _dimX, _dimY, _dimZ;
 	int _padding;
-
-	Receiver* _receivers;
-	int _receiverTextureResolution;
-	int _receiverObjectResolution;
 };

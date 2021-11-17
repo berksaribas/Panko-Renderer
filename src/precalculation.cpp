@@ -69,18 +69,26 @@ float kthSmallest(float arr[], int l, int r, int k) {
 
 //Christer Ericson's Real-Time Collision Detection 
 static glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
-	glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
-	float d00 = glm::dot(v0, v0);
-	float d01 = glm::dot(v0, v1);
-	float d11 = glm::dot(v1, v1);
-	float d20 = glm::dot(v2, v0);
-	float d21 = glm::dot(v2, v1);
-	float denom = d00 * d11 - d01 * d01;
+	//glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+	//float d00 = glm::dot(v0, v0);
+	//float d01 = glm::dot(v0, v1);
+	//float d11 = glm::dot(v1, v1);
+	//float d20 = glm::dot(v2, v0);
+	//float d21 = glm::dot(v2, v1);
+	//float denom = d00 * d11 - d01 * d01;
+	//
+	//float v = (d11 * d20 - d01 * d21) / denom;
+	//float w = (d00 * d21 - d01 * d20) / denom;
+	//float u = 1.0f - v - w;
+	//return { u, v, w };
 
-	float v = (d11 * d20 - d01 * d21) / denom;
-	float w = (d00 * d21 - d01 * d20) / denom;
+	glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+	float den = v0.x * v1.y - v1.x * v0.y;
+	float v = (v2.x * v1.y - v1.x * v2.y) / den;
+	float w = (v0.x * v2.y - v2.x * v0.y) / den;
 	float u = 1.0f - v - w;
 	return { u, v, w };
+
 }
 
 static glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c) {
@@ -115,19 +123,18 @@ static float calculate_spatial_weight(float radius, int probeIndex, std::vector<
 	return total_weight;
 }
 
-static float calculate_radius(Receiver* receivers, int receiverTextureSize, std::vector<glm::vec3>& probes, int overlaps) {
+static float calculate_radius(Receiver* receivers, int receiverSize, std::vector<glm::vec4>& probes, int overlaps) {
 	OPTICK_EVENT();
 
 	float* distanceData = new float[probes.size()];
 	float radius = 0;
-	int searchSize = receiverTextureSize * receiverTextureSize;
 	int receiverCount = 0;
-	for (int r = 0; r < searchSize; r += 1) {
+	for (int r = 0; r < receiverSize; r += 1) {
 		if (!receivers[r].exists) {
 			continue;
 		}
 		for (int p = 0; p < probes.size(); p++) {
-			distanceData[p] = glm::distance(probes[p], receivers[r].position);
+			distanceData[p] = glm::distance(glm::vec3(probes[p]), receivers[r].position);
 		}
 		radius += kthSmallest(distanceData, 0, probes.size(), overlaps);
 		receiverCount++;
@@ -367,7 +374,7 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	int targetProbeCount = _dimX - _padding * 2;
 	printf("Targeted amount of probes is %d\n", targetProbeCount);
 
-	float radius = 5;//calculate_radius(_receivers, _receiverTextureResolution, probes, overlaps);
+	float radius = calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
 	printf("Radius is %f\n", radius);
 
 	float currMaxWeight = -1;
@@ -516,30 +523,22 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	return _probes;
 }
 
-Receiver* Precalculation::generate_receivers(int objectResolution)
+Receiver* Precalculation::generate_receivers()
 {
 	OPTICK_EVENT();
+	printf("Generating receivers!\n");
 
-	_receiverObjectResolution = objectResolution;
-
-	int texSep = sqrt(_scene->nodes.size()) + 1;
-	_receiverTextureResolution = objectResolution * texSep;
-
-	int receiverCount = _receiverTextureResolution * _receiverTextureResolution;
+	int receiverCount = _scene->lightmap_width * _scene->lightmap_height;
 	_receivers = new Receiver[receiverCount];
 	memset(_receivers, 0, sizeof(Receiver) * receiverCount);
 	
-	printf("Creating a total of %d receivers for texture resolution of %d\n", receiverCount, _receiverTextureResolution);
-
-	int currTexX = 0, currTexY = 0;
-
 	for (int nodeIndex = 0; nodeIndex < _scene->nodes.size(); nodeIndex++) {
 		auto& mesh = _scene->prim_meshes[_scene->nodes[nodeIndex].prim_mesh];
 			for (int triangle = 0; triangle < mesh.idx_count; triangle += 3) {
-				glm::vec3 worldVertices[3] = {};
-				glm::vec3 worldNormals[3] = {};
-				glm::vec2 texVertices[3] = {};
-				int minX = objectResolution, minY = objectResolution;
+				glm::vec3 worldVertices[3];
+				glm::vec3 worldNormals[3];
+				glm::vec2 texVertices[3];
+				int minX = _scene->lightmap_width, minY = _scene->lightmap_height;
 				int maxX = 0, maxY = 0;
 				for (int i = 0; i < 3; i++) {
 					int vertexIndex = mesh.vtx_offset + _scene->indices[mesh.first_idx + triangle + i];
@@ -550,7 +549,7 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 					glm::vec4 normal = _scene->nodes[nodeIndex].world_matrix * glm::vec4(_scene->normals[vertexIndex], 1.0);
 					worldNormals[i] = glm::vec3(normal / normal.w);
 
-					texVertices[i] = _scene->texcoords0[vertexIndex] * (float)(objectResolution - 1);
+					texVertices[i] = _scene->lightmapUVs[vertexIndex];
 
 					if (texVertices[i].x < minX) {
 						minX = texVertices[i].x;
@@ -565,8 +564,6 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 						maxY = texVertices[i].y;
 					}
 				}
-				//Rasterize 2D triangle
-				float area = edge_function(texVertices[0], texVertices[1], texVertices[2]);
 
 				for (int j = minY; j <= maxY; j++) {
 					for (int i = minX; i <= maxX; i++) {
@@ -578,7 +575,7 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
 							receiver.exists = true;
-							int receiverIndex = currTexX * objectResolution + currTexY * _receiverTextureResolution * objectResolution + i + j * _receiverTextureResolution;
+							int receiverIndex = i + j * _scene->lightmap_width;
 							if (!_receivers[receiverIndex].exists) {
 								_receivers[receiverIndex] = receiver;
 							}
@@ -586,11 +583,6 @@ Receiver* Precalculation::generate_receivers(int objectResolution)
 					}
 				}
 			}
-		currTexX++;
-		if (currTexX == texSep) {
-			currTexX = 0;
-			currTexY++;
-		}
 	}
 
 	printf("Created receivers!\n");

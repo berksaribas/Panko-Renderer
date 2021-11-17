@@ -89,11 +89,11 @@ void VulkanDebugRenderer::init(VkDevice device, VmaAllocator allocator, VkRender
 	vkDestroyShaderModule(_device, unlitFragShader, nullptr);
 
 	//Create the buffers
-	_pointVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 32000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	_pointColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 32000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_pointVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_pointColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	
-	_lineVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 32000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	_lineColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 32000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_lineVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_lineColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 }
 
 void VulkanDebugRenderer::draw_line(glm::vec3 start, glm::vec3 end, glm::vec3 color)

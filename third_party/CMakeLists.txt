@@ -22,6 +22,8 @@ add_library(spherical_harmonics STATIC)
 
 add_library(eigen INTERFACE)
 
+add_library(xatlas STATIC)
+
 target_sources(vkbootstrap PRIVATE 
     vkbootstrap/VkBootstrap.h
     vkbootstrap/VkBootstrap.cpp
@@ -67,6 +69,13 @@ target_sources(tinyobjloader PRIVATE
 
 target_include_directories(tinyobjloader PUBLIC tinyobjloader)
 
+
+target_sources(xatlas PRIVATE 
+    xatlas/xatlas.cpp
+    xatlas/xatlas.h
+    )
+
+target_include_directories(xatlas PUBLIC xatlas)
 
 add_library(sdl2 INTERFACE)
 set(sdl2_DIR "SDL_PATH" CACHE PATH "Path to SDL2")

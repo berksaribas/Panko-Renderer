@@ -23,6 +23,7 @@
 #include <vk_utils.h>
 #include <vk_extensions.h>
 #include <vk_debug_renderer.h>
+#include <xatlas.h>
 
 VulkanDebugRenderer vkDebugRenderer;
 Precalculation precalculation;
@@ -200,19 +201,26 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	for (int i = 0; i < precalculation._probes.size(); i++) {
-		vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, {1, 0, 0});
-		for (int j = 0; j < 16; j++) {
-			auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
-			if (ray.objectId != -1) {
-				vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
-					glm::vec3(ray.worldPos) * sceneScale,
-					{ 0, 0, 1 });
+	
+	//for (int i = 0; i < precalculation._probes.size(); i++) {
+	//	vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, {1, 0, 0});
+	//	for (int j = 0; j < 128; j++) {
+	//		auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
+	//		if (ray.objectId != -1) {
+	//			vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
+	//				glm::vec3(ray.worldPos) * sceneScale,
+	//				{ 0, 0, 1 });
+	//
+	//			vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
+	//		}
+	//	}
+	//}
 
-				vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
-			}
-		}
-	}
+	//for (int i = 0; i < gltf_scene.lightmap_width * gltf_scene.lightmap_height; i += 1) {
+	//	if (precalculation._receivers[i].exists) {
+	//		vkDebugRenderer.draw_point(precalculation._receivers[i].position * sceneScale, { 1, 0, 0 });
+	//	}
+	//}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -1136,6 +1144,92 @@ void VulkanEngine::init_scene()
 		materials.push_back(material);
 	}
 
+	//TODO: Try to load lightmap uvs from disk first, if not available generate them
+	/*
+	* File format:
+	* atlas width (4 bytes), atlas height (4 bytes)
+	* all the data
+	* vec2 data as byte
+	*/
+	printf("Generating lightmap uvs\n");
+	xatlas::Atlas* atlas = xatlas::Create();
+	for (int i = 0; i < gltf_scene.nodes.size(); i++) {
+		auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
+		xatlas::MeshDecl meshDecleration = {};
+		meshDecleration.vertexPositionData = &gltf_scene.positions[mesh.vtx_offset];
+		meshDecleration.vertexPositionStride = sizeof(glm::vec3);
+		meshDecleration.vertexCount = mesh.vtx_count;
+
+		meshDecleration.indexData = &gltf_scene.indices[mesh.first_idx];
+		meshDecleration.indexCount = mesh.idx_count;
+		meshDecleration.indexFormat = xatlas::IndexFormat::UInt32;
+		xatlas::AddMesh(atlas, meshDecleration);
+	}
+	xatlas::Generate(atlas);
+
+	gltf_scene.lightmap_width = atlas->width;
+	gltf_scene.lightmap_height = atlas->height;
+
+	//gltf_scene.prim_meshes.clear();
+	//gltf_scene.positions.clear();
+	//gltf_scene.indices.clear();
+	//gltf_scene.normals.clear();
+	//gltf_scene.texcoords0.clear();
+	//gltf_scene.lightmapUVs.clear();
+
+	std::vector<GltfPrimMesh> prim_meshes;
+	std::vector<glm::vec3> positions;
+	std::vector<uint32_t> indices;
+	std::vector<glm::vec3> normals;
+	std::vector<glm::vec2> texcoords0;
+
+	for (int i = 0; i < gltf_scene.nodes.size(); i++) {
+		GltfPrimMesh mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
+		uint32_t orihinal_vtx_offset = mesh.vtx_offset;
+		mesh.first_idx = indices.size();
+		mesh.vtx_offset = positions.size();
+
+		mesh.idx_count = atlas->meshes[i].indexCount;
+		mesh.vtx_count = atlas->meshes[i].vertexCount;
+
+		gltf_scene.nodes[i].prim_mesh = prim_meshes.size();
+		prim_meshes.push_back(mesh);
+
+		for (int j = 0; j < atlas->meshes[i].vertexCount; j++) {
+			gltf_scene.lightmapUVs.push_back({ atlas->meshes[i].vertexArray[j].uv[0], atlas->meshes[i].vertexArray[j].uv[1] });
+			
+			positions.push_back(gltf_scene.positions[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
+			normals.push_back(gltf_scene.normals[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
+			texcoords0.push_back(gltf_scene.texcoords0[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
+		}
+
+		for (int j = 0; j < atlas->meshes[i].indexCount; j++) {
+			indices.push_back(atlas->meshes[i].indexArray[j]);
+		}
+	}
+
+	gltf_scene.prim_meshes.clear();
+	gltf_scene.positions.clear();
+	gltf_scene.indices.clear();
+	gltf_scene.normals.clear();
+	gltf_scene.texcoords0.clear();
+
+	gltf_scene.prim_meshes = prim_meshes;
+	gltf_scene.positions = positions;
+	gltf_scene.indices = indices;
+	gltf_scene.normals = normals;
+	gltf_scene.texcoords0 = texcoords0;
+
+	printf("Generated lightmap uvs, %d x %d\n", atlas->width, atlas->height);
+	xatlas::Destroy(atlas);
+
+	/*
+	* TODO: After reading the GLTF scene, what I can do is:
+	* Create the xatlas
+	* Create a new vertex buffer (also normal and tex)
+	* Correct the node data
+	*/
+
 	vertex_buffer = create_upload_buffer(gltf_scene.positions.data(), gltf_scene.positions.size() * sizeof(glm::vec3),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VMA_MEMORY_USAGE_GPU_ONLY);
 
@@ -1236,7 +1330,7 @@ void VulkanEngine::init_scene()
 	
 	int dimX, dimY, dimZ;
 	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
-	Receiver* receivers = precalculation.generate_receivers(128);
+	Receiver* receivers = precalculation.generate_receivers();
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
 	precalculation.probe_raycast(*this, 128);
 }

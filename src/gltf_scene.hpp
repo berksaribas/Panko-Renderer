@@ -263,6 +263,11 @@ struct GltfScene {
 	std::vector<glm::vec2> texcoords0;
 	std::vector<glm::vec2> texcoords1;
 	std::vector<glm::vec4> colors0;
+	std::vector<glm::vec2> lightmapUVs;
+
+	//lightmap information
+	int lightmap_width;
+	int lightmap_height;
 
 	// #TODO - Adding support for Skinning
 	// using vec4us = vector4<unsigned short>;
