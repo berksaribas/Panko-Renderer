@@ -33,8 +33,7 @@ void main()
 	texCoord = vTexCoord;
 	material_id = objectBuffer.objects[gl_BaseInstance].material_id;
 
-	//outNormal = vec3(modelMatrix * vec4(vNormal, 1.0f));
-	outNormal = vNormal;
+	outNormal = mat3(transpose(inverse(modelMatrix))) * vNormal;
 	outLightVec = cameraData.lightPos.xyz;
 	outLightColor = cameraData.lightColor.xyz;
 	outFragPos = modelPos;

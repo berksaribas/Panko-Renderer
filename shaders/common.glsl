@@ -48,6 +48,7 @@ struct GPUSceneDesc {
 	uint64_t vertexAddress;
 	uint64_t normalAddress;
 	uint64_t uvAddress;
+	uint64_t lightmapUvAddress;
 	uint64_t indexAddress;
 };
 
@@ -71,6 +72,18 @@ struct GPUHitPayload
 	int objectId;
 	vec3 pos;
 	vec2 uv;
+};
+
+struct GPUReceiverData {
+	vec3 pos;
+	float pad0;
+	vec3 normal;
+	float pad1;
+};
+
+struct GPUReceiverRaycastResult {
+	vec3 dir;
+	int visibility;
 };
 
 #ifndef __cplusplus

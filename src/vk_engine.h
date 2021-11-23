@@ -120,7 +120,7 @@ public:
 	VkPipelineLayout _meshPipelineLayout;
 
 	FrameData _frames[FRAME_OVERLAP];
-	AllocatedBuffer tex_buffer, material_buffer;
+	AllocatedBuffer tex_buffer, material_buffer, lightmap_tex_buffer;
 
 	VkDescriptorSet textureDescriptor;
 	VkDescriptorSet materialDescriptor;

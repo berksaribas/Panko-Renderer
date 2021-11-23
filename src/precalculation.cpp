@@ -19,11 +19,11 @@
 	- SCENE VOXELIZATION (DONE)
 	- RECEIVER PLACEMENT (ALSO CREATE THE LIGHT MAP?)
 	- PROBE PLACEMENT (HARDCODED)
-	TODO
 	- SETUP A RAYTRACING ENVIRONMENT (RADEON RAYS OR VULKAN RAYTRACING)
-	- PROBE RAYCASTING (ALSO SUPPORT THIS IN REAL TIME VIA HW RT) -> OUTPUT TO A TEXTURE (THIS IS VISIBILITY RAYS)
-	- RECEIVER COEFFICIENTS (THIS IS THE PART WE USE SPHERICAL HARMONICS)
-	- RECEIVER CLUSTERING (PCA AND AABB)
+	- PROBE RAYCASTING (ALSO SUPPORT THIS IN REAL TIME VIA HW RT) -> OUTPUT TO A BUFFER
+	- RECEIVER CLUSTERING (AABB)
+	TODO
+	- RECEIVER COEFFICIENTS (RT + SPHERICAL HARMONICS + PCA)
 */
 int partition(float arr[], int l, int r) {
 	float x = arr[r];
@@ -38,7 +38,7 @@ int partition(float arr[], int l, int r) {
 	return i;
 }
 
-float kthSmallest(float arr[], int l, int r, int k) {
+float kth_smallest(float arr[], int l, int r, int k) {
 	// If k is smaller than number of
 	// elements in array
 	if (k > 0 && k <= r - l + 1) {
@@ -55,10 +55,10 @@ float kthSmallest(float arr[], int l, int r, int k) {
 		// If position is more, recur
 		// for left subarray
 		if (index - l > k - 1)
-			return kthSmallest(arr, l, index - 1, k);
+			return kth_smallest(arr, l, index - 1, k);
 
 		// Else recur for right subarray
-		return kthSmallest(arr, index + 1, r,
+		return kth_smallest(arr, index + 1, r,
 			k - index + l - 1);
 	}
 
@@ -136,7 +136,7 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 		for (int p = 0; p < probes.size(); p++) {
 			distanceData[p] = glm::distance(glm::vec3(probes[p]), receivers[r].position);
 		}
-		radius += kthSmallest(distanceData, 0, probes.size(), overlaps);
+		radius += kth_smallest(distanceData, 0, probes.size(), overlaps);
 		receiverCount++;
 	}
 
@@ -374,7 +374,8 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	int targetProbeCount = _dimX - _padding * 2;
 	printf("Targeted amount of probes is %d\n", targetProbeCount);
 
-	float radius = calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
+	float radius = 5;//calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
+	_radius = radius;
 	printf("Radius is %f\n", radius);
 
 	float currMaxWeight = -1;
@@ -416,7 +417,7 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 			currMaxWeight = -1;
 			toRemoveIndex = -1;
 		}
-		printf("Size of probes %d\n", _probes.size());
+		//printf("Size of probes %d\n", _probes.size());
 	}
 
 	printf("Found this many probes: %d\n", _probes.size());
@@ -545,9 +546,9 @@ Receiver* Precalculation::generate_receivers()
 
 					glm::vec4 vertex = _scene->nodes[nodeIndex].world_matrix * glm::vec4(_scene->positions[vertexIndex], 1.0);
 					worldVertices[i] = glm::vec3(vertex / vertex.w);
+						
 
-					glm::vec4 normal = _scene->nodes[nodeIndex].world_matrix * glm::vec4(_scene->normals[vertexIndex], 1.0);
-					worldNormals[i] = glm::vec3(normal / normal.w);
+					worldNormals[i] = glm::mat3(glm::transpose(glm::inverse(_scene->nodes[nodeIndex].world_matrix))) * glm::vec4(_scene->normals[vertexIndex], 1.0);
 
 					texVertices[i] = _scene->lightmapUVs[vertexIndex];
 
@@ -676,6 +677,9 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 		info.buffer = engine.index_buffer._buffer;
 		desc.indexAddress = vkGetBufferDeviceAddress(engine._device, &info);
 
+		info.buffer = engine.lightmap_tex_buffer._buffer;
+		desc.lightmapUvAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
 		vkutils::cpu_to_gpu(engine._allocator, sceneDescBuffer, &desc, sizeof(GPUSceneDesc));
 	}
 
@@ -728,7 +732,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 			for (int m = -l; m <= l; m++) {
 				_probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
 				ctr++;
-			}
+			} //TODO: This feels wrong. My output should be probe count x 64 but this is something else?
 		}
 	}
 
@@ -738,4 +742,303 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	vmaDestroyBuffer(engine._allocator, meshInfoBuffer._buffer, meshInfoBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
+	vkDestroyDescriptorSetLayout(engine._device, rtDescriptorSetLayout, nullptr);
+}
+
+void divide_aabb(std::vector<AABB>& aabbClusters, AABB node, Receiver* receivers, int receiverCount, int divideReceivers) {
+	int receiversInIt = 0;
+	for (int i = 0; i < receiverCount; i++) {
+		auto receiver = receivers[i];
+		if (!receiver.exists) {
+			continue;
+		}
+		if (receiver.position.x >= node.min.x && receiver.position.x < node.max.x &&
+			receiver.position.y >= node.min.y && receiver.position.y < node.max.y &&
+			receiver.position.z >= node.min.z && receiver.position.z < node.max.z)
+		{
+			node.receivers.push_back(receiver);
+		}
+	}
+
+	if (node.receivers.size() > divideReceivers) {
+		//printf("There are %d receivers in this AABB, splitting\n", node.receivers.size());
+
+		auto size = node.max - node.min;
+		float dimX = size.x;
+		float dimY = size.y;
+		float dimZ = size.z;
+
+		//printf("Sizes are: %f %f %f\n", dimX, dimY, dimZ);
+
+		AABB first = {};
+		AABB second = {};
+
+		if (dimX >= dimY && dimX >= dimZ) {
+			first.min = node.min;
+			first.max = { node.min.x + dimX / 2.f, node.max.y, node.max.z };
+			second.min = { node.min.x + dimX / 2.f, node.min.y, node.min.z };
+			second.max = node.max;
+		}
+		else if (dimY >= dimX && dimY >= dimZ) {
+			first.min = node.min;
+			first.max = { node.max.x, node.min.y + dimY / 2.f, node.max.z };
+			second.min = { node.min.x, node.min.y + dimY / 2.f, node.min.z };
+			second.max = node.max;
+		}
+		else {
+			first.min = node.min;
+			first.max = { node.max.x, node.max.y, node.min.z + dimZ / 2.f };
+			second.min = { node.min.x, node.min.y, node.min.z + dimZ / 2.f };
+			second.max = node.max;
+		}
+
+		divide_aabb(aabbClusters, first, node.receivers.data(), node.receivers.size(), divideReceivers);
+		divide_aabb(aabbClusters, second, node.receivers.data(), node.receivers.size(), divideReceivers);
+	}
+	else if(node.receivers.size() > 0) {
+		aabbClusters.push_back(node);
+	}
+}
+
+void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
+{
+	//For the initial step, I'll only support static clustering
+	AABB initial_node = {};
+	initial_node.min = _scene->m_dimensions.min - glm::vec3(1.0); //adding some padding
+	initial_node.max = _scene->m_dimensions.max + glm::vec3(1.0); //adding some padding
+	printf("Calculating AABB divisions\n");
+	divide_aabb(_aabbClusters, initial_node, _receivers, _scene->lightmap_width * _scene->lightmap_height, 1024);
+	printf("Done, total %d divisions\n", _aabbClusters.size());
+
+	//TODO: Raycasting time !!!
+	//For each cluster, we will trace 8000 rays
+	//Also generate rays from each probe to receiver hitpoints
+	//What I need? original ray direction -> visibility for each probe
+
+	//What about buffer needs? 
+	//A buffer containing receivers (max 1024)
+	//A buffer containing probe locations
+	//sceneDescBuffer and objectInfoBuffer
+	//Output buffer that is like this (assuming 2 receivers, 3 probes and 3 directions):
+	//R1D1P1 R1D1P2 R1D1P3 R1D2P1 R1D2P2 R1D2P3 R1D3P1 R1D3P2 R1D3P3
+	//R2D1P1 R2D1P2 R2D1P3 R2D2P1 R2D2P2 R2D2P3 R2D3P1 R2D3P2 R2D3P3
+	//struct will contain: Receiver id, vec 3 direction, probe id
+	//alternatively i can calculate direction on cpu beforehand, and it can be a float buffer with weighted distance between probe and receiver
+	//or the same but just an integer with 0 and 1
+
+	RaytracingPipeline rtPipeline = {};
+	VkDescriptorSetLayout rtDescriptorSetLayout;
+	VkDescriptorSet rtDescriptorSet;
+
+	//Descriptors: Acceleration structure, storage buffer to save results, Materials
+	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding sceneDescBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 1);
+	VkDescriptorSetLayoutBinding meshInfoBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 2);
+	VkDescriptorSetLayoutBinding probeLocationsBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 3);
+	VkDescriptorSetLayoutBinding receiverLocationsBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 4);
+	VkDescriptorSetLayoutBinding outBuffer = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 5);
+	VkDescriptorSetLayoutBinding bindings[6] = { tlasBind, sceneDescBind, meshInfoBind, probeLocationsBind, receiverLocationsBind, outBuffer };
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 6);
+	vkCreateDescriptorSetLayout(engine._device, &setinfo, nullptr, &rtDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocateInfo =
+		vkinit::descriptorset_allocate_info(engine._descriptorPool, &rtDescriptorSetLayout, 1);
+
+	vkAllocateDescriptorSets(engine._device, &allocateInfo, &rtDescriptorSet);
+
+	std::vector<VkWriteDescriptorSet> writes;
+
+	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+	descASInfo.accelerationStructureCount = 1;
+	descASInfo.pAccelerationStructures = &engine.vulkanRaytracing.tlas.accel;
+	VkWriteDescriptorSet accelerationStructureWrite{};
+	accelerationStructureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	// The specialized acceleration structure descriptor has to be chained
+	accelerationStructureWrite.pNext = &descASInfo;
+	accelerationStructureWrite.dstSet = rtDescriptorSet;
+	accelerationStructureWrite.dstBinding = 0;
+	accelerationStructureWrite.descriptorCount = 1;
+	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	writes.emplace_back(accelerationStructureWrite);
+
+	AllocatedBuffer sceneDescBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUSceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, rtDescriptorSet, &sceneDescBuffer._descriptorBufferInfo, 1));
+
+	AllocatedBuffer meshInfoBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUMeshInfo) * engine.gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &meshInfoBuffer._descriptorBufferInfo, 2));
+
+	AllocatedBuffer probeLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(glm::vec4) * _probes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBuffer._descriptorBufferInfo, 3));
+
+	AllocatedBuffer receiverLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUReceiverData) * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverLocationsBuffer._descriptorBufferInfo, 4));
+
+	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, 1024 * rays * _probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 5));
+
+	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vkinit::pipeline_layout_create_info(&rtDescriptorSetLayout, 1);
+
+	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_RAYGEN_BIT_KHR , 0, sizeof(int) };
+	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRanges;
+
+	engine.vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayoutCreateInfo,
+		"../../shaders/precalculate_receiver_rt.rgen.spv",
+		"../../shaders/precalculate_probe_rt.rmiss.spv",
+		"../../shaders/precalculate_probe_rt.rchit.spv");
+
+	{
+		GPUSceneDesc desc = {};
+		VkBufferDeviceAddressInfo info = { };
+		info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+
+		info.buffer = engine.vertex_buffer._buffer;
+		desc.vertexAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.normal_buffer._buffer;
+		desc.normalAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.tex_buffer._buffer;
+		desc.uvAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.index_buffer._buffer;
+		desc.indexAddress = vkGetBufferDeviceAddress(engine._device, &info);
+
+		info.buffer = engine.lightmap_tex_buffer._buffer;
+		desc.lightmapUvAddress = vkGetBufferDeviceAddress(engine._device, &info);
+		
+		vkutils::cpu_to_gpu(engine._allocator, sceneDescBuffer, &desc, sizeof(GPUSceneDesc));
+	}
+
+	{
+		vkutils::cpu_to_gpu(engine._allocator, probeLocationsBuffer, _probes.data(), sizeof(glm::vec4) * _probes.size());
+	}
+
+	{
+		void* data;
+		vmaMapMemory(engine._allocator, meshInfoBuffer._allocation, &data);
+		GPUMeshInfo* dataMesh = (GPUMeshInfo*)data;
+		for (int i = 0; i < engine.gltf_scene.prim_meshes.size(); i++) {
+			dataMesh[i].indexOffset = engine.gltf_scene.prim_meshes[i].first_idx;
+			dataMesh[i].vertexOffset = engine.gltf_scene.prim_meshes[i].vtx_offset;
+			dataMesh[i].materialIndex = engine.gltf_scene.prim_meshes[i].material_idx;
+		}
+		vmaUnmapMemory(engine._allocator, meshInfoBuffer._allocation);
+	}
+
+	for (int nodeIndex = 0; nodeIndex < _aabbClusters.size(); nodeIndex++) {
+
+		{
+			void* data;
+			vmaMapMemory(engine._allocator, receiverLocationsBuffer._allocation, &data);
+			GPUReceiverData* dataReceiver = (GPUReceiverData*)data;
+			for (int i = 0; i < _aabbClusters[nodeIndex].receivers.size(); i++) {
+				dataReceiver[i].pos = _aabbClusters[nodeIndex].receivers[i].position;
+				dataReceiver[i].normal = _aabbClusters[nodeIndex].receivers[i].normal;
+			}
+			vmaUnmapMemory(engine._allocator, receiverLocationsBuffer._allocation);
+		}
+
+		{
+			int probeCount = _probes.size();
+			VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, true);
+			std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
+			vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
+			vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
+				(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
+			vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
+				sizeof(int), &probeCount);
+			vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, _aabbClusters[nodeIndex].receivers.size(), rays, 1);
+			vkutils::submit_and_free_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, cmdBuf, engine.vulkanRaytracing._queue, engine.vulkanRaytracing._raytracingContext._fence);
+		}
+
+		Eigen::MatrixXf clusterMatrix = Eigen::MatrixXf(_aabbClusters[nodeIndex].receivers.size(), SPHERICAL_HARMONICS_NUM_COEFF * _probes.size());
+		void* mappedOutputData;
+		vmaMapMemory(engine._allocator, outputBuffer._allocation, &mappedOutputData);
+
+		// I need below as compute shader
+#pragma omp parallel for
+		for (int i = 0; i < _aabbClusters[nodeIndex].receivers.size(); i++) {
+			std::vector<float> weights;
+			weights.resize(_probes.size());
+			for (int j = 0; j < _probes.size(); j++) {
+				weights[j] = calculate_density(glm::distance(_aabbClusters[nodeIndex].receivers[i].position, glm::vec3(_probes[j])), _radius);
+			}
+
+			int validRays = 0;
+			for (int j = 0; j < rays; j++) {
+				float totalWeight = 0.f;
+				for (int k = 0; k < _probes.size(); k++) {
+					int result = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * _probes.size() + i * _probes.size() * rays].visibility;
+					totalWeight += result * weights[k];					
+				}
+				if (totalWeight > 0.f) {
+					for (int k = 0; k < _probes.size(); k++) {
+						int ctr = 0;
+						for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) {
+							for (int m = -l; m <= l; m++) {
+								auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * _probes.size() + i * _probes.size() * rays];
+								
+								Eigen::Vector3d dir(res.dir.x,
+									res.dir.y,
+									res.dir.z);
+								dir.normalize();
+
+								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) = (float)(sh::EvalSH(l, m, dir)) * res.visibility * weights[k];
+								
+								ctr++;
+							}
+						}
+					}
+					validRays++;
+				}
+			}
+			if (validRays > 0) {
+				clusterMatrix.row(i) *= 2 * M_PI / validRays; //maybe do not divide to valid rays? rather divide to rays?
+			}
+
+			//printf("Processing receiver %d\n", i);
+		}
+
+		printf("Starting SVD\n");
+
+		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
+		int nc = 32;
+		auto receiverReconstructionCoefficientMatrix = svd.matrixU().block(0, 0, svd.matrixU().rows(), nc);
+		auto singularMatrix = svd.singularValues().asDiagonal().toDenseMatrix().block(0, 0, nc, svd.matrixV().cols());
+		auto clusterProjectionMatrix = singularMatrix * svd.matrixV().transpose();
+
+		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
+		printf("Node tracing done %d/%d\n", nodeIndex, _aabbClusters.size());
+
+		//In this part, do the PCA stuff with spherical harmonics...
+		//Ideally while doing cpu stuff, gpu shouldn't be idle.
+		//That would be the next step, probably.
+		//Another idea would be to precalculate spherical harmonics etc. and also send them to gpu as well to calculate everything there
+		//Then I'd only do SVD decomposition on CPU (i.e. calculate the original matrix on GPU, compress on CPU)
+		//Each cluster will have it's own matrix.
+		//Can I calculate spherical harmonics on GPU?
+		//Rather can I rotate spherical harmonics? Try both solutions compare speed.
+		//If I can, just precalculate spherical harmonics for 1024 x probe.size() x rays and then rotate when using?
+		//I'll have a matrix of receivers X probes x basis functions. How do I do SVD on them?
+
+
+	}
+
+	printf("\n\n\n\n\nDone with receiver raytracing woooo!\n\n\n\n\n");
+
+	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
+
+	vmaDestroyBuffer(engine._allocator, sceneDescBuffer._buffer, sceneDescBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, meshInfoBuffer._buffer, meshInfoBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, receiverLocationsBuffer._buffer, probeLocationsBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
+	vkDestroyDescriptorSetLayout(engine._device, rtDescriptorSetLayout, nullptr);
 }

@@ -21,6 +21,7 @@ layout(buffer_reference, scalar) readonly buffer Vertices { vec3 v[]; };
 layout(buffer_reference, scalar) readonly buffer Indices { uint i[]; };
 layout(buffer_reference, scalar) readonly buffer Normals { vec3 n[]; };
 layout(buffer_reference, scalar) readonly buffer TexCoords { vec2 t[]; };
+layout(buffer_reference, scalar) readonly buffer LightmapTexCoords { vec2 t[]; };
 
 void main()
 {
@@ -31,6 +32,7 @@ void main()
     Vertices vertices = Vertices(sceneDesc.vertexAddress);
     Normals normals = Normals(sceneDesc.normalAddress);
     TexCoords texCoords = TexCoords(sceneDesc.uvAddress);
+    LightmapTexCoords lighmapTexCoords = LightmapTexCoords(sceneDesc.lightmapUvAddress);
 
     uint indexOffset = meshInfo.indexOffset + 3 * gl_PrimitiveID;
   
@@ -50,6 +52,10 @@ void main()
     const vec2 uv1 = texCoords.t[ind1 + meshInfo.vertexOffset];
     const vec2 uv2 = texCoords.t[ind2 + meshInfo.vertexOffset];
 
+    const vec2 lightmapUv0 = lighmapTexCoords.t[ind0 + meshInfo.vertexOffset];
+    const vec2 lightmapUv1 = lighmapTexCoords.t[ind1 + meshInfo.vertexOffset];
+    const vec2 lightmapUv2 = lighmapTexCoords.t[ind2 + meshInfo.vertexOffset];
+
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
     const vec3 pos = v0 * barycentrics.x + v1 * barycentrics.y + v2 * barycentrics.z;
@@ -60,8 +66,10 @@ void main()
 
     const vec2 uv = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     
+    const vec2 lightmapUv = lightmapUv0 * barycentrics.x + lightmapUv1 * barycentrics.y + lightmapUv2 * barycentrics.z;
+    
     payload.pos = worldPos;
-    payload.uv = uv;
+    payload.uv = lightmapUv;
     payload.objectId = gl_InstanceID;
 
     //debugPrintfEXT("->RAY CLOSEST HIT! The object id is: %d -- the coordinates are %f, %f, %f\n", gl_InstanceID, worldPos.x, worldPos.y, worldPos.z);

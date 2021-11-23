@@ -24,6 +24,7 @@
 #include <vk_extensions.h>
 #include <vk_debug_renderer.h>
 #include <xatlas.h>
+#include <random>
 
 VulkanDebugRenderer vkDebugRenderer;
 Precalculation precalculation;
@@ -201,10 +202,10 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	
+	////Show probe positions and raycasts
 	//for (int i = 0; i < precalculation._probes.size(); i++) {
 	//	vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, {1, 0, 0});
-	//	for (int j = 0; j < 128; j++) {
+	//	for (int j = 0; j < precalculation._raysPerProbe; j++) {
 	//		auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
 	//		if (ray.objectId != -1) {
 	//			vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
@@ -216,11 +217,19 @@ void VulkanEngine::draw()
 	//	}
 	//}
 
-	//for (int i = 0; i < gltf_scene.lightmap_width * gltf_scene.lightmap_height; i += 1) {
-	//	if (precalculation._receivers[i].exists) {
-	//		vkDebugRenderer.draw_point(precalculation._receivers[i].position * sceneScale, { 1, 0, 0 });
-	//	}
-	//}
+	//Show receiver clusters, receivers and their normals
+	std::random_device dev;
+	std::mt19937 rng(dev());
+	rng.seed(0);
+	std::uniform_real_distribution<> dist(0, 1);
+	
+	for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
+		glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
+		for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
+			vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
+			//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
+		}
+	}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -403,7 +412,7 @@ void VulkanEngine::run()
 		front.z = cos(glm::radians(camera.rotation.x)) * cos(glm::radians(camera.rotation.y));
 		front = glm::normalize(-front);
 
-		float speed = 0.5f;
+		float speed = 0.1f;
 
 		if (keys[SDL_SCANCODE_LSHIFT]) {
 			speed *= 4;
@@ -758,7 +767,7 @@ void VulkanEngine::init_framebuffers()
 		}
 	}
 
-	// Create shadowmap framebuffer and sampler
+	// Create shadowmap framebuffer and its sampler
 	{
 		VkExtent3D depthImageExtent3D = {
 			_shadowMapExtent.width,
@@ -1165,7 +1174,11 @@ void VulkanEngine::init_scene()
 		meshDecleration.indexFormat = xatlas::IndexFormat::UInt32;
 		xatlas::AddMesh(atlas, meshDecleration);
 	}
-	xatlas::Generate(atlas);
+
+	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
+	xatlas::PackOptions packOptions = xatlas::PackOptions();
+	packOptions.resolution = 256;
+	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;
 	gltf_scene.lightmap_height = atlas->height;
@@ -1240,6 +1253,9 @@ void VulkanEngine::init_scene()
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	tex_buffer = create_upload_buffer(gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	lightmap_tex_buffer = create_upload_buffer(gltf_scene.lightmapUVs.data(), gltf_scene.lightmapUVs.size() * sizeof(glm::vec2),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	material_buffer = create_upload_buffer(materials.data(), materials.size() * sizeof(GPUBasicMaterialData),
@@ -1332,7 +1348,8 @@ void VulkanEngine::init_scene()
 	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
 	Receiver* receivers = precalculation.generate_receivers();
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
-	precalculation.probe_raycast(*this, 128);
+	precalculation.probe_raycast(*this, 8000);
+	precalculation.receiver_raycast(*this, 8000);
 }
 
 void VulkanEngine::init_imgui()
