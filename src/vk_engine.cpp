@@ -62,6 +62,7 @@ void VulkanEngine::init()
 	init_swapchain();
 	init_default_renderpass();
 	init_shadowmap_renderpass();
+	init_lightmap_renderpass();
 	init_framebuffers();
 	init_commands();
 	init_sync_structures();
@@ -119,6 +120,9 @@ void VulkanEngine::draw()
 	_camData.proj = projection;
 	_camData.view = view;
 	_camData.viewproj = projection * view;
+
+	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
+	_camData.lightmapTargetSize = {_lightmapExtent.width, _lightmapExtent.height};
 
 	static float timer = 0.f;
 	static bool pauseTimer = false;
@@ -197,6 +201,7 @@ void VulkanEngine::draw()
 		ImGui::Checkbox(buffer, &pauseTimer);
 
 		ImGui::Image(shadowMapTextureDescriptor, { 128, 128 });
+		ImGui::Image(_lightmapTextureDescriptor, { 128, 128 });
 		ImGui::End();
 		
 		ImGui::Render();
@@ -218,18 +223,18 @@ void VulkanEngine::draw()
 	//}
 
 	//Show receiver clusters, receivers and their normals
-	std::random_device dev;
-	std::mt19937 rng(dev());
-	rng.seed(0);
-	std::uniform_real_distribution<> dist(0, 1);
-	
-	for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
-		glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
-		for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
-			vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
-			//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
-		}
-	}
+	//std::random_device dev;
+	//std::mt19937 rng(dev());
+	//rng.seed(0);
+	//std::uniform_real_distribution<> dist(0, 1);
+	//
+	//for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
+	//	glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
+	//	for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
+	//		vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
+	//		//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
+	//	}
+	//}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -294,14 +299,65 @@ void VulkanEngine::draw()
 			vkCmdEndRenderPass(cmd);
 		}
 
-		// DEFAULT SCENE RENDERING
+		// LIGHTMAP RENDERING
+		{
+			VkClearValue clearValue;
+			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_lightmapRenderPass, _lightmapExtent, _lightmapFramebuffer);
+
+			rpInfo.clearValueCount = 1;
+			VkClearValue clearValues[] = { clearValue };
+			rpInfo.pClearValues = clearValues;
+
+			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			cmd_viewport_scissor(cmd, _lightmapExtent);
+
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &textureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &materialDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
+
+			draw_objects(cmd);
+
+			//finalize the render pass
+			vkCmdEndRenderPass(cmd);
+		}
+
+		// LIGHTMAP DILATION RENDERIN
+		{
+			VkClearValue clearValue;
+			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_lightmapRenderPass, _lightmapExtent, _dilatedLightmapFramebuffer);
+
+			rpInfo.clearValueCount = 1;
+			VkClearValue clearValues[] = { clearValue };
+			rpInfo.pClearValues = clearValues;
+
+			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			cmd_viewport_scissor(cmd, _lightmapExtent);
+
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 1, 1, &_lightmapTextureDescriptor, 0, nullptr);
+			vkCmdDraw(cmd, 3, 1, 0, 0);
+
+			//finalize the render pass
+			vkCmdEndRenderPass(cmd);
+		}
+
+		// GI RENDERING
 		{
 			VkClearValue clearValue;
 			clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
 
 			VkClearValue depthClear;
-			depthClear.depthStencil.depth = 1.f;
-
+			depthClear.depthStencil = { 1.0f, 0 };
 			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_renderPass, _windowExtent, _framebuffers[swapchainImageIndex]);
 
 			rpInfo.clearValueCount = 2;
@@ -312,20 +368,24 @@ void VulkanEngine::draw()
 
 			cmd_viewport_scissor(cmd, _windowExtent);
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 2, 1, &textureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 3, 1, &materialDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 2, 1, &textureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 3, 1, &materialDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 4, 1, &_dilatedLightmapTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
 
 			vkDebugRenderer.render(cmd, get_current_frame().globalDescriptor);
-
 			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-			//finalize the render pass
+
 			vkCmdEndRenderPass(cmd);
+		}
+
+		//POST PROCESSING + UI
+		{
+			//TODO
 		}
 	}
 	
@@ -738,6 +798,62 @@ void VulkanEngine::init_shadowmap_renderpass()
 	VK_CHECK(vkCreateRenderPass(_device, &renderPassCreateInfo, nullptr, &_shadowMapRenderPass));
 }
 
+void VulkanEngine::init_lightmap_renderpass()
+{
+	OPTICK_EVENT();
+
+	VkAttachmentDescription colorAttachment = {};
+	colorAttachment.format = depthMapColorFormat;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference colorReference = {};
+	colorReference.attachment = 0;
+	colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorReference;
+
+	// Use subpass dependencies for layout transitions
+	std::array<VkSubpassDependency, 2> dependencies;
+
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkAttachmentDescription attachments[1] = { colorAttachment };
+
+	VkRenderPassCreateInfo renderPassCreateInfo = {};
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = attachments;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpass;
+	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+	renderPassCreateInfo.pDependencies = dependencies.data();
+
+	VK_CHECK(vkCreateRenderPass(_device, &renderPassCreateInfo, nullptr, &_lightmapRenderPass));
+}
+
 void VulkanEngine::init_framebuffers()
 {
 	OPTICK_EVENT();
@@ -810,6 +926,67 @@ void VulkanEngine::init_framebuffers()
 		fb_info.pAttachments = attachments;
 		fb_info.attachmentCount = 2;
 		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &_shadowMapFramebuffer));
+	}
+
+	// Create lightmap framebuffer and its sampler
+	{
+		VkExtent3D lightmapImageExtent3D = {
+			_lightmapExtent.width,
+			_lightmapExtent.height,
+			1
+		};
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_lightmapColorImage._image, &_lightmapColorImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_lightmapColorImageView));
+		}
+
+		VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+		samplerInfo.mipLodBias = 0.0f;
+		samplerInfo.maxAnisotropy = 1.0f;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = 1.0f;
+		VK_CHECK(vkCreateSampler(_device, &samplerInfo, nullptr, &_lightmapSampler));
+
+		VkImageView attachments[1] = { _lightmapColorImageView };
+
+		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_lightmapRenderPass, _lightmapExtent);
+		fb_info.pAttachments = attachments;
+		fb_info.attachmentCount = 1;
+		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &_lightmapFramebuffer));
+	}
+
+	// Create dilated lightmap framebuffer and its sampler
+	{
+		VkExtent3D lightmapImageExtent3D = {
+			_lightmapExtent.width,
+			_lightmapExtent.height,
+			1
+		};
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedLightmapColorImage._image, &_dilatedLightmapColorImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedLightmapColorImageView));
+		}
+
+		VkImageView attachments[1] = { _dilatedLightmapColorImageView };
+
+		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_lightmapRenderPass, _lightmapExtent);
+		fb_info.pAttachments = attachments;
+		fb_info.attachmentCount = 1;
+		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &_dilatedLightmapFramebuffer));
 	}
 }
 
@@ -906,7 +1083,7 @@ void VulkanEngine::init_descriptors()
 	//binding set for camera data + shadow map data
 	VkDescriptorSetLayoutBinding bindings[2] = { 
 		// camera
-		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
 		// shadow map data
 		 vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1)
 	};
@@ -934,10 +1111,11 @@ void VulkanEngine::init_descriptors()
 	setinfo = vkinit::descriptorset_layout_create_info(&shadowMapDataBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_shadowMapDataSetLayout);
 
-	//binding set for shadow map texture
-	VkDescriptorSetLayoutBinding shadowMapTextureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-	setinfo = vkinit::descriptorset_layout_create_info(&shadowMapTextureBind, 1);
-	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_shadowMapTextureSetLayout);
+	//binding set fragment shader single texture
+	VkDescriptorSetLayoutBinding fragmentTextureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	setinfo = vkinit::descriptorset_layout_create_info(&fragmentTextureBind, 1);
+	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_fragmentTextureDescriptorSetLayout);
+
 
 	for (int i = 0; i < FRAME_OVERLAP; i++)
 	{
@@ -975,11 +1153,43 @@ void VulkanEngine::init_descriptors()
 		imageBufferInfo.imageView = _shadowMapColorImageView;
 		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_shadowMapTextureSetLayout, 1);
+		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
 
 		vkAllocateDescriptorSets(_device, &allocInfo, &shadowMapTextureDescriptor);
 
 		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shadowMapTextureDescriptor, &imageBufferInfo, 0, 1);
+
+		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+	}
+
+	//Lightmap texture descriptor
+	{
+		VkDescriptorImageInfo imageBufferInfo;
+		imageBufferInfo.sampler = _lightmapSampler;
+		imageBufferInfo.imageView = _lightmapColorImageView;
+		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
+
+		vkAllocateDescriptorSets(_device, &allocInfo, &_lightmapTextureDescriptor);
+
+		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _lightmapTextureDescriptor, &imageBufferInfo, 0, 1);
+
+		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+	}
+
+	//Dilated lightmap texture descriptor
+	{
+		VkDescriptorImageInfo imageBufferInfo;
+		imageBufferInfo.sampler = _lightmapSampler;
+		imageBufferInfo.imageView = _dilatedLightmapColorImageView;
+		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
+
+		vkAllocateDescriptorSets(_device, &allocInfo, &_dilatedLightmapTextureDescriptor);
+
+		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _dilatedLightmapTextureDescriptor, &imageBufferInfo, 0, 1);
 
 		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
 	}
@@ -1001,16 +1211,16 @@ void VulkanEngine::init_descriptors()
 void VulkanEngine::init_pipelines() {
 	OPTICK_EVENT();
 
-	VkShaderModule meshVertShader;
-	if (!vkutils::load_shader_module(_device, "../../shaders/default.vert.spv", &meshVertShader))
+	VkShaderModule lightmapVertShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/lightmap.vert.spv", &lightmapVertShader))
 	{
-		assert("Default Vertex Shader Loading Issue");
+		assert("Lightmap Vertex Shader Loading Issue");
 	}
 
-	VkShaderModule texturedMeshShader;
-	if (!vkutils::load_shader_module(_device, "../../shaders/default.frag.spv", &texturedMeshShader))
+	VkShaderModule lightmapFragShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/lightmap.frag.spv", &lightmapFragShader))
 	{
-		assert("Default Vertex Shader Loading Issue");
+		assert("Lightmap Vertex Shader Loading Issue");
 	}
 
 	VkShaderModule shadowMapVertShader;
@@ -1025,11 +1235,34 @@ void VulkanEngine::init_pipelines() {
 		assert("Shadow Fragment Shader Loading Issue");
 	}
 
-	//MESH PIPELINE LAYOUT INFO
+	VkShaderModule giVertShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/gi.vert.spv", &giVertShader))
 	{
-		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _shadowMapTextureSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
-		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_meshPipelineLayout));
+		assert("GI Vertex Shader Loading Issue");
+	}
+
+	VkShaderModule giFragShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/gi.frag.spv", &giFragShader))
+	{
+		assert("GI Fragment Shader Loading Issue");
+	}
+
+	VkShaderModule fullscreenVertShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/fullscreen.vert.spv", &fullscreenVertShader))
+	{
+		assert("Fullscreen vertex Shader Loading Issue");
+	}
+	
+	VkShaderModule dilationFragShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/dilate.frag.spv", &dilationFragShader))
+	{
+		assert("Dilation Fragment Shader Loading Issue");
+	}
+
+	VkShaderModule gammaFragShader;
+	if (!vkutils::load_shader_module(_device, "../../shaders/gamma.frag.spv", &gammaFragShader))
+	{
+		assert("Gamma Fragment Shader Loading Issue");
 	}
 
 	//SHADOWMAP PIPELINE LAYOUT INFO
@@ -1037,6 +1270,34 @@ void VulkanEngine::init_pipelines() {
 		VkDescriptorSetLayout setLayouts[] = { _shadowMapDataSetLayout, _objectSetLayout };
 		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
 		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_shadowMapPipelineLayout));
+	}
+
+	//LIGHTMAP PIPELINE LAYOUT INFO
+	{
+		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
+		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
+	}
+
+	//GI PIPELINE LAYOUT INFO
+	{
+		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
+		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_giPipelineLayout));
+	}
+
+	//DILATION PIPELINE LAYOUT INFO
+	{
+		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
+		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_dilationPipelineLayout));
+	}
+
+	//GAMMA PIPELINE LAYOUT INFO
+	{
+		VkDescriptorSetLayout setLayouts[] = { _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
+		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
 	}
 
 	//build the stage-create-info for both vertex and fragment stages. This lets the pipeline know the shader modules per stage
@@ -1051,6 +1312,7 @@ void VulkanEngine::init_pipelines() {
 
 	//configure the rasterizer to draw filled triangles
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
+	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
 
 	//we don't use multisampling, so just run the default one
 	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
@@ -1058,8 +1320,6 @@ void VulkanEngine::init_pipelines() {
 	//a single blend attachment with no blending and writing to RGBA
 
 	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &vkinit::color_blend_attachment_state());
-
-	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
 	//build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
@@ -1071,16 +1331,18 @@ void VulkanEngine::init_pipelines() {
 
 	//add the other shaders
 	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, lightmapVertShader));
 
 	//make sure that triangleFragShader is holding the compiled colored_triangle.frag
 	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, texturedMeshShader));
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, lightmapFragShader));
 
-	pipelineBuilder._pipelineLayout = _meshPipelineLayout;
+	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+	pipelineBuilder._pipelineLayout = _lightmapPipelineLayout;
 
 	//build the mesh triangle pipeline
-	_meshPipeline = pipelineBuilder.build_pipeline(_device, _renderPass);
+	_lightmapPipeline = pipelineBuilder.build_pipeline(_device, _lightmapRenderPass);
 
 	/*
 	* / VVVVVVVVVVVVV SHADOW MAP PIPELINE VVVVVVVVVVVVV
@@ -1093,23 +1355,84 @@ void VulkanEngine::init_pipelines() {
 		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, shadowMapFragShader));
 	//pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(0, nullptr);
 
-	//pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
+	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
 	pipelineBuilder._pipelineLayout = _shadowMapPipelineLayout;
 
 	_shadowMapPipeline = pipelineBuilder.build_pipeline(_device, _shadowMapRenderPass);
-	
+
+	/*
+	* / VVVVVVVVVVVVV GI PIPELINE VVVVVVVVVVVVV
+	*/
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, giVertShader));
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, giFragShader));
+	pipelineBuilder._pipelineLayout = _giPipelineLayout;
+	_giPipeline = pipelineBuilder.build_pipeline(_device, _renderPass);
+
+	/*
+	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
+	*/
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, dilationFragShader));
+	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+	pipelineBuilder._rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	VkPipelineVertexInputStateCreateInfo emptyInputState = {};
+	emptyInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	emptyInputState.vertexAttributeDescriptionCount = 0;
+	emptyInputState.pVertexAttributeDescriptions = nullptr;
+	emptyInputState.vertexBindingDescriptionCount = 0;
+	emptyInputState.pVertexBindingDescriptions = nullptr;
+	pipelineBuilder._vertexInputInfo = emptyInputState;
+	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
+	pipelineBuilder._pipelineLayout = _dilationPipelineLayout;
+
+	_dilationPipeline = pipelineBuilder.build_pipeline(_device, _lightmapRenderPass);
+	/*
+	* / VVVVVVVVVVVVV GAMMA PIPELINE VVVVVVVVVVVVV
+	*/
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
+	pipelineBuilder._shaderStages.push_back(
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, gammaFragShader));
+	pipelineBuilder._pipelineLayout = _gammaPipelineLayout;
+
+	_gammaPipeline = pipelineBuilder.build_pipeline(_device, _lightmapRenderPass);
+
 	//destroy all shader modules, outside of the queue
-	vkDestroyShaderModule(_device, meshVertShader, nullptr);
-	vkDestroyShaderModule(_device, texturedMeshShader, nullptr);
+	vkDestroyShaderModule(_device, lightmapVertShader, nullptr);
+	vkDestroyShaderModule(_device, lightmapFragShader, nullptr);
 	vkDestroyShaderModule(_device, shadowMapVertShader, nullptr);
 	vkDestroyShaderModule(_device, shadowMapFragShader, nullptr);
+	vkDestroyShaderModule(_device, giVertShader, nullptr);
+	vkDestroyShaderModule(_device, giFragShader, nullptr);
+
+	vkDestroyShaderModule(_device, fullscreenVertShader, nullptr);
+	vkDestroyShaderModule(_device, dilationFragShader, nullptr);
+	vkDestroyShaderModule(_device, gammaFragShader, nullptr);
 
 	_mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(_device, _meshPipeline, nullptr);
-		vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
+		vkDestroyPipeline(_device, _lightmapPipeline, nullptr);
+		vkDestroyPipelineLayout(_device, _lightmapPipelineLayout, nullptr);
 
 		vkDestroyPipeline(_device, _shadowMapPipeline, nullptr);
 		vkDestroyPipelineLayout(_device, _shadowMapPipelineLayout, nullptr);
+
+		vkDestroyPipeline(_device, _giPipeline, nullptr);
+		vkDestroyPipelineLayout(_device, _giPipelineLayout, nullptr);
+
+		vkDestroyPipeline(_device, _dilationPipeline, nullptr);
+		vkDestroyPipelineLayout(_device, _dilationPipelineLayout, nullptr);
+
+		vkDestroyPipeline(_device, _gammaPipeline, nullptr);
+		vkDestroyPipelineLayout(_device, _gammaPipelineLayout, nullptr);
 	});
 }
 
@@ -1349,7 +1672,7 @@ void VulkanEngine::init_scene()
 	Receiver* receivers = precalculation.generate_receivers();
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
 	precalculation.probe_raycast(*this, 8000);
-	precalculation.receiver_raycast(*this, 8000);
+	//precalculation.receiver_raycast(*this, 8000);
 }
 
 void VulkanEngine::init_imgui()
@@ -1471,9 +1794,9 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd)
 	OPTICK_EVENT();
 
 	{
-		VkDeviceSize offsets[] = { 0, 0, 0 };
-		VkBuffer buffers[] = { vertex_buffer._buffer, normal_buffer._buffer, tex_buffer._buffer };
-		vkCmdBindVertexBuffers(cmd, 0, 3, buffers, offsets);
+		VkDeviceSize offsets[] = { 0, 0, 0, 0 };
+		VkBuffer buffers[] = { vertex_buffer._buffer, normal_buffer._buffer, tex_buffer._buffer, lightmap_tex_buffer._buffer };
+		vkCmdBindVertexBuffers(cmd, 0, 4, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		for (int i = 0; i < gltf_scene.nodes.size(); i++) {

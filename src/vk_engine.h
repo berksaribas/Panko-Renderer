@@ -109,15 +109,13 @@ public:
 	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
 	AllocatedBuffer vertex_buffer, index_buffer, normal_buffer;
+	VkDescriptorSetLayout _fragmentTextureDescriptorSetLayout;
 
 	/* DEFAULT RENDERING VARIABLES */
 	VkRenderPass _renderPass;
 
 	VkImageView _depthImageView;
 	AllocatedImage _depthImage;
-
-	VkPipeline _meshPipeline;
-	VkPipelineLayout _meshPipelineLayout;
 
 	FrameData _frames[FRAME_OVERLAP];
 	AllocatedBuffer tex_buffer, material_buffer, lightmap_tex_buffer;
@@ -153,9 +151,39 @@ public:
 	VkPipelineLayout _shadowMapPipelineLayout;
 
 	VkDescriptorSetLayout _shadowMapDataSetLayout;
-	VkDescriptorSetLayout _shadowMapTextureSetLayout;
 
 	GPUShadowMapData _shadowMapData;
+
+	/* LIGHTMAP VARIABLES */
+	VkExtent2D _lightmapExtent{ 2048 , 2048 };
+	VkRenderPass _lightmapRenderPass;
+
+	AllocatedImage _lightmapColorImage;
+	VkImageView _lightmapColorImageView;
+	VkSampler _lightmapSampler;
+	VkFramebuffer _lightmapFramebuffer;
+	VkDescriptorSet _lightmapTextureDescriptor;
+
+	AllocatedImage _dilatedLightmapColorImage;
+	VkImageView _dilatedLightmapColorImageView;
+	VkFramebuffer _dilatedLightmapFramebuffer;
+	VkDescriptorSet _dilatedLightmapTextureDescriptor;
+
+
+	VkPipeline _lightmapPipeline;
+	VkPipelineLayout _lightmapPipelineLayout;
+
+
+	/* GI VARIABLES */
+	VkPipeline _giPipeline;
+	VkPipelineLayout _giPipelineLayout;
+
+	/* Post processing pipelines */
+	VkPipeline _dilationPipeline;
+	VkPipelineLayout _dilationPipelineLayout;
+
+	VkPipeline _gammaPipeline;
+	VkPipelineLayout _gammaPipelineLayout;
 
 	//initializes everything in the engine
 	void init();
@@ -186,6 +214,8 @@ private:
 	void init_default_renderpass();
 
 	void init_shadowmap_renderpass();
+
+	void init_lightmap_renderpass();
 
 	void init_framebuffers();
 

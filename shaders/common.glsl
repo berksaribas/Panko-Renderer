@@ -36,6 +36,8 @@ struct GPUCameraData {
 	mat4 viewproj;
 	vec4 lightPos;
 	vec4 lightColor;
+	vec2 lightmapInputSize;
+	vec2 lightmapTargetSize;
 };
 
 struct GPUObjectData{

@@ -21,9 +21,15 @@ VertexInputDescription Vertex::get_vertex_description()
 	tex_binding.stride = sizeof(glm::vec2);
 	tex_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
+	VkVertexInputBindingDescription lightmap_binding = {};
+	lightmap_binding.binding = 3;
+	lightmap_binding.stride = sizeof(glm::vec2);
+	lightmap_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
 	description.bindings.push_back(vertex_binding);
 	description.bindings.push_back(normal_binding);
 	description.bindings.push_back(tex_binding);
+	description.bindings.push_back(lightmap_binding);
 
 	//Position will be stored at Location 0
 	VkVertexInputAttributeDescription positionAttribute = {};
@@ -46,8 +52,15 @@ VertexInputDescription Vertex::get_vertex_description()
 	uvAttribute.format = VK_FORMAT_R32G32_SFLOAT;
 	uvAttribute.offset = 0;
 
+	VkVertexInputAttributeDescription lightmapAttribute = {};
+	lightmapAttribute.binding = 3;
+	lightmapAttribute.location = 3;
+	lightmapAttribute.format = VK_FORMAT_R32G32_SFLOAT;
+	lightmapAttribute.offset = 0;
+
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(uvAttribute);
+	description.attributes.push_back(lightmapAttribute);
 	return description;
 }
