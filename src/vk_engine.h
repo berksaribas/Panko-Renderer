@@ -131,10 +131,12 @@ public:
 	GPUCameraData _camData;
 	float sceneScale = 0.3f;
 
+	VkRenderPass _colorDepthRenderPass;
+	VkRenderPass _colorRenderPass;
+	VkSampler _linearSampler;
+
 	/* SHADOW MAP VARIABLES */
 	VkExtent2D _shadowMapExtent{ 4096 , 4096 };
-
-	VkRenderPass _shadowMapRenderPass;
 
 	AllocatedImage _shadowMapDepthImage;
 	VkImageView _shadowMapDepthImageView;
@@ -142,7 +144,6 @@ public:
 	AllocatedImage _shadowMapColorImage;
 	VkImageView _shadowMapColorImageView;
 
-	VkSampler _shadowMapSampler;
 	VkFramebuffer _shadowMapFramebuffer;
 
 	VkDescriptorSet shadowMapTextureDescriptor;
@@ -156,11 +157,9 @@ public:
 
 	/* LIGHTMAP VARIABLES */
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
-	VkRenderPass _lightmapRenderPass;
 
 	AllocatedImage _lightmapColorImage;
 	VkImageView _lightmapColorImageView;
-	VkSampler _lightmapSampler;
 	VkFramebuffer _lightmapFramebuffer;
 	VkDescriptorSet _lightmapTextureDescriptor;
 
@@ -177,6 +176,13 @@ public:
 	/* GI VARIABLES */
 	VkPipeline _giPipeline;
 	VkPipelineLayout _giPipelineLayout;
+
+	AllocatedImage _giColorImage;
+	VkImageView _giColorImageView;
+	AllocatedImage _giDepthImage;
+	VkImageView _giDepthImageView;
+	VkFramebuffer _giFramebuffer;
+	VkDescriptorSet _giColorTextureDescriptor;
 
 	/* Post processing pipelines */
 	VkPipeline _dilationPipeline;
@@ -213,9 +219,9 @@ private:
 
 	void init_default_renderpass();
 
-	void init_shadowmap_renderpass();
+	void init_colordepth_renderpass();
 
-	void init_lightmap_renderpass();
+	void init_color_renderpass();
 
 	void init_framebuffers();
 

@@ -732,7 +732,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 			for (int m = -l; m <= l; m++) {
 				_probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
 				ctr++;
-			} //TODO: This feels wrong. My output should be probe count x 64 but this is something else?
+			} 
 		}
 	}
 
