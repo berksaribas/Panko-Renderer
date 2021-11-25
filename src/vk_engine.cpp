@@ -9,7 +9,6 @@
 #include <vk_initializers.h>
 
 #include "vk_pipeline.h"
-
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
@@ -32,6 +31,21 @@ const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
 const VkFormat depthMapColorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+
+ComputeInstance probeRelight = {};
+ComputeInstance clusterProjection = {};
+ComputeInstance receiverReconstruction = {};
+AllocatedImage giInirectLightImage;
+VkImageView giInirectLightImageView;
+VkDescriptorSet giInirectLightTextureDescriptor;
+AllocatedBuffer probeRelightOutputBuffer;
+AllocatedBuffer clusterProjectionOutputBuffer;
+
+bool enableGi = false;
+bool showProbes = false;
+bool showReceivers = false;
+
 
 void VulkanEngine::init()
 {
@@ -75,6 +89,8 @@ void VulkanEngine::init()
 
 	init_imgui();
 	init_scene();
+
+	init_gi();
 
 	//everything went fine
 	_isInitialized = true;
@@ -202,39 +218,50 @@ void VulkanEngine::draw()
 
 		ImGui::Image(shadowMapTextureDescriptor, { 128, 128 });
 		ImGui::Image(_lightmapTextureDescriptor, { 128, 128 });
+		ImGui::Image(giInirectLightTextureDescriptor, { 128, 128 });
 		ImGui::End();
+
+		sprintf_s(buffer, "Show Probes");
+		ImGui::Checkbox(buffer, &showProbes);
+
+		sprintf_s(buffer, "Show Receivers");
+		ImGui::Checkbox(buffer, &showReceivers);
+
 		
 		ImGui::Render();
 	}
 
-	////Show probe positions and raycasts
-	//for (int i = 0; i < precalculation._probes.size(); i++) {
-	//	vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, {1, 0, 0});
-	//	for (int j = 0; j < precalculation._raysPerProbe; j++) {
-	//		auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
-	//		if (ray.objectId != -1) {
-	//			vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
-	//				glm::vec3(ray.worldPos) * sceneScale,
-	//				{ 0, 0, 1 });
-	//
-	//			vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
-	//		}
-	//	}
-	//}
+	if (showProbes) {
+		for (int i = 0; i < precalculation._probes.size(); i++) {
+			vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, { 1, 0, 0 });
+			continue;
+			for (int j = 0; j < precalculation._raysPerProbe; j++) {
+				auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
+				if (ray.objectId != -1) {
+					vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
+						glm::vec3(ray.worldPos) * sceneScale,
+						{ 0, 0, 1 });
 
-	//Show receiver clusters, receivers and their normals
-	//std::random_device dev;
-	//std::mt19937 rng(dev());
-	//rng.seed(0);
-	//std::uniform_real_distribution<> dist(0, 1);
-	//
-	//for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
-	//	glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
-	//	for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
-	//		vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
-	//		//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
-	//	}
-	//}
+					vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
+				}
+			}
+		}
+	}
+
+	if (showReceivers) {
+		std::random_device dev;
+		std::mt19937 rng(dev());
+		rng.seed(0);
+		std::uniform_real_distribution<> dist(0, 1);
+		
+		for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
+			glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
+			for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
+				vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
+				//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
+			}
+		}
+	}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -296,6 +323,7 @@ void VulkanEngine::draw()
 
 			draw_objects(cmd);
 
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowMapPipeline);
 			vkCmdEndRenderPass(cmd);
 		}
 
@@ -320,11 +348,93 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &textureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &materialDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &giInirectLightTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
 
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
+		}
+
+		{
+			// i need an image barrier here?
+			//probably i dont since that's done via subpass dependencies
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 0, nullptr);
+		}
+
+		//GI - Probe relight
+		{
+			int groupcount = ((precalculation._probes.size() * precalculation._raysPerProbe) / 256) + 1;
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 0, 1, &probeRelight.descriptorSet, 0, nullptr);
+			vkCmdDispatch(cmd, groupcount, 1, 1);
+		}
+
+		{
+			VkBufferMemoryBarrier barrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER } ;
+			barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.offset = 0;
+			barrier.size = VK_WHOLE_SIZE;
+			barrier.buffer = probeRelightOutputBuffer._buffer;
+
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 1, & barrier, 0, nullptr);
+		}
+
+		//GI - Cluster Projection
+		{
+			int groupcount = ((precalculation._aabbClusters.size()) / 256) + 1;
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipelineLayout, 0, 1, &clusterProjection.descriptorSet, 0, nullptr);
+			vkCmdDispatch(cmd, groupcount, 1, 1);
+		}
+
+		{
+			VkBufferMemoryBarrier barrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.offset = 0;
+			barrier.size = VK_WHOLE_SIZE;
+			barrier.buffer = clusterProjectionOutputBuffer._buffer;
+
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 1, &barrier, 0, nullptr);
+		}
+
+		//GI - Receiver Projection
+		{
+			int groupcount = ((precalculation._aabbClusters.size()) / 256) + 1;
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipelineLayout, 0, 1, &receiverReconstruction.descriptorSet, 0, nullptr);
+			vkCmdDispatch(cmd, groupcount, 1, 1);
+		}
+
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			// We won't be changing the layout of the image
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageMemoryBarrier.image = giInirectLightImage._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
 		}
 
 		// LIGHTMAP DILATION RENDERIN
@@ -378,13 +488,9 @@ void VulkanEngine::draw()
 
 			draw_objects(cmd);
 
-			vkDebugRenderer.render(cmd, get_current_frame().globalDescriptor);
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
 			vkCmdEndRenderPass(cmd);
 		}
 		
-
 		//POST PROCESSING + UI
 		{
 			VkClearValue clearValue;
@@ -803,7 +909,7 @@ void VulkanEngine::init_colordepth_renderpass()
 	dependencies[1].srcSubpass = 0;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -859,7 +965,7 @@ void VulkanEngine::init_color_renderpass()
 	dependencies[1].srcSubpass = 0;
 	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -1124,7 +1230,8 @@ void VulkanEngine::init_descriptors()
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 }
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 }
 	};
 
 	VkDescriptorPoolCreateInfo pool_info = {};
@@ -1347,8 +1454,8 @@ void VulkanEngine::init_pipelines() {
 
 	//LIGHTMAP PIPELINE LAYOUT INFO
 	{
-		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _fragmentTextureDescriptorSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
+		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout, _materialSetLayout, _fragmentTextureDescriptorSetLayout, _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
 		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
 	}
 
@@ -1745,7 +1852,7 @@ void VulkanEngine::init_scene()
 	Receiver* receivers = precalculation.generate_receivers();
 	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
 	precalculation.probe_raycast(*this, 8000);
-	//precalculation.receiver_raycast(*this, 8000);
+	precalculation.receiver_raycast(*this, 8000);
 }
 
 void VulkanEngine::init_imgui()
@@ -1833,6 +1940,117 @@ void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 	scissor.extent = extent;
 	vkCmdSetViewport(cmd, 0, 1, &viewport);
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
+}
+
+void VulkanEngine::init_gi()
+{
+	//Config buffer (GPU ONLY)
+	GIConfig config = {};
+	config.probeCount = precalculation._probes.size();
+	config.basisFunctionCount = SPHERICAL_HARMONICS_NUM_COEFF;
+	config.rayCount = precalculation._raysPerProbe;
+	config.clusterCount = precalculation._aabbClusters.size();
+	config.lightmapInputSize = glm::vec2(gltf_scene.lightmap_width, gltf_scene.lightmap_height);
+	config.pcaCoefficient = CLUSTER_COEFFICIENT_COUNT;
+
+	auto configBuffer = create_upload_buffer(&config, sizeof(GIConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//GPUProbeRaycastResult buffer (GPU ONLY)
+	auto probeRaycastResultBuffer = create_upload_buffer(precalculation._probeRaycastResult, sizeof(GPUProbeRaycastResult) * precalculation._probes.size() * precalculation._raysPerProbe, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//ProbeBasisFunctions buffer (GPU ONLY)
+	auto probeBasisBuffer = create_upload_buffer(precalculation._probeRaycastBasisFunctions, sizeof(float) * precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//gi_probe_projection Temp buffer (GPU ONLY)
+	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//gi_probe_projection output buffer (GPU ONLY)
+	probeRelightOutputBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * precalculation._probes.size() * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	
+	//Create compute instances
+	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::UNIFORM, configBuffer);
+	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeRaycastResultBuffer);
+	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeBasisBuffer);
+	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeRelightTempBuffer);
+	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeRelightOutputBuffer);
+	vulkanCompute.add_texture_binding(probeRelight, ComputeBufferType::TEXTURE_SAMPLED, _linearSampler, _lightmapColorImageView);
+	vulkanCompute.build(probeRelight, _descriptorPool, "../../shaders/gi_probe_projection.comp.spv");
+
+
+	//Cluster projection matrices (GPU ONLY)
+	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculation._clusterProjectionMatrices, config.clusterCount * config.probeCount * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT * sizeof(float) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//gi_cluster_projection output buffer (GPU ONLY)
+	clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, config.clusterCount * CLUSTER_COEFFICIENT_COUNT * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::UNIFORM, configBuffer);
+	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::STORAGE, probeRelightOutputBuffer);
+	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::STORAGE, clusterProjectionMatricesBuffer);
+	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::STORAGE, clusterProjectionOutputBuffer);
+	vulkanCompute.build(clusterProjection, _descriptorPool, "../../shaders/gi_cluster_projection.comp.spv");
+
+
+	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculation._receiverCoefficientMatrices, precalculation._totalClusterReceiverCount * CLUSTER_COEFFICIENT_COUNT * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverCounts = create_upload_buffer(precalculation._clusterReceiverCounts, config.clusterCount * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverOffsets = create_upload_buffer(precalculation._clusterReceiverOffsets, config.clusterCount * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverUvs = create_upload_buffer(precalculation._clusterReceiverUvs, precalculation._totalClusterReceiverCount * sizeof(glm::vec2), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	VkExtent3D lightmapImageExtent3D = {
+			gltf_scene.lightmap_width,
+			gltf_scene.lightmap_height,
+			1
+	};
+	{
+		VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+		VmaAllocationCreateInfo dimg_allocinfo = {};
+		dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+		dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &giInirectLightImage._image, &giInirectLightImage._allocation, nullptr);
+
+		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, giInirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+		VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &giInirectLightImageView));
+	}
+
+	{
+		VkDescriptorImageInfo imageBufferInfo;
+		imageBufferInfo.sampler = _linearSampler;
+		imageBufferInfo.imageView = giInirectLightImageView;
+		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
+
+		vkAllocateDescriptorSets(_device, &allocInfo, &giInirectLightTextureDescriptor);
+
+		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, giInirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
+
+		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+	}
+
+	immediate_submit([&](VkCommandBuffer cmd) {
+		VkImageMemoryBarrier imageMemoryBarrier = {};
+		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		imageMemoryBarrier.image = giInirectLightImage._image;
+		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		imageMemoryBarrier.srcAccessMask = 0;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+		vkCmdPipelineBarrier(
+			cmd,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &imageMemoryBarrier);
+	});
+
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::UNIFORM, configBuffer);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterProjectionOutputBuffer);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, receiverReconstructionMatricesBuffer);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverCounts);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverOffsets);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverUvs);
+	vulkanCompute.add_texture_binding(receiverReconstruction, ComputeBufferType::TEXTURE_STORAGE, 0, giInirectLightImageView);
+	vulkanCompute.build(receiverReconstruction, _descriptorPool, "../../shaders/gi_receiver_reconstruction.comp.spv");
 }
 
 AllocatedBuffer VulkanEngine::create_upload_buffer(void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)

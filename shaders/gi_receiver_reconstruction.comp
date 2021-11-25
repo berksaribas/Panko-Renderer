@@ -1,0 +1,52 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_debug_printf : enable
+
+#include "common.glsl"
+
+layout (local_size_x = 256) in;
+
+layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
+layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 clusterProjectionColors[]; };
+layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { float receiverReconstructionMatrices[]; };
+layout(std430, set = 0, binding = 3) readonly buffer _InputBuffer3 { int clusterReceiverCounts[]; };
+layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { int clusterReceiverOffsets[]; };
+layout(std430, set = 0, binding = 5) readonly buffer _InputBuffer5 { vec2 clusterReceiverUvs[]; };
+layout (set = 0, binding = 6, rgba32f) uniform image2D resultImage;
+
+//imageStore(resultImage, ivec2(gl_GlobalInvocationID.xy), res);
+
+void main()
+{
+	uint gID = gl_GlobalInvocationID.x;
+	
+	if(gID < config.clusterCount) {
+		int offset = clusterReceiverOffsets[gID] * config.pcaCoefficient;
+		for(int j = 0; j < clusterReceiverCounts[gID]; j++) {
+			for(int i = 0; i < config.pcaCoefficient; i++) {
+				vec4 color = clusterProjectionColors[gID * config.pcaCoefficient + i];
+				vec4 result = receiverReconstructionMatrices[offset + j * config.pcaCoefficient + i] * color;
+				imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverOffsets[gID] + j]), result);
+			}
+		}
+	}
+}
+/*
+TODO
+Inputs:
+	- Result from gi_cluster_projection
+		32 * 1 matrix for each cluster (1000s)
+	- Receiver reconstruction matrices
+		1000s of (receiver count) * 32
+	- Cluster receiver count data
+	- Cluster receiver offset data
+	- Receiver cluster uv map
+		1000s of (receiver count)  * vec2
+Calculation:
+	- Matrix multiplication for each cluster
+Output: 
+	- (receiver count)  * 1 matrix for each cluster (1000s)
+	- Save the result to a lightmap texture using uv map
+*/

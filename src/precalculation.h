@@ -8,10 +8,12 @@
 
 #define SPHERICAL_HARMONICS_ORDER 2
 #define SPHERICAL_HARMONICS_NUM_COEFF ((SPHERICAL_HARMONICS_ORDER + 1) * (SPHERICAL_HARMONICS_ORDER + 1))
+#define CLUSTER_COEFFICIENT_COUNT 32
 
 struct Receiver {
 	glm::vec3 position;
 	glm::vec3 normal;
+	glm::vec2 uv;
 	bool exists;
 };
 
@@ -39,6 +41,13 @@ public:
 	int _raysPerProbe;
 	Receiver* _receivers;
 	std::vector<AABB> _aabbClusters;
+
+	int _totalClusterReceiverCount;
+	float* _clusterProjectionMatrices;
+	float* _receiverCoefficientMatrices;
+	int* _clusterReceiverCounts;
+	int* _clusterReceiverOffsets;
+	glm::vec2* _clusterReceiverUvs;
 private:
 	GltfScene* _scene;
 	uint8_t* _voxelData;

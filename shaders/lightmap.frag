@@ -12,6 +12,7 @@ layout (location = 2) in vec3 inNormal;
 layout (location = 3) in vec3 inLightVec;
 layout (location = 4) in vec3 inLightColor;
 layout (location = 5) in vec4 inFragPos;
+layout (location = 6) in vec2 inLightmapCoord;
 
 //output write
 layout (location = 0) out vec4 outFragColor;
@@ -20,6 +21,7 @@ layout(set = 0, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMap
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(set = 4, binding = 0) uniform sampler2D shadowMap;
+layout(set = 5, binding = 0) uniform sampler2D indirectLightmap;
 
 //all object matrices
 layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
@@ -142,6 +144,6 @@ void main()
 
 	    vec3 diffuse = max(dot(N, L), 0) * inLightColor * color;
 
-        outFragColor = vec4(diffuse * shadow, 1.0f);
+        outFragColor = vec4(diffuse * shadow, 1.0f) + texture(indirectLightmap, inLightmapCoord).rgba;
     }
 }

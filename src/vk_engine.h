@@ -240,4 +240,6 @@ private:
 	void init_imgui();
 
 	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
+
+	void init_gi();
 };

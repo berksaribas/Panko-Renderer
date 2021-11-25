@@ -364,11 +364,11 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 	ComputeInstance instance = {};
-	engine.vulkanCompute.add_buffer(instance, UNIFORM, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(GPUProbeDensityUniformData));
-	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(glm::vec4) * _probes.size());
-	engine.vulkanCompute.add_buffer(instance, STORAGE, VMA_MEMORY_USAGE_GPU_TO_CPU, sizeof(float) * _probes.size());
+	engine.vulkanCompute.create_buffer(instance, UNIFORM, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(GPUProbeDensityUniformData));
+	engine.vulkanCompute.create_buffer(instance, STORAGE, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(glm::vec4) * _probes.size());
+	engine.vulkanCompute.create_buffer(instance, STORAGE, VMA_MEMORY_USAGE_GPU_TO_CPU, sizeof(float) * _probes.size());
 	engine.vulkanCompute.build(instance, engine._descriptorPool, "../../shaders/precalculate_probe_density_weights.comp.spv");
-	vkutils::cpu_to_gpu(engine._allocator, instance.buffers[1], _probes.data(), sizeof(glm::vec4) * _probes.size());
+	vkutils::cpu_to_gpu(engine._allocator, instance.bindings[1].buffer, _probes.data(), sizeof(glm::vec4) * _probes.size());
 #endif
 
 	int targetProbeCount = _dimX - _padding * 2;
@@ -383,16 +383,16 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	while (_probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 		GPUProbeDensityUniformData ub = { _probes.size(), radius };
-		vkutils::cpu_to_gpu(engine._allocator, instance.buffers[0], &ub, sizeof(GPUProbeDensityUniformData));
+		vkutils::cpu_to_gpu(engine._allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
 		int groupcount = ((_probes.size()) / 256) + 1;
 		engine.vulkanCompute.compute(instance, groupcount, 1, 1);
 #endif
 		for (int i = 0; i < _probes.size(); i++) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 			void* gpuWeightData;
-			vmaMapMemory(engine._allocator, instance.buffers[2]._allocation, &gpuWeightData);
+			vmaMapMemory(engine._allocator, instance.bindings[2].buffer._allocation, &gpuWeightData);
 			float weight = ((float*)gpuWeightData)[i];
-			vmaUnmapMemory(engine._allocator, instance.buffers[2]._allocation);
+			vmaUnmapMemory(engine._allocator, instance.bindings[2].buffer._allocation);
 #else
 			float weight = calculate_spatial_weight(radius, i, probes);
 #endif
@@ -405,10 +405,10 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 		void* gpuProbeData;
 		glm::vec4* castedGpuProbeData;
-		vmaMapMemory(engine._allocator, instance.buffers[1]._allocation, &gpuProbeData);
+		vmaMapMemory(engine._allocator, instance.bindings[1].buffer._allocation, &gpuProbeData);
 		castedGpuProbeData = (glm::vec4*)gpuProbeData;
 		castedGpuProbeData[toRemoveIndex] = castedGpuProbeData[_probes.size() - 1];
-		vmaUnmapMemory(engine._allocator, instance.buffers[1]._allocation);
+		vmaUnmapMemory(engine._allocator, instance.bindings[1].buffer._allocation);
 #endif
 
 		if (toRemoveIndex != -1) {
@@ -575,6 +575,7 @@ Receiver* Precalculation::generate_receivers()
 							Receiver receiver = {};
 							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
+							receiver.uv = glm::vec2(i, j);
 							receiver.exists = true;
 							int receiverIndex = i + j * _scene->lightmap_width;
 							if (!_receivers[receiverIndex].exists) {
@@ -721,14 +722,12 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 	_probeRaycastBasisFunctions = (float*) malloc(rays * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * sizeof(float));
 
 	for (int i = 0; i < rays * _probes.size(); i++) {
-		//printf("Current probe: %d and current ray: %d\n", i / rays, i % rays);
-		//printf("%f %f %f\n", _probeRaycastResult[i].direction.x, _probeRaycastResult[i].direction.y, _probeRaycastResult[i].direction.z);
 		Eigen::Vector3d dir(_probeRaycastResult[i].direction.x,
 			_probeRaycastResult[i].direction.y,
 			_probeRaycastResult[i].direction.z);
 		dir.normalize();
 		int ctr = 0;
-		for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) { // Degree 7
+		for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) { 
 			for (int m = -l; m <= l; m++) {
 				_probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
 				ctr++;
@@ -825,6 +824,47 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 	//struct will contain: Receiver id, vec 3 direction, probe id
 	//alternatively i can calculate direction on cpu beforehand, and it can be a float buffer with weighted distance between probe and receiver
 	//or the same but just an integer with 0 and 1
+
+	//Allocate memory for the results
+	_clusterProjectionMatrices = new float[_aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT];
+	_clusterReceiverCounts = new int[_aabbClusters.size()];
+	_clusterReceiverOffsets = new int[_aabbClusters.size()];
+	int offsetCounter = 0;
+	for (int i = 0; i < _aabbClusters.size(); i++) {
+		_clusterReceiverCounts[i] = _aabbClusters[i].receivers.size();
+		_clusterReceiverOffsets[i] = offsetCounter;
+		offsetCounter += _aabbClusters[i].receivers.size();
+	}
+	_totalClusterReceiverCount = offsetCounter;
+	_receiverCoefficientMatrices = new float[offsetCounter * CLUSTER_COEFFICIENT_COUNT];
+	_clusterReceiverUvs = new glm::vec2[offsetCounter];
+	int currOffset = 0;
+	for (int i = 0; i < _aabbClusters.size(); i++) {
+		for (int j = 0; j < _aabbClusters[i].receivers.size(); j++) {
+			_clusterReceiverUvs[currOffset + j] = _aabbClusters[i].receivers[j].uv;
+		}
+		currOffset += _aabbClusters[i].receivers.size();
+	}
+
+	// READ PREVIOUSLY CALCULATED DATA
+	if (true) {
+		{
+			FILE* ptr;
+			fopen_s(&ptr, "clusterProjectionMatrices.bin", "rb");
+			size_t size = sizeof(float) * _aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT;
+			fread_s(_clusterProjectionMatrices, size, size, 1, ptr);
+		}
+		{
+			FILE* ptr2;
+			fopen_s(&ptr2, "receiverCoefficientMatrices.bin", "rb");
+			size_t size = sizeof(float) * offsetCounter * CLUSTER_COEFFICIENT_COUNT;
+			fread_s(_receiverCoefficientMatrices, size, size, 1, ptr2);
+		}
+
+		return;
+	}
+
+	//return;
 
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
@@ -931,7 +971,8 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 		}
 		vmaUnmapMemory(engine._allocator, meshInfoBuffer._allocation);
 	}
-
+	
+	int nodeReceiverDataOffset = 0;
 	for (int nodeIndex = 0; nodeIndex < _aabbClusters.size(); nodeIndex++) {
 
 		{
@@ -959,6 +1000,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 		}
 
 		Eigen::MatrixXf clusterMatrix = Eigen::MatrixXf(_aabbClusters[nodeIndex].receivers.size(), SPHERICAL_HARMONICS_NUM_COEFF * _probes.size());
+		clusterMatrix.fill(0);
 		void* mappedOutputData;
 		vmaMapMemory(engine._allocator, outputBuffer._allocation, &mappedOutputData);
 
@@ -981,41 +1023,50 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 				if (totalWeight > 0.f) {
 					for (int k = 0; k < _probes.size(); k++) {
 						int ctr = 0;
+						auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * _probes.size() + i * _probes.size() * rays];
+						Eigen::Vector3d dir(res.dir.x,
+							res.dir.y,
+							res.dir.z);
+						dir.normalize();
+						float weight = res.visibility * weights[k];
+
 						for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) {
 							for (int m = -l; m <= l; m++) {
-								auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * _probes.size() + i * _probes.size() * rays];
-								
-								Eigen::Vector3d dir(res.dir.x,
-									res.dir.y,
-									res.dir.z);
-								dir.normalize();
-
-								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) = (float)(sh::EvalSH(l, m, dir)) * res.visibility * weights[k];
-								
+								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) = (float)(sh::EvalSH(l, m, dir)) * weight;
 								ctr++;
 							}
 						}
 					}
 					validRays++;
 				}
+
 			}
 			if (validRays > 0) {
 				clusterMatrix.row(i) *= 2 * M_PI / validRays; //maybe do not divide to valid rays? rather divide to rays?
 			}
-
-			//printf("Processing receiver %d\n", i);
 		}
 
-		printf("Starting SVD\n");
-
 		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
-		int nc = 32;
-		auto receiverReconstructionCoefficientMatrix = svd.matrixU().block(0, 0, svd.matrixU().rows(), nc);
-		auto singularMatrix = svd.singularValues().asDiagonal().toDenseMatrix().block(0, 0, nc, svd.matrixV().cols());
-		auto clusterProjectionMatrix = singularMatrix * svd.matrixV().transpose();
+		int nc = CLUSTER_COEFFICIENT_COUNT;
+
+		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().block(0, 0, svd.matrixU().rows(), nc));
+
+		Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
+		singularMatrix.setZero();
+		singularMatrix.topLeftCorner(nc, svd.matrixV().cols()) = svd.singularValues().asDiagonal();
+
+		auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * svd.matrixV().transpose());
+		
+		memcpy(_clusterProjectionMatrices + clusterProjectionMatrix.size() * nodeIndex, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
+		memcpy(_receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
+		nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
 
 		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 		printf("Node tracing done %d/%d\n", nodeIndex, _aabbClusters.size());
+
+		/*
+		Save as binary
+		*/
 
 		//In this part, do the PCA stuff with spherical harmonics...
 		//Ideally while doing cpu stuff, gpu shouldn't be idle.
@@ -1027,11 +1078,22 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 		//Rather can I rotate spherical harmonics? Try both solutions compare speed.
 		//If I can, just precalculate spherical harmonics for 1024 x probe.size() x rays and then rotate when using?
 		//I'll have a matrix of receivers X probes x basis functions. How do I do SVD on them?
-
-
 	}
 
 	printf("\n\n\n\n\nDone with receiver raytracing woooo!\n\n\n\n\n");
+
+	{
+		FILE* ptr;
+		fopen_s(&ptr, "clusterProjectionMatrices.bin", "wb");
+		fwrite(_clusterProjectionMatrices, sizeof(float) * _aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT, 1, ptr);
+		fclose(ptr);
+	}
+	{
+		FILE* ptr;
+		fopen_s(&ptr, "receiverCoefficientMatrices.bin", "wb");
+		fwrite(_receiverCoefficientMatrices, sizeof(float) * offsetCounter* CLUSTER_COEFFICIENT_COUNT, 1, ptr);
+		fclose(ptr);
+	}
 
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 

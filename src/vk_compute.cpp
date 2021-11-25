@@ -23,16 +23,59 @@ void VulkanCompute::init(VkDevice device, VmaAllocator allocator, VkQueue comput
 	VK_CHECK(vkCreateFence(_device, &computeFenceCreateInfo, nullptr, &_computeContext._fence));
 }
 
-void VulkanCompute::add_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size)
+void VulkanCompute::create_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size)
 {
-	computeInstance.bindings.push_back(
-		vkinit::descriptorset_layout_binding(computeDescriptorTypes[bufferType],
-			VK_SHADER_STAGE_COMPUTE_BIT, computeInstance.bindings.size())
-	);
+	//Creating texture is currently not supported
+	assert(bufferType != TEXTURE_STORAGE && bufferType != TEXTURE_SAMPLED);
 
-	computeInstance.sizes.push_back(size);
-	computeInstance.memoryUsages.push_back(memoryUsage);
-	computeInstance.bufferTypes.push_back(bufferType);
+	ComputeBinding computeBinding = {};
+	computeBinding.binding = vkinit::descriptorset_layout_binding(computeDescriptorTypes[bufferType],
+		VK_SHADER_STAGE_COMPUTE_BIT, computeInstance.bindings.size());
+	computeBinding.size = size;
+	computeBinding.memoryUsage = memoryUsage;
+	computeBinding.bufferType = bufferType;
+	computeBinding.isExternal = false;
+
+	computeInstance.bindings.push_back(computeBinding);
+}
+
+void VulkanCompute::add_buffer_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, AllocatedBuffer buffer)
+{
+	assert(bufferType != TEXTURE_STORAGE && bufferType != TEXTURE_SAMPLED);
+	
+	ComputeBinding computeBinding = {};
+	computeBinding.binding = vkinit::descriptorset_layout_binding(computeDescriptorTypes[bufferType],
+		VK_SHADER_STAGE_COMPUTE_BIT, computeInstance.bindings.size());
+	computeBinding.bufferType = bufferType;
+	computeBinding.isExternal = true;
+	computeBinding.buffer = buffer;
+
+	computeInstance.bindings.push_back(computeBinding);
+}
+
+void VulkanCompute::add_texture_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, VkSampler sampler, VkImageView imageView)
+{
+	assert(bufferType != UNIFORM && bufferType != STORAGE);
+
+	ComputeBinding computeBinding = {};
+	computeBinding.binding = vkinit::descriptorset_layout_binding(computeDescriptorTypes[bufferType],
+		VK_SHADER_STAGE_COMPUTE_BIT, computeInstance.bindings.size());
+	computeBinding.bufferType = bufferType;
+	computeBinding.isExternal = true;
+
+	VkDescriptorImageInfo imageBufferInfo = {};
+	if (bufferType == TEXTURE_SAMPLED) {
+		imageBufferInfo.sampler = sampler;
+		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	}
+	else {
+		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	}
+	imageBufferInfo.imageView = imageView;
+
+	computeBinding.imageInfo = imageBufferInfo;
+
+	computeInstance.bindings.push_back(computeBinding);
 }
 
 void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader)
@@ -43,7 +86,12 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 		assert("Compute Shader Loading Issue");
 	}
 
-	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(computeInstance.bindings.data(), computeInstance.bindings.size());
+	std::vector<VkDescriptorSetLayoutBinding> bindingsData;
+	for (int i = 0; i < computeInstance.bindings.size(); i++) {
+		bindingsData.push_back(computeInstance.bindings[i].binding);
+	}
+
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindingsData.data(), computeInstance.bindings.size());
 	VK_CHECK(vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &computeInstance.descriptorSetLayout));
 
 	VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(descriptorPool, &computeInstance.descriptorSetLayout, 1);
@@ -53,17 +101,25 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 	std::vector<VkWriteDescriptorSet> descriptorSets;
 
 	for (int i = 0; i < computeInstance.bindings.size(); i++) {
-		size_t size = computeInstance.sizes[i];
-		VmaMemoryUsage memoryUsage = computeInstance.memoryUsages[i];
-		VkBufferUsageFlagBits bufferUsage = computeBufferUsageBits[computeInstance.bufferTypes[i]];
-		VkDescriptorType descriptorType = computeDescriptorTypes[computeInstance.bufferTypes[i]];
-		computeInstance.buffers.push_back(
-			vkutils::create_buffer(_allocator, size, bufferUsage, memoryUsage));
+		auto& binding = computeInstance.bindings[i];
+		VkDescriptorType descriptorType = computeDescriptorTypes[binding.bufferType];
 
-		VkWriteDescriptorSet descriptorSet = vkinit::write_descriptor_buffer(descriptorType, computeInstance.descriptorSet, &computeInstance.buffers[i]._descriptorBufferInfo, i);
-		vkUpdateDescriptorSets(_device, 1, &descriptorSet, 0, nullptr);
+		if (!binding.isExternal) {
+			VkBufferUsageFlagBits bufferUsage = computeBufferUsageBits[binding.bufferType];
+			binding.buffer = vkutils::create_buffer(_allocator, binding.size, bufferUsage, binding.memoryUsage);
+		}
+
+		VkWriteDescriptorSet writeDescriptorSet;
+
+		if (binding.bufferType != TEXTURE_STORAGE && binding.bufferType != TEXTURE_SAMPLED) {
+			writeDescriptorSet = vkinit::write_descriptor_buffer(descriptorType, computeInstance.descriptorSet, &binding.buffer._descriptorBufferInfo, i);
+		}
+		else {
+			writeDescriptorSet = vkinit::write_descriptor_image(descriptorType, computeInstance.descriptorSet, &binding.imageInfo, i, 1);
+		}
+
+		vkUpdateDescriptorSets(_device, 1, &writeDescriptorSet, 0, nullptr);
 	}
-
 
 	VkDescriptorSetLayout setLayouts[] = { computeInstance.descriptorSetLayout };
 	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
@@ -82,7 +138,7 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 	vkDestroyShaderModule(_device, shader, nullptr);
 }
 
-void VulkanCompute::compute(ComputeInstance computeInstance, int x, int y, int z)
+void VulkanCompute::compute(ComputeInstance& computeInstance, int x, int y, int z)
 {
 	VkCommandBuffer cmd = vkutils::create_command_buffer(_device, _computeContext._commandPool, true);
 
@@ -99,8 +155,10 @@ void VulkanCompute::destroy_compute_instance(ComputeInstance& computeInstance)
 	vkDestroyPipelineLayout(_device, computeInstance.pipelineLayout, nullptr);
 	vkDestroyDescriptorSetLayout(_device, computeInstance.descriptorSetLayout, nullptr);
 
-	for (int i = 0; i < computeInstance.buffers.size(); i++)
+	for (int i = 0; i < computeInstance.bindings.size(); i++)
 	{
-		vmaDestroyBuffer(_allocator, computeInstance.buffers[i]._buffer, computeInstance.buffers[i]._allocation);
+		if (!computeInstance.bindings[i].isExternal) {
+			vmaDestroyBuffer(_allocator, computeInstance.bindings[i].buffer._buffer, computeInstance.bindings[i].buffer._allocation);
+		}
 	}
 }

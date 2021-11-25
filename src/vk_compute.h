@@ -5,7 +5,19 @@
 
 enum ComputeBufferType {
 	UNIFORM,
-	STORAGE
+	STORAGE,
+	TEXTURE_STORAGE,
+	TEXTURE_SAMPLED
+};
+
+struct ComputeBinding {
+	VkDescriptorSetLayoutBinding binding;
+	size_t size;
+	VmaMemoryUsage memoryUsage;
+	ComputeBufferType bufferType;
+	AllocatedBuffer buffer;
+	bool isExternal;
+	VkDescriptorImageInfo imageInfo; //only for textures
 };
 
 struct ComputeInstance {
@@ -16,19 +28,18 @@ struct ComputeInstance {
 
 	// BUFFERS
 	VkDescriptorSet descriptorSet;
-	std::vector<VkDescriptorSetLayoutBinding> bindings;
-	std::vector<size_t> sizes;
-	std::vector<VmaMemoryUsage> memoryUsages;
-	std::vector<ComputeBufferType> bufferTypes;
-	std::vector<AllocatedBuffer> buffers;
+
+	std::vector<ComputeBinding> bindings;
 };
 
 class VulkanCompute {
 public:
 	void init(VkDevice device, VmaAllocator allocator, VkQueue computeQueue, uint32_t computeQueueFamily);
-	void add_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size);
+	void create_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size);
+	void add_buffer_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, AllocatedBuffer buffer);
+	void add_texture_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, VkSampler sampler, VkImageView imageView);
 	void build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader);
-	void compute(ComputeInstance computeInstance, int x, int y, int z);
+	void compute(ComputeInstance& computeInstance, int x, int y, int z);
 	void destroy_compute_instance(ComputeInstance& computeInstance);
 private:
 	VkDevice _device;
@@ -37,10 +48,11 @@ private:
 	CommandContext _computeContext;
 	VmaAllocator _allocator;
 
-	VkDescriptorType computeDescriptorTypes[2] = {
+	VkDescriptorType computeDescriptorTypes[4] = {
 		VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
-	//VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
 	};
 
 	VkBufferUsageFlagBits computeBufferUsageBits[2] = {

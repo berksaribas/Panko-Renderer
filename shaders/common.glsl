@@ -88,6 +88,15 @@ struct GPUReceiverRaycastResult {
 	int visibility;
 };
 
+struct GIConfig {
+	vec2 lightmapInputSize;
+	int probeCount;
+	int rayCount;
+	int basisFunctionCount;
+	int clusterCount;
+	int pcaCoefficient;
+};
+
 #ifndef __cplusplus
 
 const float PHI = 1.61803398874989484820459;

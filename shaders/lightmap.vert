@@ -15,6 +15,7 @@ layout (location = 2) out vec3 outNormal;
 layout (location = 3) out vec3 outLightVec;
 layout (location = 4) out vec3 outLightColor;
 layout (location = 5) out vec4 outFragPos;
+layout (location = 6) out vec2 outLightmapCoord;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -40,4 +41,5 @@ void main()
 	outLightVec = cameraData.lightPos.xyz;
 	outLightColor = cameraData.lightColor.xyz;
 	outFragPos = modelPos;
+	outLightmapCoord = vLightmapCoord / cameraData.lightmapInputSize;
 }
