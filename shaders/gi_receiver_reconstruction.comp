@@ -9,27 +9,29 @@
 layout (local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
-layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 clusterProjectionColors[]; };
-layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { float receiverReconstructionMatrices[]; };
-layout(std430, set = 0, binding = 3) readonly buffer _InputBuffer3 { int clusterReceiverCounts[]; };
-layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { int clusterReceiverOffsets[]; };
-layout(std430, set = 0, binding = 5) readonly buffer _InputBuffer5 { vec2 clusterReceiverUvs[]; };
-layout (set = 0, binding = 6, rgba32f) uniform image2D resultImage;
+layout(std430, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 clusterProjectionColors[]; };
+layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 receiverReconstructionMatrices[]; };
+layout(std430, set = 0, binding = 3) readonly buffer _InputBuffer3 { ClusterReceiverInfo clusterReceiverInfos[]; };
+layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { ivec4 clusterReceiverUvs[]; };
+layout (set = 0, binding = 5, rgba32f) uniform image2D resultImage;
 
 //imageStore(resultImage, ivec2(gl_GlobalInvocationID.xy), res);
+const float PI  = 3.14159265358979323846264;
 
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
 	
 	if(gID < config.clusterCount) {
-		int offset = clusterReceiverOffsets[gID] * config.pcaCoefficient;
-		for(int j = 0; j < clusterReceiverCounts[gID]; j++) {
+		int offset = clusterReceiverInfos[gID].receiverOffset * config.pcaCoefficient;
+		for(int j = 0; j < clusterReceiverInfos[gID].receiverCount; j++) {
+			vec4 result = vec4(0);
 			for(int i = 0; i < config.pcaCoefficient; i++) {
 				vec4 color = clusterProjectionColors[gID * config.pcaCoefficient + i];
-				vec4 result = receiverReconstructionMatrices[offset + j * config.pcaCoefficient + i] * color;
-				imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverOffsets[gID] + j]), result);
+				uint index = offset + j * config.pcaCoefficient + i;
+				result += receiverReconstructionMatrices[index / 4][index % 4] * color;
 			}
+			imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverInfos[gID].receiverOffset + j].xy), result / PI);
 		}
 	}
 }

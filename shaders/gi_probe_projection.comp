@@ -9,7 +9,7 @@ layout (local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { GPUProbeRaycastResult probeRaycasts[]; };
-layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { float probeBasis[]; };
+layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
 layout(std140, set = 0, binding = 3) buffer _TempBuffer { vec4 tempCalculation[]; };
 layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
 layout(set = 0, binding = 5) uniform sampler2D lightmap;
@@ -19,7 +19,7 @@ void main()
 	uint gID = gl_GlobalInvocationID.x;
 
 	if(gID < config.probeCount * config.rayCount) {
-		vec4 color = vec4(1.0);
+		vec4 color = vec4(0.0);
 		if(probeRaycasts[gID].objectId != -1) {
 			color = texture(lightmap, vec2(probeRaycasts[gID].u, probeRaycasts[gID].v) / config.lightmapInputSize).rgba;
 		}
@@ -27,7 +27,9 @@ void main()
 			//sample from skybox?
 		}
 		for(int i = 0; i < config.basisFunctionCount; i++) {
-			tempCalculation[gID * config.basisFunctionCount + i] = probeBasis[gID * config.basisFunctionCount + i] * color;
+			uint index = gID * config.basisFunctionCount + i;
+
+			tempCalculation[gID * config.basisFunctionCount + i] = probeBasis[index / 4][index % 4] * color;
 		}
 	}
 

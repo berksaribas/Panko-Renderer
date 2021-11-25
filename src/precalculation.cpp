@@ -25,47 +25,6 @@
 	TODO
 	- RECEIVER COEFFICIENTS (RT + SPHERICAL HARMONICS + PCA)
 */
-int partition(float arr[], int l, int r) {
-	float x = arr[r];
-	int i = l;
-	for (int j = l; j <= r - 1; j++) {
-		if (arr[j] <= x) {
-			std::swap(arr[i], arr[j]);
-			i++;
-		}
-	}
-	std::swap(arr[i], arr[r]);
-	return i;
-}
-
-float kth_smallest(float arr[], int l, int r, int k) {
-	// If k is smaller than number of
-	// elements in array
-	if (k > 0 && k <= r - l + 1) {
-
-		// Partition the array around last
-		// element and get position of pivot
-		// element in sorted array
-		int index = partition(arr, l, r);
-
-		// If position is same as k
-		if (index - l == k - 1)
-			return arr[index];
-
-		// If position is more, recur
-		// for left subarray
-		if (index - l > k - 1)
-			return kth_smallest(arr, l, index - 1, k);
-
-		// Else recur for right subarray
-		return kth_smallest(arr, index + 1, r,
-			k - index + l - 1);
-	}
-
-	// If k is more than number of
-	// elements in array
-	return FLT_MAX;
-}
 
 //Christer Ericson's Real-Time Collision Detection 
 static glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
@@ -126,17 +85,24 @@ static float calculate_spatial_weight(float radius, int probeIndex, std::vector<
 static float calculate_radius(Receiver* receivers, int receiverSize, std::vector<glm::vec4>& probes, int overlaps) {
 	OPTICK_EVENT();
 
-	float* distanceData = new float[probes.size()];
 	float radius = 0;
 	int receiverCount = 0;
 	for (int r = 0; r < receiverSize; r += 1) {
+		std::priority_queue <float, std::vector<float>, std::greater<float>> minheap;
+
 		if (!receivers[r].exists) {
 			continue;
 		}
+
 		for (int p = 0; p < probes.size(); p++) {
-			distanceData[p] = glm::distance(glm::vec3(probes[p]), receivers[r].position);
+			minheap.push(glm::distance(glm::vec3(probes[p]), receivers[r].position));
 		}
-		radius += kth_smallest(distanceData, 0, probes.size(), overlaps);
+
+		for (int i = 0; i < overlaps - 1; i++) {
+			minheap.pop();
+		}
+
+		radius += minheap.top();
 		receiverCount++;
 	}
 
@@ -374,7 +340,7 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	int targetProbeCount = _dimX - _padding * 2;
 	printf("Targeted amount of probes is %d\n", targetProbeCount);
 
-	float radius = 5;//calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
+	float radius = calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
 	_radius = radius;
 	printf("Radius is %f\n", radius);
 
@@ -417,7 +383,7 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 			currMaxWeight = -1;
 			toRemoveIndex = -1;
 		}
-		//printf("Size of probes %d\n", _probes.size());
+		printf("Size of probes %d\n", _probes.size());
 	}
 
 	printf("Found this many probes: %d\n", _probes.size());
@@ -532,6 +498,7 @@ Receiver* Precalculation::generate_receivers()
 	int receiverCount = _scene->lightmap_width * _scene->lightmap_height;
 	_receivers = new Receiver[receiverCount];
 	memset(_receivers, 0, sizeof(Receiver) * receiverCount);
+	int receiverCounter = 0;
 	
 	for (int nodeIndex = 0; nodeIndex < _scene->nodes.size(); nodeIndex++) {
 		auto& mesh = _scene->prim_meshes[_scene->nodes[nodeIndex].prim_mesh];
@@ -575,11 +542,12 @@ Receiver* Precalculation::generate_receivers()
 							Receiver receiver = {};
 							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
-							receiver.uv = glm::vec2(i, j);
+							receiver.uv = glm::ivec2(i, j);
 							receiver.exists = true;
 							int receiverIndex = i + j * _scene->lightmap_width;
 							if (!_receivers[receiverIndex].exists) {
 								_receivers[receiverIndex] = receiver;
+								receiverCounter++;
 							}
 						}
 					}
@@ -587,7 +555,7 @@ Receiver* Precalculation::generate_receivers()
 			}
 	}
 
-	printf("Created receivers!\n");
+	printf("Created receivers: %d!\n", receiverCounter);
 
 	return _receivers;
 }
@@ -730,10 +698,15 @@ void Precalculation::probe_raycast(VulkanEngine& engine, int rays)
 		for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) { 
 			for (int m = -l; m <= l; m++) {
 				_probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
+				//printf("%d: %f\n", ctr, _probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr]);
 				ctr++;
 			} 
 		}
 	}
+	printf("%d: %f\n", 0, _probeRaycastBasisFunctions[0]);
+	printf("%d: %f\n", 1, _probeRaycastBasisFunctions[1]);
+	printf("%d: %f\n", 2, _probeRaycastBasisFunctions[2]);
+	printf("%d: %f\n", 3, _probeRaycastBasisFunctions[3]);
 
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 
@@ -827,21 +800,24 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 
 	//Allocate memory for the results
 	_clusterProjectionMatrices = new float[_aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT];
-	_clusterReceiverCounts = new int[_aabbClusters.size()];
-	_clusterReceiverOffsets = new int[_aabbClusters.size()];
+	
+	_clusterReceiverInfos = new ClusterReceiverInfo[_aabbClusters.size()];
 	int offsetCounter = 0;
 	for (int i = 0; i < _aabbClusters.size(); i++) {
-		_clusterReceiverCounts[i] = _aabbClusters[i].receivers.size();
-		_clusterReceiverOffsets[i] = offsetCounter;
+		_clusterReceiverInfos[i].receiverCount = _aabbClusters[i].receivers.size();
+		_clusterReceiverInfos[i].receiverOffset = offsetCounter;
 		offsetCounter += _aabbClusters[i].receivers.size();
 	}
+
+	printf("Total receivers avaialble for aabb: %d\n", offsetCounter);
+
 	_totalClusterReceiverCount = offsetCounter;
 	_receiverCoefficientMatrices = new float[offsetCounter * CLUSTER_COEFFICIENT_COUNT];
-	_clusterReceiverUvs = new glm::vec2[offsetCounter];
+	_clusterReceiverUvs = new glm::ivec4[offsetCounter];
 	int currOffset = 0;
 	for (int i = 0; i < _aabbClusters.size(); i++) {
 		for (int j = 0; j < _aabbClusters[i].receivers.size(); j++) {
-			_clusterReceiverUvs[currOffset + j] = _aabbClusters[i].receivers[j].uv;
+			_clusterReceiverUvs[currOffset + j] = glm::ivec4(_aabbClusters[i].receivers[j].uv.x, _aabbClusters[i].receivers[j].uv.y, 0, 0);
 		}
 		currOffset += _aabbClusters[i].receivers.size();
 	}
@@ -863,8 +839,6 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 
 		return;
 	}
-
-	//return;
 
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
@@ -1010,7 +984,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 			std::vector<float> weights;
 			weights.resize(_probes.size());
 			for (int j = 0; j < _probes.size(); j++) {
-				weights[j] = calculate_density(glm::distance(_aabbClusters[nodeIndex].receivers[i].position, glm::vec3(_probes[j])), _radius);
+				weights[j] = calculate_density(glm::distance(_aabbClusters[nodeIndex].receivers[i].position, glm::vec3(_probes[j])), 10);
 			}
 
 			int validRays = 0;
@@ -1032,7 +1006,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 
 						for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) {
 							for (int m = -l; m <= l; m++) {
-								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) = (float)(sh::EvalSH(l, m, dir)) * weight;
+								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) += (float)(sh::EvalSH(l, m, dir)) * weight;
 								ctr++;
 							}
 						}
@@ -1045,22 +1019,52 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 				clusterMatrix.row(i) *= 2 * M_PI / validRays; //maybe do not divide to valid rays? rather divide to rays?
 			}
 		}
+		
+		//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+		//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		//file << clusterMatrix.format(CSVFormat);
 
 		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
+
 		int nc = CLUSTER_COEFFICIENT_COUNT;
 
 		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().block(0, 0, svd.matrixU().rows(), nc));
 
 		Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
 		singularMatrix.setZero();
-		singularMatrix.topLeftCorner(nc, svd.matrixV().cols()) = svd.singularValues().asDiagonal();
+		for (int aa = 0; aa < nc; aa++) {
+			singularMatrix(aa, aa) = svd.singularValues()[aa];
+		}
+
+		//printf("Singular matrix size: %d x %d\n", singularMatrix.rows(), singularMatrix.cols());
+		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
 
 		auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * svd.matrixV().transpose());
+
+		/*
+		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
+
+		printf("Size of the new matrix: %d x %d", newMatrix.rows(), newMatrix.cols());
+
+		auto diff = clusterMatrix - newMatrix;
+
+		printf("diff: %f\n", diff.array().abs().sum());
+		*/
 		
+		/*
+		int globalcounterr = 0;
+		for (int y = 0; y < clusterProjectionMatrix.rows(); y++) {
+			for (int x = 0; x < clusterProjectionMatrix.cols(); x++) {
+				printf("%f vs %f\n", clusterProjectionMatrix(y, x), *(clusterProjectionMatrix.data() + globalcounterr));
+				globalcounterr++;
+			}
+		}
+		*/
+
 		memcpy(_clusterProjectionMatrices + clusterProjectionMatrix.size() * nodeIndex, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
 		memcpy(_receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
 		nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
-
+		printf("Famous offset %d: %d\n", nodeIndex, nodeReceiverDataOffset);
 		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 		printf("Node tracing done %d/%d\n", nodeIndex, _aabbClusters.size());
 

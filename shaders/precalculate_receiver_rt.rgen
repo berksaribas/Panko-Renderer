@@ -60,12 +60,15 @@ void main()
                 0               // payload (location = 0)
     );
 
+    vec3 hitLocation = payload.pos;
+    int hitObjectId = payload.objectId;
+
     for(int i = 0; i < probeCount; i++) {
         int visibility = 0;
         vec4 probePos = probeLocations[i];
         vec3 probeDir = direction.xyz;
 
-        if(payload.objectId == -1) {
+        if(hitObjectId == -1) {
             //ray is a miss
             //trace a ray from the probe with the same direction
             traceRayEXT(topLevelAS,     // acceleration structure
@@ -87,10 +90,7 @@ void main()
         else {
             //ray hit a location
             //trace a ray from the probe towards hit location
-            int hitObjectId = payload.objectId;
-            vec3 hitLocation = payload.pos;
-
-            probeDir = payload.pos - probePos.xyz;
+            probeDir = hitLocation - probePos.xyz;
 
             traceRayEXT(topLevelAS,     // acceleration structure
                     rayFlags,       // rayFlags
@@ -100,7 +100,7 @@ void main()
                     0,              // missIndex
                     probePos.xyz,     // ray origin
                     tMin,           // ray min range
-                    (payload.pos - probePos.xyz),  // ray direction
+                    probeDir,  // ray direction
                     tMax,           // ray max range
                     0               // payload (location = 0)
             );

@@ -97,6 +97,13 @@ struct GIConfig {
 	int pcaCoefficient;
 };
 
+struct ClusterReceiverInfo {
+	int receiverCount;
+	int receiverOffset;
+	float pad0;
+	float pad1;
+};
+
 #ifndef __cplusplus
 
 const float PHI = 1.61803398874989484820459;

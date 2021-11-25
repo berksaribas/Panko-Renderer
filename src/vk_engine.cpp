@@ -465,7 +465,7 @@ void VulkanEngine::draw()
 		
 		{
 			VkClearValue clearValue;
-			clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
+			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 
 			VkClearValue depthClear;
 			depthClear.depthStencil = { 1.0f, 0 };
@@ -1957,7 +1957,7 @@ void VulkanEngine::init_gi()
 	//GPUProbeRaycastResult buffer (GPU ONLY)
 	auto probeRaycastResultBuffer = create_upload_buffer(precalculation._probeRaycastResult, sizeof(GPUProbeRaycastResult) * precalculation._probes.size() * precalculation._raysPerProbe, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//ProbeBasisFunctions buffer (GPU ONLY)
-	auto probeBasisBuffer = create_upload_buffer(precalculation._probeRaycastBasisFunctions, sizeof(float) * precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto probeBasisBuffer = create_upload_buffer(precalculation._probeRaycastBasisFunctions, sizeof(glm::vec4) * (precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection Temp buffer (GPU ONLY)
 	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection output buffer (GPU ONLY)
@@ -1974,7 +1974,7 @@ void VulkanEngine::init_gi()
 
 
 	//Cluster projection matrices (GPU ONLY)
-	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculation._clusterProjectionMatrices, config.clusterCount * config.probeCount * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT * sizeof(float) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculation._clusterProjectionMatrices, (config.clusterCount * config.probeCount * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_cluster_projection output buffer (GPU ONLY)
 	clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, config.clusterCount * CLUSTER_COEFFICIENT_COUNT * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
@@ -1985,10 +1985,9 @@ void VulkanEngine::init_gi()
 	vulkanCompute.build(clusterProjection, _descriptorPool, "../../shaders/gi_cluster_projection.comp.spv");
 
 
-	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculation._receiverCoefficientMatrices, precalculation._totalClusterReceiverCount * CLUSTER_COEFFICIENT_COUNT * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	auto clusterReceiverCounts = create_upload_buffer(precalculation._clusterReceiverCounts, config.clusterCount * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	auto clusterReceiverOffsets = create_upload_buffer(precalculation._clusterReceiverOffsets, config.clusterCount * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	auto clusterReceiverUvs = create_upload_buffer(precalculation._clusterReceiverUvs, precalculation._totalClusterReceiverCount * sizeof(glm::vec2), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculation._receiverCoefficientMatrices, (precalculation._totalClusterReceiverCount * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverInfos = create_upload_buffer(precalculation._clusterReceiverInfos, config.clusterCount * sizeof(ClusterReceiverInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverUvs = create_upload_buffer(precalculation._clusterReceiverUvs, precalculation._totalClusterReceiverCount * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	VkExtent3D lightmapImageExtent3D = {
 			gltf_scene.lightmap_width,
@@ -2046,8 +2045,7 @@ void VulkanEngine::init_gi()
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::UNIFORM, configBuffer);
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterProjectionOutputBuffer);
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, receiverReconstructionMatricesBuffer);
-	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverCounts);
-	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverOffsets);
+	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverInfos);
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverUvs);
 	vulkanCompute.add_texture_binding(receiverReconstruction, ComputeBufferType::TEXTURE_STORAGE, 0, giInirectLightImageView);
 	vulkanCompute.build(receiverReconstruction, _descriptorPool, "../../shaders/gi_receiver_reconstruction.comp.spv");

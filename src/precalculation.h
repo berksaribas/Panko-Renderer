@@ -13,7 +13,7 @@
 struct Receiver {
 	glm::vec3 position;
 	glm::vec3 normal;
-	glm::vec2 uv;
+	glm::ivec2 uv;
 	bool exists;
 };
 
@@ -45,9 +45,8 @@ public:
 	int _totalClusterReceiverCount;
 	float* _clusterProjectionMatrices;
 	float* _receiverCoefficientMatrices;
-	int* _clusterReceiverCounts;
-	int* _clusterReceiverOffsets;
-	glm::vec2* _clusterReceiverUvs;
+	ClusterReceiverInfo* _clusterReceiverInfos;
+	glm::ivec4* _clusterReceiverUvs;
 private:
 	GltfScene* _scene;
 	uint8_t* _voxelData;
