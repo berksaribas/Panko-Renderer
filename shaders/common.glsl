@@ -64,16 +64,20 @@ struct GPUMeshInfo {
 struct GPUProbeRaycastResult {
 	vec4 worldPos;
 	vec4 direction;
+	vec2 lightmapUv;
+	vec2 texUv;
 	int objectId;
-	float u, v;
-	int pad_;
+	int pad0_;
+	int pad1_;
+	int pad2_;
 };
 
 struct GPUHitPayload
 {
 	int objectId;
 	vec3 pos;
-	vec2 uv;
+	vec2 lightmapUv;
+	vec2 texUv;
 };
 
 struct GPUReceiverData {

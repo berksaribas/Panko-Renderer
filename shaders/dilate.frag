@@ -8,12 +8,12 @@ layout (location = 0) in vec2 InUv;
 
 layout (location = 0) out vec4 outFragColor;
 
-layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
-layout(set = 1, binding = 0) uniform sampler2D source;
+layout(push_constant) uniform _PushConstantRay { ivec2 size; };
+layout(set = 0, binding = 0) uniform sampler2D source;
 
 void main(void) {
     vec4 c = texture(source, InUv);
-    vec2 pixelOffset = vec2(1.0) / cameraData.lightmapTargetSize;
+    vec2 pixelOffset = vec2(1.0) / size;
     c = c.a>0.0? c : texture(source, InUv - pixelOffset);
     c = c.a>0.0? c : texture(source, InUv + vec2(0, -pixelOffset.y));
     c = c.a>0.0? c : texture(source, InUv + vec2(pixelOffset.x, -pixelOffset.y));

@@ -23,6 +23,7 @@ struct ComputeBinding {
 struct ComputeInstance {
 	// PIPELINE
 	VkDescriptorSetLayout descriptorSetLayout;
+	std::vector<VkDescriptorSetLayout> extraDescriptorSetLayouts;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline pipeline;
 
@@ -38,6 +39,7 @@ public:
 	void create_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size);
 	void add_buffer_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, AllocatedBuffer buffer);
 	void add_texture_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, VkSampler sampler, VkImageView imageView);
+	void add_descriptor_set_layout(ComputeInstance& computeInstance, VkDescriptorSetLayout descriptorSetLayout);
 	void build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader);
 	void compute(ComputeInstance& computeInstance, int x, int y, int z);
 	void destroy_compute_instance(ComputeInstance& computeInstance);

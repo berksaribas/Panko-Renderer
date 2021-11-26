@@ -341,7 +341,6 @@ std::vector<glm::vec4> Precalculation::place_probes(VulkanEngine& engine, int ov
 	printf("Targeted amount of probes is %d\n", targetProbeCount);
 
 	float radius = calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, overlaps);
-	_radius = radius;
 	printf("Radius is %f\n", radius);
 
 	float currMaxWeight = -1;
@@ -538,7 +537,7 @@ Receiver* Precalculation::generate_receivers()
 						glm::vec2 pixelMiddle = { i + 0.5f, j + 0.5f };
 						glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
 							texVertices[0], texVertices[1], texVertices[2]);
-						if (barycentric.x >= 0 && barycentric.y >= 0 && barycentric.z >= 0) {
+						if (barycentric.x >= -0.01 && barycentric.y >= -0.01 && barycentric.z >= -0.01) {
 							Receiver receiver = {};
 							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
@@ -554,6 +553,20 @@ Receiver* Precalculation::generate_receivers()
 				}
 			}
 	}
+	char* image = new char[_scene->lightmap_height * _scene->lightmap_width];
+	memset(image, 0, _scene->lightmap_height * _scene->lightmap_width);
+	for (int i = 0; i < _scene->lightmap_height; i++) {
+		for (int j = 0; j < _scene->lightmap_width; j++) {
+			if(_receivers[j + i * _scene->lightmap_width].exists)
+			image[j + i * _scene->lightmap_width] = 255;
+		}
+	}
+
+	FILE* ptr;
+	fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
+	fwrite(image, _scene->lightmap_height * _scene->lightmap_width, 1, ptr);
+	fclose(ptr);
+
 
 	printf("Created receivers: %d!\n", receiverCounter);
 
@@ -782,6 +795,9 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 	divide_aabb(_aabbClusters, initial_node, _receivers, _scene->lightmap_width * _scene->lightmap_height, 1024);
 	printf("Done, total %d divisions\n", _aabbClusters.size());
 
+	float newRadius = calculate_radius(_receivers, _scene->lightmap_width * _scene->lightmap_height, _probes, 10);
+	printf("The new radius is: %f", newRadius);
+
 	//TODO: Raycasting time !!!
 	//For each cluster, we will trace 8000 rays
 	//Also generate rays from each probe to receiver hitpoints
@@ -826,13 +842,13 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 	if (true) {
 		{
 			FILE* ptr;
-			fopen_s(&ptr, "clusterProjectionMatrices.bin", "rb");
+			fopen_s(&ptr, "../../precomputation/clusterProjectionMatrices.bin", "rb");
 			size_t size = sizeof(float) * _aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT;
 			fread_s(_clusterProjectionMatrices, size, size, 1, ptr);
 		}
 		{
 			FILE* ptr2;
-			fopen_s(&ptr2, "receiverCoefficientMatrices.bin", "rb");
+			fopen_s(&ptr2, "../../precomputation/receiverCoefficientMatrices.bin", "rb");
 			size_t size = sizeof(float) * offsetCounter * CLUSTER_COEFFICIENT_COUNT;
 			fread_s(_receiverCoefficientMatrices, size, size, 1, ptr2);
 		}
@@ -984,7 +1000,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 			std::vector<float> weights;
 			weights.resize(_probes.size());
 			for (int j = 0; j < _probes.size(); j++) {
-				weights[j] = calculate_density(glm::distance(_aabbClusters[nodeIndex].receivers[i].position, glm::vec3(_probes[j])), 10);
+				weights[j] = calculate_density(glm::distance(_aabbClusters[nodeIndex].receivers[i].position, glm::vec3(_probes[j])), newRadius);
 			}
 
 			int validRays = 0;
@@ -1006,7 +1022,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 
 						for (int l = 0; l <= SPHERICAL_HARMONICS_ORDER; l++) {
 							for (int m = -l; m <= l; m++) {
-								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) += (float)(sh::EvalSH(l, m, dir)) * weight;
+								clusterMatrix(i, k * SPHERICAL_HARMONICS_NUM_COEFF + ctr) += ((float)(sh::EvalSH(l, m, dir)) * weight) / totalWeight;
 								ctr++;
 							}
 						}
@@ -1088,13 +1104,13 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, int rays)
 
 	{
 		FILE* ptr;
-		fopen_s(&ptr, "clusterProjectionMatrices.bin", "wb");
+		fopen_s(&ptr, "../../precomputation/clusterProjectionMatrices.bin", "wb");
 		fwrite(_clusterProjectionMatrices, sizeof(float) * _aabbClusters.size() * _probes.size() * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT, 1, ptr);
 		fclose(ptr);
 	}
 	{
 		FILE* ptr;
-		fopen_s(&ptr, "receiverCoefficientMatrices.bin", "wb");
+		fopen_s(&ptr, "../../precomputation/receiverCoefficientMatrices.bin", "wb");
 		fwrite(_receiverCoefficientMatrices, sizeof(float) * offsetCounter* CLUSTER_COEFFICIENT_COUNT, 1, ptr);
 		fclose(ptr);
 	}

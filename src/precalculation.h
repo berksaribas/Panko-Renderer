@@ -53,5 +53,4 @@ private:
 	float _voxelSize;
 	int _dimX, _dimY, _dimZ;
 	int _padding;
-	float _radius;
 };

@@ -134,6 +134,7 @@ public:
 	VkRenderPass _colorDepthRenderPass;
 	VkRenderPass _colorRenderPass;
 	VkSampler _linearSampler;
+	VkSampler _nearestSampler;
 
 	/* SHADOW MAP VARIABLES */
 	VkExtent2D _shadowMapExtent{ 4096 , 4096 };

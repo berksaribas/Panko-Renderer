@@ -14,6 +14,10 @@ layout(std140, set = 0, binding = 3) buffer _TempBuffer { vec4 tempCalculation[]
 layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
 layout(set = 0, binding = 5) uniform sampler2D lightmap;
 
+layout(std140,set = 1, binding = 0) readonly buffer _ObjectBuffer { GPUObjectData objects[]; };
+layout(std140,set = 2, binding = 0) readonly buffer _MaterialBuffer { GPUBasicMaterialData materials[]; };
+layout(set = 3, binding = 0) uniform sampler2D[] textures;
+
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
@@ -21,7 +25,16 @@ void main()
 	if(gID < config.probeCount * config.rayCount) {
 		vec4 color = vec4(0.0);
 		if(probeRaycasts[gID].objectId != -1) {
-			color = texture(lightmap, vec2(probeRaycasts[gID].u, probeRaycasts[gID].v) / config.lightmapInputSize).rgba;
+			color = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgba;
+
+			int materialId = objects[probeRaycasts[gID].objectId].material_id;
+
+			if(materials[materialId].texture > -1) {
+				color *= vec4(texture(textures[materials[materialId].texture], probeRaycasts[gID].texUv).xyz, 1.0);
+			}
+			else {
+				color *= vec4(materials[materialId].base_color.xyz, 1.0);
+			}
 		}
 		else {
 			//sample from skybox?

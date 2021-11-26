@@ -78,6 +78,11 @@ void VulkanCompute::add_texture_binding(ComputeInstance& computeInstance, Comput
 	computeInstance.bindings.push_back(computeBinding);
 }
 
+void VulkanCompute::add_descriptor_set_layout(ComputeInstance& computeInstance, VkDescriptorSetLayout descriptorSetLayout)
+{
+	computeInstance.extraDescriptorSetLayouts.push_back(descriptorSetLayout);
+}
+
 void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader)
 {
 	VkShaderModule shader;
@@ -95,7 +100,6 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 	VK_CHECK(vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &computeInstance.descriptorSetLayout));
 
 	VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(descriptorPool, &computeInstance.descriptorSetLayout, 1);
-
 	vkAllocateDescriptorSets(_device, &allocInfo, &computeInstance.descriptorSet);
 
 	std::vector<VkWriteDescriptorSet> descriptorSets;
@@ -121,8 +125,14 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 		vkUpdateDescriptorSets(_device, 1, &writeDescriptorSet, 0, nullptr);
 	}
 
-	VkDescriptorSetLayout setLayouts[] = { computeInstance.descriptorSetLayout };
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
+	std::vector<VkDescriptorSetLayout> setLayouts;
+	setLayouts.push_back(computeInstance.descriptorSetLayout);
+
+	for (int i = 0; i < computeInstance.extraDescriptorSetLayouts.size(); i++) {
+		setLayouts.push_back(computeInstance.extraDescriptorSetLayouts[i]);
+	}
+
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts.data(), setLayouts.size());
 	VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &computeInstance.pipelineLayout));
 
 	VkPipelineShaderStageCreateInfo stage =

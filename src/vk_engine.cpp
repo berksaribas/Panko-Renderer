@@ -30,17 +30,27 @@ Precalculation precalculation;
 const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
-const VkFormat depthMapColorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+const VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 
 
 ComputeInstance probeRelight = {};
 ComputeInstance clusterProjection = {};
 ComputeInstance receiverReconstruction = {};
+
 AllocatedImage giInirectLightImage;
 VkImageView giInirectLightImageView;
 VkDescriptorSet giInirectLightTextureDescriptor;
+
+AllocatedImage dilatedGiInirectLightImage;
+VkImageView dilatedGiInirectLightImageView;
+VkDescriptorSet dilatedGiInirectLightTextureDescriptor;
+VkFramebuffer dilatedGiInirectLightFramebuffer;
+
 AllocatedBuffer probeRelightOutputBuffer;
 AllocatedBuffer clusterProjectionOutputBuffer;
+
+VkExtent2D giLightmapExtent{ 0 , 0 };
+
 
 bool enableGi = false;
 bool showProbes = false;
@@ -217,8 +227,8 @@ void VulkanEngine::draw()
 		ImGui::Checkbox(buffer, &pauseTimer);
 
 		ImGui::Image(shadowMapTextureDescriptor, { 128, 128 });
-		ImGui::Image(_lightmapTextureDescriptor, { 128, 128 });
-		ImGui::Image(giInirectLightTextureDescriptor, { 128, 128 });
+		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
+		ImGui::Image(giInirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
 		ImGui::End();
 
 		sprintf_s(buffer, "Show Probes");
@@ -327,6 +337,30 @@ void VulkanEngine::draw()
 			vkCmdEndRenderPass(cmd);
 		}
 
+		// GI LIGHTMAP DILATION RENDERIN
+		{
+			VkClearValue clearValue;
+			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_colorRenderPass, giLightmapExtent, dilatedGiInirectLightFramebuffer);
+
+			rpInfo.clearValueCount = 1;
+			VkClearValue clearValues[] = { clearValue };
+			rpInfo.pClearValues = clearValues;
+
+			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			cmd_viewport_scissor(cmd, giLightmapExtent);
+
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipeline);
+			vkCmdPushConstants(cmd, _dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &giLightmapExtent);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 0, 1, &giInirectLightTextureDescriptor, 0, nullptr);
+			vkCmdDraw(cmd, 3, 1, 0, 0);
+
+			//finalize the render pass
+			vkCmdEndRenderPass(cmd);
+		}
+
 		// LIGHTMAP RENDERING
 		{
 			VkClearValue clearValue;
@@ -348,7 +382,7 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &textureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &materialDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadowMapTextureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &giInirectLightTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &dilatedGiInirectLightTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
 
@@ -368,6 +402,10 @@ void VulkanEngine::draw()
 			int groupcount = ((precalculation._probes.size() * precalculation._raysPerProbe) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 0, 1, &probeRelight.descriptorSet, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 2, 1, &materialDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 3, 1, &textureDescriptor, 0, nullptr);
+
 			vkCmdDispatch(cmd, groupcount, 1, 1);
 		}
 
@@ -415,6 +453,7 @@ void VulkanEngine::draw()
 			vkCmdDispatch(cmd, groupcount, 1, 1);
 		}
 
+		/*
 		{
 			VkImageMemoryBarrier imageMemoryBarrier = {};
 			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -436,6 +475,7 @@ void VulkanEngine::draw()
 				0, nullptr,
 				1, &imageMemoryBarrier);
 		}
+		*/
 
 		// LIGHTMAP DILATION RENDERIN
 		{
@@ -453,8 +493,8 @@ void VulkanEngine::draw()
 			cmd_viewport_scissor(cmd, _lightmapExtent);
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 0, 1, &get_current_frame().globalDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 1, 1, &_lightmapTextureDescriptor, 0, nullptr);
+			vkCmdPushConstants(cmd, _dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &_lightmapExtent);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 0, 1, &_lightmapTextureDescriptor, 0, nullptr);
 			vkCmdDraw(cmd, 3, 1, 0, 0);
 
 			//finalize the render pass
@@ -862,7 +902,7 @@ void VulkanEngine::init_colordepth_renderpass()
 	OPTICK_EVENT();
 
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = depthMapColorFormat;
+	colorAttachment.format = colorFormat;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -933,7 +973,7 @@ void VulkanEngine::init_color_renderpass()
 	OPTICK_EVENT();
 
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = depthMapColorFormat;
+	colorAttachment.format = colorFormat;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1031,13 +1071,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_shadowMapColorImage._image, &_shadowMapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _shadowMapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, _shadowMapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_shadowMapColorImageView));
 		}
 
@@ -1069,13 +1109,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_lightmapColorImage._image, &_lightmapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_lightmapColorImageView));
 		}
 
@@ -1096,13 +1136,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedLightmapColorImage._image, &_dilatedLightmapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedLightmapColorImageView));
 		}
 
@@ -1123,13 +1163,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, giImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, giImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_giColorImage._image, &_giColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, _giColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, _giColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_giColorImageView));
 		}
 
@@ -1255,18 +1295,18 @@ void VulkanEngine::init_descriptors()
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_globalSetLayout);
 
 	//binding set for object data
-	VkDescriptorSetLayoutBinding objectBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+	VkDescriptorSetLayoutBinding objectBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
 	setinfo = vkinit::descriptorset_layout_create_info(&objectBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_objectSetLayout);
 
 	//binding set for texture data
-	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
 	textureBind.descriptorCount = MAX_TEXTURES;
 	setinfo = vkinit::descriptorset_layout_create_info(&textureBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_textureSetLayout);
 
 	//binding set for materials
-	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
 	setinfo = vkinit::descriptorset_layout_create_info(&materialBind, 1);
 	vkCreateDescriptorSetLayout(_device, &setinfo, nullptr, &_materialSetLayout);
 
@@ -1468,8 +1508,13 @@ void VulkanEngine::init_pipelines() {
 
 	//DILATION PIPELINE LAYOUT INFO
 	{
-		VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _fragmentTextureDescriptorSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
+		VkDescriptorSetLayout setLayouts[] = { _fragmentTextureDescriptorSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
+
+		VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_FRAGMENT_BIT , 0, sizeof(glm::ivec2) };
+		pipeline_layout_info.pushConstantRangeCount = 1;
+		pipeline_layout_info.pPushConstantRanges = &pushConstantRanges;
+
 		VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_dilationPipelineLayout));
 	}
 
@@ -1970,8 +2015,12 @@ void VulkanEngine::init_gi()
 	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeRelightTempBuffer);
 	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::STORAGE, probeRelightOutputBuffer);
 	vulkanCompute.add_texture_binding(probeRelight, ComputeBufferType::TEXTURE_SAMPLED, _linearSampler, _lightmapColorImageView);
-	vulkanCompute.build(probeRelight, _descriptorPool, "../../shaders/gi_probe_projection.comp.spv");
+	
+	vulkanCompute.add_descriptor_set_layout(probeRelight, _objectSetLayout);
+	vulkanCompute.add_descriptor_set_layout(probeRelight, _materialSetLayout);
+	vulkanCompute.add_descriptor_set_layout(probeRelight, _textureSetLayout);
 
+	vulkanCompute.build(probeRelight, _descriptorPool, "../../shaders/gi_probe_projection.comp.spv");
 
 	//Cluster projection matrices (GPU ONLY)
 	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculation._clusterProjectionMatrices, (config.clusterCount * config.probeCount * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -1988,36 +2037,42 @@ void VulkanEngine::init_gi()
 	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculation._receiverCoefficientMatrices, (precalculation._totalClusterReceiverCount * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	auto clusterReceiverInfos = create_upload_buffer(precalculation._clusterReceiverInfos, config.clusterCount * sizeof(ClusterReceiverInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	auto clusterReceiverUvs = create_upload_buffer(precalculation._clusterReceiverUvs, precalculation._totalClusterReceiverCount * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	
+	giLightmapExtent.width = gltf_scene.lightmap_width;
+	giLightmapExtent.height = gltf_scene.lightmap_height;
 
 	VkExtent3D lightmapImageExtent3D = {
-			gltf_scene.lightmap_width,
-			gltf_scene.lightmap_height,
-			1
+		gltf_scene.lightmap_width,
+		gltf_scene.lightmap_height,
+		1
 	};
-	{
-		VkImageCreateInfo dimg_info = vkinit::image_create_info(depthMapColorFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-		VmaAllocationCreateInfo dimg_allocinfo = {};
-		dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-		dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &giInirectLightImage._image, &giInirectLightImage._allocation, nullptr);
-
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(depthMapColorFormat, giInirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-		VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &giInirectLightImageView));
-	}
 
 	{
-		VkDescriptorImageInfo imageBufferInfo;
-		imageBufferInfo.sampler = _linearSampler;
-		imageBufferInfo.imageView = giInirectLightImageView;
-		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &giInirectLightImage._image, &giInirectLightImage._allocation, nullptr);
 
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, giInirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &giInirectLightImageView));
+		}
 
-		vkAllocateDescriptorSets(_device, &allocInfo, &giInirectLightTextureDescriptor);
+		{
+			VkDescriptorImageInfo imageBufferInfo;
+			imageBufferInfo.sampler = _linearSampler;
+			imageBufferInfo.imageView = giInirectLightImageView;
+			imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, giInirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
+			VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
 
-		vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+			vkAllocateDescriptorSets(_device, &allocInfo, &giInirectLightTextureDescriptor);
+
+			VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, giInirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
+
+			vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+		}
 	}
 
 	immediate_submit([&](VkCommandBuffer cmd) {
@@ -2041,6 +2096,40 @@ void VulkanEngine::init_gi()
 			0, nullptr,
 			1, &imageMemoryBarrier);
 	});
+
+	{
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &dilatedGiInirectLightImage._image, &dilatedGiInirectLightImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(colorFormat, dilatedGiInirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &dilatedGiInirectLightImageView));
+		}
+
+		VkImageView attachments[1] = { dilatedGiInirectLightImageView };
+		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_colorRenderPass, giLightmapExtent);
+		fb_info.pAttachments = attachments;
+		fb_info.attachmentCount = 1;
+		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &dilatedGiInirectLightFramebuffer));
+
+		{
+			VkDescriptorImageInfo imageBufferInfo;
+			imageBufferInfo.sampler = _linearSampler;
+			imageBufferInfo.imageView = dilatedGiInirectLightImageView;
+			imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &_fragmentTextureDescriptorSetLayout, 1);
+
+			vkAllocateDescriptorSets(_device, &allocInfo, &dilatedGiInirectLightTextureDescriptor);
+
+			VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, dilatedGiInirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
+
+			vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+		}
+	}
 
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::UNIFORM, configBuffer);
 	vulkanCompute.add_buffer_binding(receiverReconstruction, ComputeBufferType::STORAGE, clusterProjectionOutputBuffer);

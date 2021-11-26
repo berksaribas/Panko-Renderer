@@ -134,13 +134,6 @@ void main()
         outFragColor = vec4(0);
     }
     else {
-	    if(materialBuffer.materials[material_id].texture > -1) {
-            color = texture(textures[materialBuffer.materials[material_id].texture], texCoord).xyz;
-        }
-        else {
-            color = materialBuffer.materials[material_id].base_color.xyz;
-        }
-
         vec4 shadowPos = biasMat * shadowMapData.depthMVP * inFragPos;
         //float shadow = textureProj(shadowPos / shadowPos.w, vec2(0.0));
         float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
@@ -151,6 +144,6 @@ void main()
 
 	    vec3 diffuse = max(dot(N, L), 0) * inLightColor * color;
 
-        outFragColor = vec4(diffuse * shadow, 1.0f) + texture(indirectLightmap, inLightmapCoord).rgba * 0.19;
+        outFragColor = vec4(diffuse * shadow, 1.0f) + vec4(texture(indirectLightmap, inLightmapCoord).rgb * 0.19, 1.0);
     }
 }
