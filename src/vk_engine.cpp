@@ -244,36 +244,40 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	//if (showProbes) {
-	//	for (int i = 0; i < precalculation._probes.size(); i++) {
-	//		vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, { 1, 0, 0 });
-	//		for (int j = 0; j < precalculation._raysPerProbe; j += 400) {
-	//			auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
-	//			if (ray.objectId != -1) {
-	//				vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
-	//					glm::vec3(ray.worldPos) * sceneScale,
-	//					{ 0, 0, 1 });
-	//
-	//				vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
-	//			}
-	//		}
-	//	}
-	//}
-	//
-	//if (showReceivers) {
-	//	std::random_device dev;
-	//	std::mt19937 rng(dev());
-	//	rng.seed(0);
-	//	std::uniform_real_distribution<> dist(0, 1);
-	//	
-	//	for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
-	//		glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
-	//		for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
-	//			vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
-	//			//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
-	//		}
-	//	}
-	//}
+	
+	if (showProbes) {
+		for (int i = 0; i < precalculationResult.probes.size(); i++) {
+			vkDebugRenderer.draw_point(glm::vec3(precalculationResult.probes[i]) * sceneScale, { 1, 0, 0 });
+			for (int j = 0; j < precalculationInfo.raysPerProbe; j += 400) {
+				auto& ray = precalculationResult.probeRaycastResult[precalculationInfo.raysPerProbe * i + j];
+				if (ray.objectId != -1) {
+					vkDebugRenderer.draw_line(glm::vec3(precalculationResult.probes[i]) * sceneScale,
+						glm::vec3(ray.worldPos) * sceneScale,
+						{ 0, 0, 1 });
+	
+					vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
+				}
+			}
+		}
+	}
+	
+	if (showReceivers) {
+		std::random_device dev;
+		std::mt19937 rng(dev());
+		rng.seed(0);
+		std::uniform_real_distribution<> dist(0, 1);
+		
+		for (int i = 0; i < precalculationLoadData.aabbClusterCount; i += 1) {
+			glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
+			int receiverCount = precalculationResult.clusterReceiverInfos[i].receiverCount;
+			int receiverOffset = precalculationResult.clusterReceiverInfos[i].receiverOffset;
+
+			for (int j = receiverOffset; j < receiverOffset + receiverCount; j++) {
+				vkDebugRenderer.draw_point(precalculationResult.aabbReceivers[j].position * sceneScale, color);
+				//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
+			}
+		}
+	}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -1981,7 +1985,7 @@ void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 
 void VulkanEngine::init_gi()
 {
-	bool loadPrecomputedData = false;
+	bool loadPrecomputedData = true;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.9;
@@ -1989,14 +1993,14 @@ void VulkanEngine::init_gi()
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 8000;
-		precalculationInfo.sphericalHarmonicsOrder = 2;
+		precalculationInfo.sphericalHarmonicsOrder = 4;
 		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
 		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
 	}
 	else {
-		//precalculation.load("precomputed.txt", precalculationInfo, precalculationLoadData, precalculationResult);
+		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
 	}
 
 	//Config buffer (GPU ONLY)

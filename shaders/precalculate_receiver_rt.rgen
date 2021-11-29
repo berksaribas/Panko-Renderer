@@ -105,7 +105,7 @@ void main()
                     0               // payload (location = 0)
             );
 
-            if(payload.objectId == hitObjectId && distance(hitLocation, payload.pos) < 0.01) {
+            if(payload.objectId == hitObjectId && distance(hitLocation, payload.pos) < 0.0001) {
                 visibility = 1;
             }
         }

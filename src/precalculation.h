@@ -44,15 +44,6 @@ struct PrecalculationLoadData {
 	int probesCount;
 	int totalClusterReceiverCount;
 	int aabbClusterCount;
-
-	std::string fileProbes;
-	std::string fileProbeRaycastResult;
-	std::string fileProbeRaycastBasisFunctions;
-	std::string fileAabbReceivers;
-	std::string fileClusterProjectionMatrices;
-	std::string fileReceiverCoefficientMatrices;
-	std::string fileClusterReceiverInfos;
-	std::string fileClusterReceiverUvs;
 };
 
 struct PrecalculationResult {

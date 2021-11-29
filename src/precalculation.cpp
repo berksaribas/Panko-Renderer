@@ -11,6 +11,7 @@
 #include <vk_utils.h>
 
 #include "json.hpp"
+#include <sys/stat.h>
 
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
@@ -160,6 +161,19 @@ static void save_binary(std::string filename, void* data, size_t size) {
 	fclose(ptr);
 }
 
+size_t seek_file(std::string filename) {
+	struct stat stat_buf;
+	int rc = stat(filename.c_str(), &stat_buf);
+	return rc == 0 ? stat_buf.st_size : -1;
+}
+
+void load_binary(std::string filename, void* destination, size_t size) {
+	FILE* ptr;
+	fopen_s(&ptr, filename.c_str(), "rb");
+	fread_s(destination, size, size, 1, ptr);
+	fclose(ptr);
+}
+
 void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult) {
 	int voxelDimX, voxelDimY, voxelDimZ;
 	uint8_t* voxelData = voxelize(scene, precalculationInfo.voxelSize, precalculationInfo.voxelPadding, voxelDimX, voxelDimY, voxelDimZ);
@@ -285,12 +299,12 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		std::ofstream file("mesh_voxelized_res_with_probes.obj");
 		int counter = 0;
 
-		for (int k = 0; k < dimZ; k++) {
-			for (int j = 0; j < dimY; j++) {
-				for (int i = 0; i < dimX; i++) {
-					int index = i + j * dimX + k * dimX * dimY;
+		for (int k = 0; k < voxelDimZ; k++) {
+			for (int j = 0; j < voxelDimY; j++) {
+				for (int i = 0; i < voxelDimX; i++) {
+					int index = i + j * voxelDimX + k * dimX * voxelDimY;
 
-					if (_voxelData[index] != 1) {
+					if (voxelData[index] != 1) {
 						continue;
 					}
 
@@ -374,7 +388,100 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		}
 		file.close();
 	}
-	*/
+*/	
+}
+
+void Precalculation::load(const char* filename, PrecalculationInfo& precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult)
+{
+	std::ifstream i(filename);
+	nlohmann::json config;
+	i >> config;
+
+	precalculationInfo.voxelSize = config["voxelSize"];
+	precalculationInfo.voxelPadding = config["voxelPadding"];
+	precalculationInfo.probeOverlaps = config["probeOverlaps"];
+	precalculationInfo.raysPerProbe = config["raysPerProbe"];
+	precalculationInfo.raysPerReceiver = config["raysPerReceiver"];
+	precalculationInfo.sphericalHarmonicsOrder = config["sphericalHarmonicsOrder"];
+	precalculationInfo.clusterCoefficientCount = config["clusterCoefficientCount"];
+	precalculationInfo.maxReceiversInCluster = config["maxReceiversInCluster"];
+
+	outPrecalculationLoadData.probesCount = config["probesCount"];
+	outPrecalculationLoadData.totalClusterReceiverCount = config["totalClusterReceiverCount"];
+	outPrecalculationLoadData.aabbClusterCount = config["aabbClusterCount"];
+
+	{
+		std::string file = config["fileProbes"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		printf("The size is %d\n", size);
+		outPrecalculationResult.probes.resize(size / sizeof(glm::vec4));
+		load_binary(file, outPrecalculationResult.probes.data(), size);
+	}
+
+	{
+		std::string file = config["fileProbeRaycastResult"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.probeRaycastResult = (GPUProbeRaycastResult*)malloc(size);
+		load_binary(file, outPrecalculationResult.probeRaycastResult, size);
+	}
+
+	{
+		std::string file = config["fileProbeRaycastBasisFunctions"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.probeRaycastBasisFunctions = (float*)malloc(size);
+		load_binary(file, outPrecalculationResult.probeRaycastBasisFunctions, size);
+	}
+
+	{
+		std::string file = config["fileAabbReceivers"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.aabbReceivers = (Receiver*)malloc(size);
+		load_binary(file, outPrecalculationResult.aabbReceivers, size);
+	}
+
+	{
+		std::string file = config["fileClusterProjectionMatrices"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.clusterProjectionMatrices = (float*)malloc(size);
+		load_binary(file, outPrecalculationResult.clusterProjectionMatrices, size);
+	}
+
+	{
+		std::string file = config["fileReceiverCoefficientMatrices"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.receiverCoefficientMatrices = (float*)malloc(size);
+		load_binary(file, outPrecalculationResult.receiverCoefficientMatrices, size);
+	}
+
+	{
+		std::string file = config["fileClusterReceiverInfos"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.clusterReceiverInfos = (ClusterReceiverInfo*) malloc(size);
+		load_binary(file, outPrecalculationResult.clusterReceiverInfos, size);
+	}
+
+	{
+		std::string file = config["fileClusterReceiverUvs"].get<std::string>();
+		printf(file.c_str());
+		printf("\n");
+		size_t size = seek_file(file);
+		outPrecalculationResult.clusterReceiverUvs = (glm::ivec4*)malloc(size);
+		load_binary(file, outPrecalculationResult.clusterReceiverUvs, size);
+	}
 }
 
 uint8_t* Precalculation::voxelize(GltfScene& scene, float voxelSize, int padding, int& dimX, int& dimY, int& dimZ)
