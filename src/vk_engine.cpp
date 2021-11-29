@@ -26,12 +26,15 @@
 #include <random>
 
 VulkanDebugRenderer vkDebugRenderer;
-Precalculation precalculation;
 const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
-
 const VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 
+Precalculation precalculation;
+
+PrecalculationInfo precalculationInfo = {};
+PrecalculationLoadData precalculationLoadData = {};
+PrecalculationResult precalculationResult = {};
 
 ComputeInstance probeRelight = {};
 ComputeInstance clusterProjection = {};
@@ -63,11 +66,11 @@ void VulkanEngine::init()
 
 	_shadowMapData.positiveExponent = 40;
 	_shadowMapData.negativeExponent = 5;
-	_shadowMapData.LightBleedingReduction = 0.0f;
+	_shadowMapData.LightBleedingReduction = 0.999f;
 	_shadowMapData.VSMBias = 0.01;
-	_camData.lightPos = { 0.1, 1, 0.1, 0.0f };
+	_camData.lightPos = { -2.170, 2.460, 1.760, 0.0f };
 	_camData.lightColor = { 1.f, 1.f, 1.f, 1.0f };
-
+	camera.pos = { 0, 0, 7 };
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
 
@@ -241,37 +244,36 @@ void VulkanEngine::draw()
 		ImGui::Render();
 	}
 
-	if (showProbes) {
-		for (int i = 0; i < precalculation._probes.size(); i++) {
-			vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, { 1, 0, 0 });
-			continue;
-			for (int j = 0; j < precalculation._raysPerProbe; j++) {
-				auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
-				if (ray.objectId != -1) {
-					vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
-						glm::vec3(ray.worldPos) * sceneScale,
-						{ 0, 0, 1 });
-
-					vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
-				}
-			}
-		}
-	}
-
-	if (showReceivers) {
-		std::random_device dev;
-		std::mt19937 rng(dev());
-		rng.seed(0);
-		std::uniform_real_distribution<> dist(0, 1);
-		
-		for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
-			glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
-			for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
-				vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
-				//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
-			}
-		}
-	}
+	//if (showProbes) {
+	//	for (int i = 0; i < precalculation._probes.size(); i++) {
+	//		vkDebugRenderer.draw_point(glm::vec3(precalculation._probes[i]) * sceneScale, { 1, 0, 0 });
+	//		for (int j = 0; j < precalculation._raysPerProbe; j += 400) {
+	//			auto& ray = precalculation._probeRaycastResult[precalculation._raysPerProbe * i + j];
+	//			if (ray.objectId != -1) {
+	//				vkDebugRenderer.draw_line(glm::vec3(precalculation._probes[i]) * sceneScale,
+	//					glm::vec3(ray.worldPos) * sceneScale,
+	//					{ 0, 0, 1 });
+	//
+	//				vkDebugRenderer.draw_point(glm::vec3(ray.worldPos) * sceneScale, { 0, 0, 1 });
+	//			}
+	//		}
+	//	}
+	//}
+	//
+	//if (showReceivers) {
+	//	std::random_device dev;
+	//	std::mt19937 rng(dev());
+	//	rng.seed(0);
+	//	std::uniform_real_distribution<> dist(0, 1);
+	//	
+	//	for (int i = 0; i < precalculation._aabbClusters.size(); i += 1) {
+	//		glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
+	//		for (int j = 0; j < precalculation._aabbClusters[i].receivers.size(); j++) {
+	//			vkDebugRenderer.draw_point(precalculation._aabbClusters[i].receivers[j].position * sceneScale, color);
+	//			//vkDebugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * sceneScale, color);
+	//		}
+	//	}
+	//}
 
 	vkutils::cpu_to_gpu(_allocator, get_current_frame().cameraBuffer, &_camData, sizeof(GPUCameraData));
 
@@ -310,6 +312,7 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 	{
+		
 		// SHADOW MAP RENDERING
 		{
 			VkClearValue clearValue;
@@ -336,7 +339,7 @@ void VulkanEngine::draw()
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowMapPipeline);
 			vkCmdEndRenderPass(cmd);
 		}
-
+		
 		// GI LIGHTMAP DILATION RENDERIN
 		{
 			VkClearValue clearValue;
@@ -360,7 +363,7 @@ void VulkanEngine::draw()
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
 		}
-
+		
 		// LIGHTMAP RENDERING
 		{
 			VkClearValue clearValue;
@@ -399,7 +402,7 @@ void VulkanEngine::draw()
 
 		//GI - Probe relight
 		{
-			int groupcount = ((precalculation._probes.size() * precalculation._raysPerProbe) / 256) + 1;
+			int groupcount = ((precalculationResult.probes.size() * precalculationInfo.raysPerProbe) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 0, 1, &probeRelight.descriptorSet, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probeRelight.pipelineLayout, 1, 1, &get_current_frame().objectDescriptor, 0, nullptr);
@@ -425,7 +428,7 @@ void VulkanEngine::draw()
 
 		//GI - Cluster Projection
 		{
-			int groupcount = ((precalculation._aabbClusters.size()) / 256) + 1;
+			int groupcount = ((precalculationLoadData.aabbClusterCount) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipelineLayout, 0, 1, &clusterProjection.descriptorSet, 0, nullptr);
 			vkCmdDispatch(cmd, groupcount, 1, 1);
@@ -447,35 +450,35 @@ void VulkanEngine::draw()
 
 		//GI - Receiver Projection
 		{
-			int groupcount = ((precalculation._aabbClusters.size()) / 256) + 1;
+			int groupcount = ((precalculationLoadData.aabbClusterCount) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipelineLayout, 0, 1, &receiverReconstruction.descriptorSet, 0, nullptr);
 			vkCmdDispatch(cmd, groupcount, 1, 1);
 		}
 
-		/*
-		{
-			VkImageMemoryBarrier imageMemoryBarrier = {};
-			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			// We won't be changing the layout of the image
-			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-			imageMemoryBarrier.image = giInirectLightImage._image;
-			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-			imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-			imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			vkCmdPipelineBarrier(
-				cmd,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-				0,
-				0, nullptr,
-				0, nullptr,
-				1, &imageMemoryBarrier);
-		}
-		*/
+		
+		//{
+		//	VkImageMemoryBarrier imageMemoryBarrier = {};
+		//	imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		//	// We won't be changing the layout of the image
+		//	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		//	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		//	imageMemoryBarrier.image = giInirectLightImage._image;
+		//	imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		//	imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		//	imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		//	imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		//	imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		//	vkCmdPipelineBarrier(
+		//		cmd,
+		//		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		//		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		//		0,
+		//		0, nullptr,
+		//		0, nullptr,
+		//		1, &imageMemoryBarrier);
+		//}
+		
 
 		// LIGHTMAP DILATION RENDERIN
 		{
@@ -532,6 +535,7 @@ void VulkanEngine::draw()
 		}
 		
 		//POST PROCESSING + UI
+		
 		{
 			VkClearValue clearValue;
 			clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
@@ -543,20 +547,21 @@ void VulkanEngine::draw()
 			rpInfo.clearValueCount = 2;
 			VkClearValue clearValues[] = { clearValue, depthClear };
 			rpInfo.pClearValues = clearValues;
-
+			
 			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
+			
 			cmd_viewport_scissor(cmd, _windowExtent);
-
+			
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipelineLayout, 0, 1, &_giColorTextureDescriptor, 0, nullptr);
 			vkCmdDraw(cmd, 3, 1, 0, 0);
-
+			
 			vkDebugRenderer.render(cmd, get_current_frame().globalDescriptor);
 			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
+			
 			vkCmdEndRenderPass(cmd);
 		}
+		
 	}
 	
 	VK_CHECK(vkEndCommandBuffer(cmd));
@@ -692,6 +697,7 @@ void VulkanEngine::init_vulkan()
 	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = VkPhysicalDeviceFeatures();
+	physicalDeviceFeatures.fillModeNonSolid = true;
 	physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 	physicalDeviceFeatures.shaderInt64 = true;
 
@@ -1731,13 +1737,6 @@ void VulkanEngine::init_scene()
 	gltf_scene.lightmap_width = atlas->width;
 	gltf_scene.lightmap_height = atlas->height;
 
-	//gltf_scene.prim_meshes.clear();
-	//gltf_scene.positions.clear();
-	//gltf_scene.indices.clear();
-	//gltf_scene.normals.clear();
-	//gltf_scene.texcoords0.clear();
-	//gltf_scene.lightmapUVs.clear();
-
 	std::vector<GltfPrimMesh> prim_meshes;
 	std::vector<glm::vec3> positions;
 	std::vector<uint32_t> indices;
@@ -1891,13 +1890,6 @@ void VulkanEngine::init_scene()
 	vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, vertex_buffer, index_buffer);
 	vulkanRaytracing.build_blas(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
 	vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR, false);
-	
-	int dimX, dimY, dimZ;
-	uint8_t* voxelSpace = precalculation.voxelize(gltf_scene, 0.9f, 10, true);
-	Receiver* receivers = precalculation.generate_receivers();
-	std::vector<glm::vec4> probes = precalculation.place_probes(*this, 10); //N_OVERLAPS
-	precalculation.probe_raycast(*this, 8000);
-	precalculation.receiver_raycast(*this, 8000);
 }
 
 void VulkanEngine::init_imgui()
@@ -1989,24 +1981,42 @@ void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 
 void VulkanEngine::init_gi()
 {
+	bool loadPrecomputedData = false;
+
+	if (!loadPrecomputedData) {
+		precalculationInfo.voxelSize = 0.9;
+		precalculationInfo.voxelPadding = 10;
+		precalculationInfo.probeOverlaps = 10;
+		precalculationInfo.raysPerProbe = 8000;
+		precalculationInfo.raysPerReceiver = 8000;
+		precalculationInfo.sphericalHarmonicsOrder = 2;
+		precalculationInfo.clusterCoefficientCount = 32;
+		precalculationInfo.maxReceiversInCluster = 1024;
+
+		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+	}
+	else {
+		//precalculation.load("precomputed.txt", precalculationInfo, precalculationLoadData, precalculationResult);
+	}
+
 	//Config buffer (GPU ONLY)
 	GIConfig config = {};
-	config.probeCount = precalculation._probes.size();
-	config.basisFunctionCount = SPHERICAL_HARMONICS_NUM_COEFF;
-	config.rayCount = precalculation._raysPerProbe;
-	config.clusterCount = precalculation._aabbClusters.size();
+	config.probeCount = precalculationResult.probes.size();
+	config.basisFunctionCount = SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder);
+	config.rayCount = precalculationInfo.raysPerProbe;
+	config.clusterCount = precalculationLoadData.aabbClusterCount;
 	config.lightmapInputSize = glm::vec2(gltf_scene.lightmap_width, gltf_scene.lightmap_height);
-	config.pcaCoefficient = CLUSTER_COEFFICIENT_COUNT;
+	config.pcaCoefficient = precalculationInfo.clusterCoefficientCount;
 
 	auto configBuffer = create_upload_buffer(&config, sizeof(GIConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//GPUProbeRaycastResult buffer (GPU ONLY)
-	auto probeRaycastResultBuffer = create_upload_buffer(precalculation._probeRaycastResult, sizeof(GPUProbeRaycastResult) * precalculation._probes.size() * precalculation._raysPerProbe, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto probeRaycastResultBuffer = create_upload_buffer(precalculationResult.probeRaycastResult, sizeof(GPUProbeRaycastResult) * config.probeCount * config.rayCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//ProbeBasisFunctions buffer (GPU ONLY)
-	auto probeBasisBuffer = create_upload_buffer(precalculation._probeRaycastBasisFunctions, sizeof(glm::vec4) * (precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto probeBasisBuffer = create_upload_buffer(precalculationResult.probeRaycastBasisFunctions, sizeof(glm::vec4) * (config.probeCount * config.rayCount * config.basisFunctionCount / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection Temp buffer (GPU ONLY)
-	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * precalculation._probes.size() * precalculation._raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * config.probeCount * config.rayCount * config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection output buffer (GPU ONLY)
-	probeRelightOutputBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * precalculation._probes.size() * SPHERICAL_HARMONICS_NUM_COEFF, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	probeRelightOutputBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * config.probeCount * config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	
 	//Create compute instances
 	vulkanCompute.add_buffer_binding(probeRelight, ComputeBufferType::UNIFORM, configBuffer);
@@ -2023,9 +2033,9 @@ void VulkanEngine::init_gi()
 	vulkanCompute.build(probeRelight, _descriptorPool, "../../shaders/gi_probe_projection.comp.spv");
 
 	//Cluster projection matrices (GPU ONLY)
-	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculation._clusterProjectionMatrices, (config.clusterCount * config.probeCount * SPHERICAL_HARMONICS_NUM_COEFF * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterProjectionMatricesBuffer = create_upload_buffer(precalculationResult.clusterProjectionMatrices, (config.clusterCount * config.probeCount * config.basisFunctionCount * config.pcaCoefficient / 4 + 1) * sizeof(glm::vec4) , VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_cluster_projection output buffer (GPU ONLY)
-	clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, config.clusterCount * CLUSTER_COEFFICIENT_COUNT * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, config.clusterCount * config.pcaCoefficient * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::UNIFORM, configBuffer);
 	vulkanCompute.add_buffer_binding(clusterProjection, ComputeBufferType::STORAGE, probeRelightOutputBuffer);
@@ -2034,9 +2044,9 @@ void VulkanEngine::init_gi()
 	vulkanCompute.build(clusterProjection, _descriptorPool, "../../shaders/gi_cluster_projection.comp.spv");
 
 
-	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculation._receiverCoefficientMatrices, (precalculation._totalClusterReceiverCount * CLUSTER_COEFFICIENT_COUNT / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	auto clusterReceiverInfos = create_upload_buffer(precalculation._clusterReceiverInfos, config.clusterCount * sizeof(ClusterReceiverInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	auto clusterReceiverUvs = create_upload_buffer(precalculation._clusterReceiverUvs, precalculation._totalClusterReceiverCount * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto receiverReconstructionMatricesBuffer = create_upload_buffer(precalculationResult.receiverCoefficientMatrices, (precalculationLoadData.totalClusterReceiverCount * config.pcaCoefficient / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverInfos = create_upload_buffer(precalculationResult.clusterReceiverInfos, config.clusterCount * sizeof(ClusterReceiverInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto clusterReceiverUvs = create_upload_buffer(precalculationResult.clusterReceiverUvs, precalculationLoadData.totalClusterReceiverCount * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	
 	giLightmapExtent.width = gltf_scene.lightmap_width;
 	giLightmapExtent.height = gltf_scene.lightmap_height;

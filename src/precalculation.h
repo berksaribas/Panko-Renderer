@@ -6,9 +6,7 @@
 #include <vk_engine.h>
 #include "../shaders/common.glsl"
 
-#define SPHERICAL_HARMONICS_ORDER 2
-#define SPHERICAL_HARMONICS_NUM_COEFF ((SPHERICAL_HARMONICS_ORDER + 1) * (SPHERICAL_HARMONICS_ORDER + 1))
-#define CLUSTER_COEFFICIENT_COUNT 32
+#define SPHERICAL_HARMONICS_NUM_COEFF(ORDER) ((ORDER + 1) * (ORDER + 1))
 
 struct Receiver {
 	glm::vec3 position;
@@ -28,29 +26,57 @@ struct GPUProbeDensityUniformData {
 	float radius;
 };
 
+struct PrecalculationInfo {
+	//Voxelization
+	float voxelSize;
+	int voxelPadding;
+	//Probe placement
+	int probeOverlaps;
+	//Precalculation
+	int raysPerProbe;
+	int raysPerReceiver;
+	int sphericalHarmonicsOrder;
+	int clusterCoefficientCount;
+	int maxReceiversInCluster;
+};
+
+struct PrecalculationLoadData {
+	int probesCount;
+	int totalClusterReceiverCount;
+	int aabbClusterCount;
+
+	std::string fileProbes;
+	std::string fileProbeRaycastResult;
+	std::string fileProbeRaycastBasisFunctions;
+	std::string fileAabbReceivers;
+	std::string fileClusterProjectionMatrices;
+	std::string fileReceiverCoefficientMatrices;
+	std::string fileClusterReceiverInfos;
+	std::string fileClusterReceiverUvs;
+};
+
+struct PrecalculationResult {
+	//Probes
+	std::vector<glm::vec4> probes;
+	GPUProbeRaycastResult* probeRaycastResult;
+	float* probeRaycastBasisFunctions;
+
+	//Receivers
+	Receiver* aabbReceivers;
+	float* clusterProjectionMatrices;
+	float* receiverCoefficientMatrices;
+	ClusterReceiverInfo* clusterReceiverInfos;
+	glm::ivec4* clusterReceiverUvs;
+};
+
 class Precalculation {
 public:
-	uint8_t* voxelize(GltfScene& scene, float voxelSize, int padding, bool save = false);
-	std::vector<glm::vec4> place_probes(VulkanEngine& engine, int overlaps);
-	Receiver* generate_receivers();
-	void probe_raycast(VulkanEngine& engine, int rays);
-	void receiver_raycast(VulkanEngine& engine, int rays);
-	std::vector<glm::vec4> _probes;
-	GPUProbeRaycastResult* _probeRaycastResult;
-	float* _probeRaycastBasisFunctions;
-	int _raysPerProbe;
-	Receiver* _receivers;
-	std::vector<AABB> _aabbClusters;
-
-	int _totalClusterReceiverCount;
-	float* _clusterProjectionMatrices;
-	float* _receiverCoefficientMatrices;
-	ClusterReceiverInfo* _clusterReceiverInfos;
-	glm::ivec4* _clusterReceiverUvs;
+	void prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult);
+	void load(const char* filename, PrecalculationInfo& precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult);
 private:
-	GltfScene* _scene;
-	uint8_t* _voxelData;
-	float _voxelSize;
-	int _dimX, _dimY, _dimZ;
-	int _padding;
+	uint8_t* voxelize(GltfScene& scene, float voxelSize, int padding, int& dimX, int& dimY, int& dimZ);
+	void place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, int radius);
+	Receiver* generate_receivers(GltfScene& scene);
+	void probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>& probes, int rays, int sphericalHarmonicsOrder, GPUProbeRaycastResult* probeRaycastResult, float* probeRaycastBasisFunctions);
+	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, int radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, float* clusterProjectionMatrices, float* receiverCoefficientMatrices);
 };

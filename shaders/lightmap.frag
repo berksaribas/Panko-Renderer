@@ -144,6 +144,7 @@ void main()
 
 	    vec3 diffuse = max(dot(N, L), 0) * inLightColor * color;
 
-        outFragColor = vec4(diffuse * shadow, 1.0f) + vec4(texture(indirectLightmap, inLightmapCoord).rgb * 0.19, 1.0);
+        //what is 0.19 = 1 / (golden ratio * pi) or 1 / 2pi???
+        outFragColor = vec4(diffuse * shadow, 1.0f) + texture(indirectLightmap, inLightmapCoord).rgba * 0.19;
     }
 }

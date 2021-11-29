@@ -112,34 +112,40 @@ void VulkanDebugRenderer::draw_point(glm::vec3 point, glm::vec3 color)
 
 void VulkanDebugRenderer::render(VkCommandBuffer cmd, VkDescriptorSet globalDescriptorSet)
 {
+	
+
 	/*
 	* DRAW POINTS
 	*/
-	vkutils::cpu_to_gpu(_allocator, _pointVertexBuffer, pointPositions.data(), pointPositions.size() * sizeof(glm::vec3));
-	vkutils::cpu_to_gpu(_allocator, _pointColorBuffer, pointColors.data(), pointColors.size() * sizeof(glm::vec3));
+	if (pointPositions.size() > 0) {
+		vkutils::cpu_to_gpu(_allocator, _pointVertexBuffer, pointPositions.data(), pointPositions.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_allocator, _pointColorBuffer, pointColors.data(), pointColors.size() * sizeof(glm::vec3));
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pointPipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
-	VkDeviceSize pointOffsets[] = { 0, 0, 0 };
-	VkBuffer pointBuffers[] = { _pointVertexBuffer._buffer, _pointColorBuffer._buffer };
-	vkCmdBindVertexBuffers(cmd, 0, 2, pointBuffers, pointOffsets);
-	vkCmdDraw(cmd, pointPositions.size(), 1, 0, 0);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pointPipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
+		VkDeviceSize pointOffsets[] = { 0, 0, 0 };
+		VkBuffer pointBuffers[] = { _pointVertexBuffer._buffer, _pointColorBuffer._buffer };
+		vkCmdBindVertexBuffers(cmd, 0, 2, pointBuffers, pointOffsets);
+		vkCmdDraw(cmd, pointPositions.size(), 1, 0, 0);
 
-	pointPositions.clear();
-	pointColors.clear();
+		pointPositions.clear();
+		pointColors.clear();
+	}
 
-	vkutils::cpu_to_gpu(_allocator, _lineVertexBuffer, linePositions.data(), linePositions.size() * sizeof(glm::vec3));
-	vkutils::cpu_to_gpu(_allocator, _lineColorBuffer, lineColors.data(), lineColors.size() * sizeof(glm::vec3));
+	if (linePositions.size() > 0) {
+		vkutils::cpu_to_gpu(_allocator, _lineVertexBuffer, linePositions.data(), linePositions.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_allocator, _lineColorBuffer, lineColors.data(), lineColors.size() * sizeof(glm::vec3));
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _linePipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
-	VkDeviceSize lineOffsets[] = { 0, 0, 0 };
-	VkBuffer lineBuffers[] = { _lineVertexBuffer._buffer, _lineColorBuffer._buffer };
-	vkCmdBindVertexBuffers(cmd, 0, 2, lineBuffers, lineOffsets);
-	vkCmdDraw(cmd, linePositions.size(), 1, 0, 0);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _linePipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
+		VkDeviceSize lineOffsets[] = { 0, 0, 0 };
+		VkBuffer lineBuffers[] = { _lineVertexBuffer._buffer, _lineColorBuffer._buffer };
+		vkCmdBindVertexBuffers(cmd, 0, 2, lineBuffers, lineOffsets);
+		vkCmdDraw(cmd, linePositions.size(), 1, 0, 0);
 
-	linePositions.clear();
-	lineColors.clear();
+		linePositions.clear();
+		lineColors.clear();
+	}
 }
 
 void VulkanDebugRenderer::cleanup()

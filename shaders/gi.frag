@@ -40,7 +40,7 @@ void main()
         }
     }
 
-    vec3 lightmapResult = texture(lightMap, inLightmapCoord).xyz * texture(lightMap, inLightmapCoord).xyz;
+    vec3 lightmapResult = texture(lightMap, inLightmapCoord).xyz;
 
     outFragColor = vec4(color * lightmapResult, 1.0f);
 }
