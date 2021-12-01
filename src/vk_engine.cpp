@@ -702,7 +702,7 @@ void VulkanEngine::init_vulkan()
 	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = VkPhysicalDeviceFeatures();
-	physicalDeviceFeatures.fillModeNonSolid = true;
+	//physicalDeviceFeatures.fillModeNonSolid = true;
 	physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 	physicalDeviceFeatures.shaderInt64 = true;
 

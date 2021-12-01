@@ -66,7 +66,7 @@ public:
 	void load(const char* filename, PrecalculationInfo& precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult);
 private:
 	uint8_t* voxelize(GltfScene& scene, float voxelSize, int padding, int& dimX, int& dimY, int& dimZ);
-	void place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, int radius);
+	void place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, Receiver* receivers, int receiverCount, int nOverlaps);
 	Receiver* generate_receivers(GltfScene& scene);
 	void probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>& probes, int rays, int sphericalHarmonicsOrder, GPUProbeRaycastResult* probeRaycastResult, float* probeRaycastBasisFunctions);
 	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, int radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, float* clusterProjectionMatrices, float* receiverCoefficientMatrices);

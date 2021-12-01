@@ -59,7 +59,7 @@ void main()
 	uint gID = gl_GlobalInvocationID.x;
 
 	if(gID < config.probeCount * config.rayCount) {
-		vec4 color = vec4(1);
+		vec4 color = vec4(0, 0, 0, 1);
 		if(probeRaycasts[gID].objectId != -1) {
 			color = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgba;
 

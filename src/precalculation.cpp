@@ -237,10 +237,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	int targetProbeCount = voxelDimX - precalculationInfo.voxelPadding * 2;
 	printf("Targeted amount of probes is %d\n", targetProbeCount);
 
-	float radius = calculate_radius(receivers, scene.lightmap_width * scene.lightmap_height, probes, precalculationInfo.probeOverlaps);
-	printf("Radius is %f\n", radius);
-
-	place_probes(engine, probes, targetProbeCount, radius);
+	place_probes(engine, probes, targetProbeCount, receivers, scene.lightmap_width * scene.lightmap_height, precalculationInfo.probeOverlaps);
 
 	outPrecalculationLoadData.probesCount = probes.size();
 	outPrecalculationResult.probes = probes;
@@ -283,7 +280,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	}
 
 	float newRadius = calculate_radius(receivers, scene.lightmap_width * scene.lightmap_height, probes, precalculationInfo.probeOverlaps);
-	//receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices);
+	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices);
 
 	// Save everything
 	std::string filename = "../../precomputation/precalculation";
@@ -315,10 +312,10 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".AabbReceivers", outPrecalculationResult.aabbReceivers, sizeof(Receiver) * clusterReceiverCount);
 
 	config["fileClusterProjectionMatrices"] = filename + ".ClusterProjectionMatrices";
-	//save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, aabbClusters.size() * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount * sizeof(float));
+	save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, aabbClusters.size() * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount * sizeof(float));
 
 	config["fileReceiverCoefficientMatrices"] = filename + ".ReceiverCoefficientMatrices";
-	//save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
+	save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
 
 	config["fileClusterReceiverInfos"] = filename + ".ClusterReceiverInfos";
 	save_binary(filename + ".ClusterReceiverInfos", outPrecalculationResult.clusterReceiverInfos, aabbClusters.size() * sizeof(ClusterReceiverInfo));
@@ -331,7 +328,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	file.close();
 
 	// Deal with this later
-	/*
+	
 	if (true) {
 		std::ofstream file("mesh_voxelized_res_with_probes.obj");
 		int counter = 0;
@@ -339,25 +336,25 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		for (int k = 0; k < voxelDimZ; k++) {
 			for (int j = 0; j < voxelDimY; j++) {
 				for (int i = 0; i < voxelDimX; i++) {
-					int index = i + j * voxelDimX + k * dimX * voxelDimY;
+					int index = i + j * voxelDimX + k * voxelDimX * voxelDimY;
 
 					if (voxelData[index] != 1) {
 						continue;
 					}
-
-					float voxelX = scene.m_dimensions.min.x + voxelSize * (i - padding);
-					float voxelY = scene.m_dimensions.min.y + voxelSize * (j - padding);
-					float voxelZ = scene.m_dimensions.min.z + voxelSize * (k - padding);
+					
+					float voxelX = scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding);
+					float voxelY = scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding);
+					float voxelZ = scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding);
 
 					//Vertices
 					file << "v " << voxelX << " " << voxelY << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY << " " << voxelZ + voxelSize << "\n";
-					file << "v " << voxelX + voxelSize << " " << voxelY << " " << voxelZ + voxelSize << "\n";
-					file << "v " << voxelX + +voxelSize << " " << voxelY << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY + voxelSize << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY + voxelSize << " " << voxelZ + voxelSize << "\n";
-					file << "v " << voxelX + voxelSize << " " << voxelY + voxelSize << " " << voxelZ + voxelSize << "\n";
-					file << "v " << voxelX + +voxelSize << " " << voxelY + voxelSize << " " << voxelZ << "\n";
+					file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+					file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+					file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ << "\n";
+					file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
+					file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+					file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+					file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
 
 					int idx = counter * 8 + 1;
 
@@ -385,10 +382,10 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 			}
 		}
 
-		for (int i = 0; i < _probes.size(); i++) {
-			float voxelX = _probes[i].x;
-			float voxelY = _probes[i].y;
-			float voxelZ = _probes[i].z;
+		for (int i = 0; i < probes.size(); i++) {
+			float voxelX = probes[i].x;
+			float voxelY = probes[i].y;
+			float voxelZ = probes[i].z;
 
 			//Vertices
 			file << "v " << voxelX << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
@@ -425,7 +422,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		}
 		file.close();
 	}
-*/	
+	
 }
 
 void Precalculation::load(const char* filename, PrecalculationInfo& precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult)
@@ -662,7 +659,7 @@ uint8_t* Precalculation::voxelize(GltfScene& scene, float voxelSize, int padding
 	return voxelData;
 }
 
-void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, int radius)
+void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, Receiver* receivers, int receiverCount, int nOverlaps)
 {
 	OPTICK_EVENT()
 
@@ -679,6 +676,7 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 	int toRemoveIndex = -1;
 	while (probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
+		float radius = calculate_radius(receivers, receiverCount, probes, nOverlaps);
 		GPUProbeDensityUniformData ub = { probes.size(), radius };
 		vkutils::cpu_to_gpu(engine._allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
 		int groupcount = ((probes.size()) / 256) + 1;
