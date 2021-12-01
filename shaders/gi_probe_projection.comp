@@ -59,9 +59,13 @@ void main()
 	uint gID = gl_GlobalInvocationID.x;
 
 	if(gID < config.probeCount * config.rayCount) {
+
+		uint probe = gID / config.rayCount;
+		uint ray = gID % config.rayCount;
+
 		vec4 color = vec4(0, 0, 0, 1);
 		if(probeRaycasts[gID].objectId != -1) {
-			color = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgba;
+			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
 
 			int materialId = objects[probeRaycasts[gID].objectId].material_id;
 
@@ -77,15 +81,21 @@ void main()
 		}
 		
 		vec3 direction = normalize(vec3(probeRaycasts[gID].direction));
-		tempCalculation[gID * config.basisFunctionCount + 0] = 4 * 3.14159265359 * 1/8000 * SH00(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 1] = 4 * 3.14159265359 * 1/8000 * SH1n1(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 2] = 4 * 3.14159265359 * 1/8000 * SH10(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 3] = 4 * 3.14159265359 * 1/8000 * SH1p1(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 4] = 4 * 3.14159265359 * 1/8000 * SH2n2(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 5] = 4 * 3.14159265359 * 1/8000 * SH2n1(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 6] = 4 * 3.14159265359 * 1/8000 * SH20(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 7] = 4 * 3.14159265359 * 1/8000 * SH2p1(direction) * color;
-		tempCalculation[gID * config.basisFunctionCount + 8] = 4 * 3.14159265359 * 1/8000 * SH2p2(direction) * color;
+		uint index = probe * config.rayCount * config.basisFunctionCount;
+		tempCalculation[index + 0 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH00(direction) * color;
+		tempCalculation[index + 1 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH1n1(direction) * color;
+		tempCalculation[index + 2 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH10(direction) * color;
+		tempCalculation[index + 3 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH1p1(direction) * color;
+		tempCalculation[index + 4 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2n2(direction) * color;
+		tempCalculation[index + 5 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2n1(direction) * color;
+		tempCalculation[index + 6 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH20(direction) * color;
+		tempCalculation[index + 7 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2p1(direction) * color;
+		tempCalculation[index + 8 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2p2(direction) * color;
+
+		//for(int i = 0; i < config.basisFunctionCount; i++) {
+		//	uint index = gID * config.basisFunctionCount + i;
+		//	tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;
+		//}
 	}
 
     memoryBarrier();
@@ -96,9 +106,9 @@ void main()
 		outColors[gID] = vec4(0);
 		uint probe = gID / config.basisFunctionCount;
 		uint basis = gID % config.basisFunctionCount;
-
+		uint index = gID * config.rayCount;
 		for(int j = 0; j < config.rayCount; j++) {
-			outColors[gID] += tempCalculation[probe * config.basisFunctionCount * config.rayCount + j * config.basisFunctionCount + basis];
+			outColors[gID] += tempCalculation[index + j];
 		}
 	}
 }
