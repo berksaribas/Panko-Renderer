@@ -21,17 +21,21 @@ const float PI  = 3.14159265358979323846264;
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
-	
-	if(gID < config.clusterCount) {
-		int offset = clusterReceiverInfos[gID].receiverOffset * config.pcaCoefficient;
-		for(int j = 0; j < clusterReceiverInfos[gID].receiverCount; j++) {
+	if(gID < config.clusterCount * 1024) {
+		uint cluster = gID / 1024;
+		uint receiverCount  = clusterReceiverInfos[cluster].receiverCount;
+		uint j = gID % 1024;
+
+		if(j < receiverCount) {
+			int offset = clusterReceiverInfos[cluster].receiverOffset * config.pcaCoefficient;
 			vec4 result = vec4(0);
+
 			for(int i = 0; i < config.pcaCoefficient; i++) {
-				vec4 color = clusterProjectionColors[gID * config.pcaCoefficient + i];
+				vec4 color = clusterProjectionColors[cluster * config.pcaCoefficient + i];
 				uint index = offset + j * config.pcaCoefficient + i;
 				result += receiverReconstructionMatrices[index / 4][index % 4] * color;
 			}
-			imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverInfos[gID].receiverOffset + j].xy), result / PI);
+			imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverInfos[cluster].receiverOffset + j].xy), result / PI);
 		}
 	}
 }

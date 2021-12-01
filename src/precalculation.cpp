@@ -17,6 +17,43 @@
 #define M_PI    3.14159265358979323846264338327950288
 
 
+float SH00(const vec3 d) {
+	return 0.282095;
+}
+
+float SH1n1(const vec3 d) {
+	return 0.488603 * d.y;
+}
+
+float SH10(const vec3 d) {
+	return 0.488603 * d.z;
+}
+
+float SH1p1(const vec3 d) {
+	return 0.488603 * d.x;
+}
+
+float SH2n2(const vec3 d) {
+	return 1.092548 * d.x * d.y;
+}
+
+float SH2n1(const vec3 d) {
+	return 1.092548 * d.y * d.z;
+}
+
+float SH20(const vec3 d) {
+	return 0.315392 * (3.0 * d.z * d.z - 1);
+}
+
+float SH2p1(const vec3 d) {
+	return 1.092548 * d.x * d.z;
+}
+
+float SH2p2(const vec3 d) {
+	return 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+
 //Christer Ericson's Real-Time Collision Detection 
 static glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
 	//glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
@@ -246,7 +283,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	}
 
 	float newRadius = calculate_radius(receivers, scene.lightmap_width * scene.lightmap_height, probes, precalculationInfo.probeOverlaps);
-	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices);
+	//receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices);
 
 	// Save everything
 	std::string filename = "../../precomputation/precalculation";
@@ -278,10 +315,10 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".AabbReceivers", outPrecalculationResult.aabbReceivers, sizeof(Receiver) * clusterReceiverCount);
 
 	config["fileClusterProjectionMatrices"] = filename + ".ClusterProjectionMatrices";
-	save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, aabbClusters.size() * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount * sizeof(float));
+	//save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, aabbClusters.size() * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount * sizeof(float));
 
 	config["fileReceiverCoefficientMatrices"] = filename + ".ReceiverCoefficientMatrices";
-	save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
+	//save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
 
 	config["fileClusterReceiverInfos"] = filename + ".ClusterReceiverInfos";
 	save_binary(filename + ".ClusterReceiverInfos", outPrecalculationResult.clusterReceiverInfos, aabbClusters.size() * sizeof(ClusterReceiverInfo));
@@ -894,18 +931,24 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 	int shCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
 
 	for (int i = 0; i < rays * probes.size(); i++) {
-		Eigen::Vector3d dir(probeRaycastResult[i].direction.x,
-			probeRaycastResult[i].direction.y,
-			probeRaycastResult[i].direction.z);
-		dir.normalize();
+		auto ndir = glm::normalize(glm::vec3(probeRaycastResult[i].direction));
 		int ctr = 0;
-		for (int l = 0; l <= sphericalHarmonicsOrder; l++) {
-			for (int m = -l; m <= l; m++) {
-				probeRaycastBasisFunctions[i * shCoeff + ctr] = (float) (sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
+		//for (int l = 0; l <= sphericalHarmonicsOrder; l++) {
+		//	for (int m = -l; m <= l; m++) {
+				probeRaycastBasisFunctions[i * shCoeff + 0] += SH00(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 1] += SH1n1(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 2] += SH10(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 3] += SH1p1(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 4] += SH2n2(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 5] += SH2n1(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 6] += SH20(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 7] += SH2p1(ndir) * 4 * M_PI / rays;
+				probeRaycastBasisFunctions[i * shCoeff + 8] += SH2p2(ndir) * 4 * M_PI / rays;
+
 				//printf("%d: %f\n", ctr, _probeRaycastBasisFunctions[i * SPHERICAL_HARMONICS_NUM_COEFF + ctr]);
-				ctr++;
-			} 
-		}
+		//		ctr++;
+		//	} 
+		//}
 	}
 
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
@@ -1079,18 +1122,18 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 					for (int k = 0; k < probes.size(); k++) {
 						int ctr = 0;
 						auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + i * probes.size() * rays];
-						Eigen::Vector3d dir(res.dir.x,
-							res.dir.y,
-							res.dir.z);
-						dir.normalize();
+						auto ndir = glm::normalize(res.dir);
 						float weight = res.visibility * weights[k];
 
-						for (int l = 0; l <= sphericalHarmonicsOrder; l++) {
-							for (int m = -l; m <= l; m++) {
-								clusterMatrix(i, k * shNumCoeff + ctr) += ((float)(sh::EvalSH(l, m, dir)) * weight) / totalWeight;
-								ctr++;
-							}
-						}
+						clusterMatrix(i, k* shNumCoeff + 0) += SH00(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 1) += SH1n1(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 2) += SH10(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 3) += SH1p1(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 4) += SH2n2(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 5) += SH2n1(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 6) += SH20(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 7) += SH2p1(ndir) * weight / totalWeight;
+						clusterMatrix(i, k* shNumCoeff + 8) += SH2p2(ndir) * weight / totalWeight;
 					}
 					validRays++;
 				}

@@ -17,18 +17,14 @@ void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
 
-	if(gID < config.clusterCount) {
-		for(int c = 0; c < config.pcaCoefficient; c++) {
-			outColors[gID * config.pcaCoefficient + c] = vec4(0.0);
-		}
+	if(gID < config.clusterCount * config.pcaCoefficient) {
+		outColors[gID] = vec4(0.0);
 		int total = config.probeCount * config.basisFunctionCount;
 		
 		for(int i = 0; i < total; i++) {
 			vec4 color = probeRelightColors[i];
-			for(int c = 0; c < config.pcaCoefficient; c++) {
-				uint index = total * config.pcaCoefficient * gID + c * total + i ;
-				outColors[gID * config.pcaCoefficient + c] += color * clusterProjectionMatrices[index / 4][index % 4];
-			}
+			uint index = total * gID + i ;
+			outColors[gID] += color * clusterProjectionMatrices[index / 4][index % 4];
 		}
 	}
 }

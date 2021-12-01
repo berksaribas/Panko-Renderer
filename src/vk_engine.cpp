@@ -432,7 +432,8 @@ void VulkanEngine::draw()
 
 		//GI - Cluster Projection
 		{
-			int groupcount = ((precalculationLoadData.aabbClusterCount) / 256) + 1;
+			
+			int groupcount = ((precalculationLoadData.aabbClusterCount * precalculationInfo.clusterCoefficientCount) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clusterProjection.pipelineLayout, 0, 1, &clusterProjection.descriptorSet, 0, nullptr);
 			vkCmdDispatch(cmd, groupcount, 1, 1);
@@ -454,7 +455,7 @@ void VulkanEngine::draw()
 
 		//GI - Receiver Projection
 		{
-			int groupcount = ((precalculationLoadData.aabbClusterCount) / 256) + 1;
+			int groupcount = ((precalculationLoadData.aabbClusterCount * 1024) / 256) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, receiverReconstruction.pipelineLayout, 0, 1, &receiverReconstruction.descriptorSet, 0, nullptr);
 			vkCmdDispatch(cmd, groupcount, 1, 1);
@@ -1993,7 +1994,7 @@ void VulkanEngine::init_gi()
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 8000;
-		precalculationInfo.sphericalHarmonicsOrder = 4;
+		precalculationInfo.sphericalHarmonicsOrder = 2;
 		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
