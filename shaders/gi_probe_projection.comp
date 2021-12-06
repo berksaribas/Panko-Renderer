@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_debug_printf : enable
 
 #include "common.glsl"
 
@@ -13,46 +14,11 @@ layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeB
 layout(std140, set = 0, binding = 3) buffer _TempBuffer { vec4 tempCalculation[]; };
 layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
 layout(set = 0, binding = 5) uniform sampler2D lightmap;
+layout(set = 0, binding = 6) uniform sampler2D indirectLightMap;
 
 layout(std140,set = 1, binding = 0) readonly buffer _ObjectBuffer { GPUObjectData objects[]; };
 layout(std140,set = 2, binding = 0) readonly buffer _MaterialBuffer { GPUBasicMaterialData materials[]; };
 layout(set = 3, binding = 0) uniform sampler2D[] textures;
-
-float SH00(const vec3 d) {
-  return 0.282095;
-}
-
-float SH1n1(const vec3 d) {
-  return 0.488603 * d.y;
-}
-
-float SH10(const vec3 d) {
-  return 0.488603 * d.z;
-}
-
-float SH1p1(const vec3 d) {
-  return 0.488603 * d.x;
-}
-
-float SH2n2(const vec3 d) {
-  return 1.092548 * d.x * d.y;
-}
-
-float SH2n1(const vec3 d) {
-  return 1.092548 * d.y * d.z;
-}
-
-float SH20(const vec3 d) {
-  return 0.315392 * (3.0 * d.z * d.z - 1);
-}
-
-float SH2p1(const vec3 d) {
-  return 1.092548 * d.x * d.z;
-}
-
-float SH2p2(const vec3 d) {
-  return 0.546274 * (d.x * d.x - d.y * d.y);
-}
 
 void main()
 {
@@ -65,12 +31,12 @@ void main()
 
 		vec4 color = vec4(0, 0, 0, 1);
 		if(probeRaycasts[gID].objectId != -1) {
-			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
-
+			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb + texture(indirectLightMap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
+			
 			int materialId = objects[probeRaycasts[gID].objectId].material_id;
-
+			
 			if(materials[materialId].texture > -1) {
-				color *= vec4(texture(textures[materials[materialId].texture], probeRaycasts[gID].texUv).xyz, 1.0);
+				color *= vec4(pow(texture(textures[materials[materialId].texture], probeRaycasts[gID].texUv).xyz, vec3(2.2)), 1.0);
 			}
 			else {
 				color *= vec4(materials[materialId].base_color.xyz, 1.0);
@@ -80,26 +46,14 @@ void main()
 			//sample from skybox?
 		}
 		
-		vec3 direction = normalize(vec3(probeRaycasts[gID].direction));
-		uint index = probe * config.rayCount * config.basisFunctionCount;
-		tempCalculation[index + 0 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH00(direction) * color;
-		tempCalculation[index + 1 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH1n1(direction) * color;
-		tempCalculation[index + 2 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH10(direction) * color;
-		tempCalculation[index + 3 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH1p1(direction) * color;
-		tempCalculation[index + 4 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2n2(direction) * color;
-		tempCalculation[index + 5 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2n1(direction) * color;
-		tempCalculation[index + 6 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH20(direction) * color;
-		tempCalculation[index + 7 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2p1(direction) * color;
-		tempCalculation[index + 8 * config.rayCount + ray] = 4 * 3.14159265359 * 1/8000 * SH2p2(direction) * color;
-
-		//for(int i = 0; i < config.basisFunctionCount; i++) {
-		//	uint index = gID * config.basisFunctionCount + i;
-		//	tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;
-		//}
+		for(int i = 0; i < config.basisFunctionCount; i++) {
+			uint index = gID * config.basisFunctionCount + i;
+			tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;
+		}
 	}
 
-    memoryBarrier();
     barrier();
+    memoryBarrier();
 
 	//not sure below computation is correct, somehow control it
 	if(gID < config.probeCount * config.basisFunctionCount) {

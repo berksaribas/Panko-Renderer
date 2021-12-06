@@ -232,7 +232,7 @@ private:
 
 	void init_descriptors();
 
-	void init_pipelines();
+	void init_pipelines(bool rebuild = false);
 
 	AllocatedBuffer create_upload_buffer(void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 

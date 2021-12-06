@@ -42,6 +42,7 @@ public:
 	void add_descriptor_set_layout(ComputeInstance& computeInstance, VkDescriptorSetLayout descriptorSetLayout);
 	void build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool, const char* computeShader);
 	void compute(ComputeInstance& computeInstance, int x, int y, int z);
+	void rebuildPipeline(ComputeInstance& computeInstance, const char* computeShader);
 	void destroy_compute_instance(ComputeInstance& computeInstance);
 private:
 	VkDevice _device;

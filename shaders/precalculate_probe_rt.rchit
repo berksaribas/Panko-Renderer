@@ -72,6 +72,7 @@ void main()
     payload.lightmapUv = lightmapUv;
     payload.texUv = uv;
     payload.objectId = gl_InstanceID;
+    payload.normal = worldNrm;
 
     //debugPrintfEXT("->RAY CLOSEST HIT! The object id is: %d -- the coordinates are %f, %f, %f\n", gl_InstanceID, worldPos.x, worldPos.y, worldPos.z);
 }

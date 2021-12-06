@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; }
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(set = 4, binding = 0) uniform sampler2D lightMap;
+layout(set = 5, binding = 0) uniform sampler2D indirectLightMap;
 
 //all object matrices
 layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
@@ -33,14 +34,14 @@ void main()
     }
     else {
 	    if(materialBuffer.materials[inMaterialId].texture > -1) {
-            color = texture(textures[materialBuffer.materials[inMaterialId].texture], inTexCoord).xyz;
+            color = pow(texture(textures[materialBuffer.materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
         }
         else {
-            color = materialBuffer.materials[inMaterialId].base_color.xyz;
+          color = materialBuffer.materials[inMaterialId].base_color.xyz;
         }
     }
 
-    vec3 lightmapResult = texture(lightMap, inLightmapCoord).xyz;
+    vec3 lightmapResult = texture(lightMap, inLightmapCoord).xyz + texture(indirectLightMap, inLightmapCoord).xyz;
 
-    outFragColor = vec4(color * lightmapResult, 1.0f);
+    outFragColor = vec4((color.xyz * lightmapResult / 2), 1.0f);
 }

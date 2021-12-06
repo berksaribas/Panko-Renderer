@@ -159,6 +159,29 @@ void VulkanCompute::compute(ComputeInstance& computeInstance, int x, int y, int 
 	vkutils::submit_and_free_command_buffer(_device, _computeContext._commandPool, cmd, _computeQueue, _computeContext._fence);
 }
 
+void VulkanCompute::rebuildPipeline(ComputeInstance& computeInstance, const char* computeShader)
+{
+	vkDestroyPipeline(_device, computeInstance.pipeline, nullptr);
+
+	VkShaderModule shader;
+	if (!vkutils::load_shader_module(_device, computeShader, &shader))
+	{
+		assert("Compute Shader Loading Issue");
+	}
+
+	VkPipelineShaderStageCreateInfo stage =
+		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, shader);
+
+	VkComputePipelineCreateInfo computePipelineCreateInfo = {};
+	computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	computePipelineCreateInfo.stage = stage;
+	computePipelineCreateInfo.layout = computeInstance.pipelineLayout;
+
+	VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &computeInstance.pipeline));
+
+	vkDestroyShaderModule(_device, shader, nullptr);
+}
+
 void VulkanCompute::destroy_compute_instance(ComputeInstance& computeInstance)
 {
 	vkDestroyPipeline(_device, computeInstance.pipeline, nullptr);

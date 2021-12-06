@@ -141,11 +141,9 @@ void main()
 
         vec3 N = normalize(inNormal);
         vec3 L = normalize(inLightVec);
+        
+	    vec3 diffuse = clamp(dot(N, L), 0.0, 1.0) * inLightColor * color;
 
-	    vec3 diffuse = max(dot(N, L), 0) * inLightColor * color;
-
-        //what is 0.19 = 1 / (golden ratio * pi) or 1 / 2pi???
-        outFragColor = (vec4(diffuse * shadow, 1.0f) + vec4(texture(indirectLightmap, inLightmapCoord).rgb * 0.19, 0.0));
-  
+        outFragColor = vec4(diffuse * shadow, 1.0f);  
     }
 }

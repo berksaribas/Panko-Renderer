@@ -25,7 +25,8 @@ void VulkanDebugRenderer::init(VkDevice device, VmaAllocator allocator, VkRender
 	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_POINT);
 	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &vkinit::color_blend_attachment_state());
+	auto colorBlendAttachment = vkinit::color_blend_attachment_state();
+	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &colorBlendAttachment);
 
 	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 

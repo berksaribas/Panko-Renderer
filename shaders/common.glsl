@@ -74,10 +74,11 @@ struct GPUProbeRaycastResult {
 
 struct GPUHitPayload
 {
-	int objectId;
 	vec3 pos;
+	vec3 normal;
 	vec2 lightmapUv;
 	vec2 texUv;
+	int objectId;
 };
 
 struct GPUReceiverData {
@@ -99,6 +100,8 @@ struct GIConfig {
 	int basisFunctionCount;
 	int clusterCount;
 	int pcaCoefficient;
+	int maxReceiversInCluster;
+	int frameNumber;
 };
 
 struct ClusterReceiverInfo {
@@ -115,6 +118,27 @@ const float PHI = 1.61803398874989484820459;
 float goldNoise(in vec2 xy, in float seed)
 {
     return fract(tan(distance(xy*PHI, xy)*seed)*xy.x);
+}
+
+//from: https://gamedev.stackexchange.com/questions/92015/optimized-linear-to-srgb-glsl
+vec3 toLinear(vec3 sRGB)
+{
+	//sRGB = mat3(3.2406,-1.5372,-0.4986,0.9689,1.8759,0.0415,0.0557,-0.2040,1.0570)*sRGB;
+    bvec3 cutoff = lessThan(sRGB, vec3(0.04045));
+    vec3 higher = pow((sRGB + vec3(0.055))*vec3(1./1.055), vec3(2.4));
+    vec3 lower = sRGB*vec3(1./12.92);
+
+    return mix(higher, lower, cutoff);
+}
+
+//from: https://gamedev.stackexchange.com/questions/92015/optimized-linear-to-srgb-glsl
+vec3 fromLinear(vec3 linearRGB)
+{
+    bvec3 cutoff = lessThan(linearRGB, vec3(0.0031308));
+    vec3 higher = vec3(1.055)*pow(linearRGB, vec3(1.0/2.4)) - vec3(0.055);
+    vec3 lower = linearRGB * vec3(12.92);
+	//mat3(0.4124,0.3576,0.1805,0.2126,0.7152,0.0722,0.0193,0.1192,0.9505)*
+    return mix(higher, lower, cutoff);
 }
 
 #endif

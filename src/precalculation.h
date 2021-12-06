@@ -58,6 +58,9 @@ struct PrecalculationResult {
 	float* receiverCoefficientMatrices;
 	ClusterReceiverInfo* clusterReceiverInfos;
 	glm::ivec4* clusterReceiverUvs;
+
+	//Debug data
+	float* receiverProbeWeightData;
 };
 
 class Precalculation {
@@ -69,5 +72,5 @@ private:
 	void place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, Receiver* receivers, int receiverCount, int nOverlaps);
 	Receiver* generate_receivers(GltfScene& scene);
 	void probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>& probes, int rays, int sphericalHarmonicsOrder, GPUProbeRaycastResult* probeRaycastResult, float* probeRaycastBasisFunctions);
-	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, int radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, float* clusterProjectionMatrices, float* receiverCoefficientMatrices);
+	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData);
 };

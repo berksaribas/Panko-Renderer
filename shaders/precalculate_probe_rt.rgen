@@ -78,4 +78,8 @@ void main()
     results[index].texUv = payload.texUv;
     results[index].objectId = payload.objectId;
     results[index].direction = direction;
+
+    if(payload.objectId > -1 && dot(direction.xyz, payload.normal) >= 0) {
+        results[index].objectId = -1;
+    }
 }
