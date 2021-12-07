@@ -89,8 +89,7 @@ struct GPUReceiverData {
 };
 
 struct GPUReceiverRaycastResult {
-	vec3 dir;
-	int visibility;
+	float basisFunctions[64];
 };
 
 struct GIConfig {

@@ -26,10 +26,10 @@ float window(float l, float w) {
 	float x = PI * l / w;
 	x = sin(x) / x;
 
-	return pow(x, 4);
+	return pow(x, 1);
 }
 
-#define WINDOWING 0
+#define WINDOWING 8
 
 void main()
 {
@@ -43,31 +43,7 @@ void main()
 			vec4 color = probeRelightColors[i];
 			uint index = total * gID + i ;
 			int basis = i % config.basisFunctionCount;
-			float w = 1.0;
-
-			#if WINDOWING == 0
-			if(basis == 0) { 
-				w = window(0, 6);
-			}
-			else if(basis < 4) {
-				w = window(1, 6);
-			}
-			else {
-				w = window(2, 6);
-			}
-			#elif WINDOWING == 1
-				w = 1.0;
-			#else
-			if(basis == 0) { 
-				w = 1.0;
-			}
-			else {
-				w = 0.0;
-			}
-			#endif
-
-
-
+			float w = window(floor(sqrt(float(basis))), WINDOWING);
 			outColors[gID] += color * clusterProjectionMatrices[index / 4][index % 4] * w;
 		}
 	}

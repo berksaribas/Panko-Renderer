@@ -13,46 +13,96 @@
 #include "json.hpp"
 #include <sys/stat.h>
 
+#include <chrono>
+
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
 
 
-float SH00(const vec3 d) {
-	return 0.282095;
-}
+void calcY(float* o, vec3 r, int order) {
+	float x = r.x, y = r.y, z = r.z;
 
-float SH1n1(const vec3 d) {
-	return 0.488603 * d.y;
+	if (order >= 0) {
+		o[0] = 0.28209479177387814;
+	}
+	if (order >= 1) {
+		o[1] = (-0.4886025119029199) * (y);
+		o[2] = (0.4886025119029199) * (z);
+		o[3] = (-0.4886025119029199) * (x);
+	}
+	if (order >= 2) {
+		o[4] = (-1.0925484305920792) * (x) * (y);
+		o[5] = (-1.0925484305920792) * (y) * (z);
+		o[6] = (-0.31539156525252005) * ((x * x) + (y * y) + ((-2.) * (z * z)));
+		o[7] = (-1.0925484305920792) * (x) * (z);
+		o[8] = (0.5462742152960396) * ((x * x) + ((-1.) * (y * y)));
+	}
+	if (order >= 3) {
+		o[9] = (0.5900435899266435) * (y) * (((-3.) * (x * x)) + (y * y));
+		o[10] = (-2.890611442640554) * (x) * (y) * (z);
+		o[11] = (0.4570457994644658) * (y) * ((x * x) + (y * y) + ((-4.) * (z * z)));
+		o[12] = (0.3731763325901154) * (z) * (((-3.) * (x * x)) + ((-3.) * (y * y)) + ((2.) * (z * z)));
+		o[13] = (0.4570457994644658) * (x) * ((x * x) + (y * y) + ((-4.) * (z * z)));
+		o[14] = (1.445305721320277) * ((x * x) + ((-1.) * (y * y))) * (z);
+		o[15] = (-0.5900435899266435) * (x) * ((x * x) + ((-3.) * (y * y)));
+	}
+	if (order >= 4) {
+		o[16] = (2.5033429417967046) * (x) * (y) * (((-1.) * (x * x)) + (y * y));
+		o[17] = (1.7701307697799304) * (y) * (((-3.) * (x * x)) + (y * y)) * (z);
+		o[18] = (0.9461746957575601) * (x) * (y) * ((x * x) + (y * y) + ((-6.) * (z * z)));
+		o[19] = (0.6690465435572892) * (y) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-4.) * (z * z)));
+		o[20] = (0.10578554691520431) * (((3.) * (x * x * x * x)) + ((3.) * (y * y * y * y)) + ((-24.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((6.) * (x * x) * ((y * y) + ((-4.) * (z * z)))));
+		o[21] = (0.6690465435572892) * (x) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-4.) * (z * z)));
+		o[22] = (-0.47308734787878004) * ((x * x) + ((-1.) * (y * y))) * ((x * x) + (y * y) + ((-6.) * (z * z)));
+		o[23] = (-1.7701307697799304) * (x) * ((x * x) + ((-3.) * (y * y))) * (z);
+		o[24] = (0.6258357354491761) * ((x * x * x * x) + ((-6.) * (x * x) * (y * y)) + (y * y * y * y));
+	}
+	if (order >= 5) {
+		o[25] = (-0.6563820568401701) * (y) * (((5.) * (x * x * x * x)) + ((-10.) * (x * x) * (y * y)) + (y * y * y * y));
+		o[26] = (8.302649259524166) * (x) * (y) * (((-1.) * (x * x)) + (y * y)) * (z);
+		o[27] = (-0.4892382994352504) * (y) * (((-3.) * (x * x)) + (y * y)) * ((x * x) + (y * y) + ((-8.) * (z * z)));
+		o[28] = (4.793536784973324) * (x) * (y) * (z) * ((x * x) + (y * y) + ((-2.) * (z * z)));
+		o[29] = (-0.45294665119569694) * (y) * ((x * x * x * x) + (y * y * y * y) + ((-12.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((2.) * (x * x) * ((y * y) + ((-6.) * (z * z)))));
+		o[30] = (0.1169503224534236) * (z) * (((15.) * (x * x * x * x)) + ((15.) * (y * y * y * y)) + ((-40.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((10.) * (x * x) * (((3.) * (y * y)) + ((-4.) * (z * z)))));
+		o[31] = (-0.45294665119569694) * (x) * ((x * x * x * x) + (y * y * y * y) + ((-12.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((2.) * (x * x) * ((y * y) + ((-6.) * (z * z)))));
+		o[32] = (-2.396768392486662) * ((x * x) + ((-1.) * (y * y))) * (z) * ((x * x) + (y * y) + ((-2.) * (z * z)));
+		o[33] = (0.4892382994352504) * (x) * ((x * x) + ((-3.) * (y * y))) * ((x * x) + (y * y) + ((-8.) * (z * z)));
+		o[34] = (2.0756623148810416) * ((x * x * x * x) + ((-6.) * (x * x) * (y * y)) + (y * y * y * y)) * (z);
+		o[35] = (-0.6563820568401701) * (x) * ((x * x * x * x) + ((-10.) * (x * x) * (y * y)) + ((5.) * (y * y * y * y)));
+	}
+	if (order >= 6) {
+		o[36] = (-1.3663682103838286) * (x) * (y) * (((3.) * (x * x * x * x)) + ((-10.) * (x * x) * (y * y)) + ((3.) * (y * y * y * y)));
+		o[37] = (-2.366619162231752) * (y) * (((5.) * (x * x * x * x)) + ((-10.) * (x * x) * (y * y)) + (y * y * y * y)) * (z);
+		o[38] = (2.0182596029148967) * (x) * (y) * ((x * x) + ((-1.) * (y * y))) * ((x * x) + (y * y) + ((-10.) * (z * z)));
+		o[39] = (-0.9212052595149236) * (y) * (((-3.) * (x * x)) + (y * y)) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-8.) * (z * z)));
+		o[40] = (-0.9212052595149236) * (x) * (y) * ((x * x * x * x) + (y * y * y * y) + ((-16.) * (y * y) * (z * z)) + ((16.) * (z * z * z * z)) + ((2.) * (x * x) * ((y * y) + ((-8.) * (z * z)))));
+		o[41] = (-0.5826213625187314) * (y) * (z) * (((5.) * (x * x * x * x)) + ((5.) * (y * y * y * y)) + ((-20.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((10.) * (x * x) * ((y * y) + ((-2.) * (z * z)))));
+		o[42] = (-0.06356920226762842) * (((5.) * (x * x * x * x * x * x)) + ((5.) * (y * y * y * y * y * y)) + ((-90.) * (y * y * y * y) * (z * z)) + ((120.) * (y * y) * (z * z * z * z)) + ((-16.) * (z * z * z * z * z * z)) + ((15.) * (x * x * x * x) * ((y * y) + ((-6.) * (z * z)))) + ((15.) * (x * x) * ((y * y * y * y) + ((-12.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)))));
+		o[43] = (-0.5826213625187314) * (x) * (z) * (((5.) * (x * x * x * x)) + ((5.) * (y * y * y * y)) + ((-20.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)) + ((10.) * (x * x) * ((y * y) + ((-2.) * (z * z)))));
+		o[44] = (0.4606026297574618) * ((x * x) + ((-1.) * (y * y))) * ((x * x * x * x) + (y * y * y * y) + ((-16.) * (y * y) * (z * z)) + ((16.) * (z * z * z * z)) + ((2.) * (x * x) * ((y * y) + ((-8.) * (z * z)))));
+		o[45] = (0.9212052595149236) * (x) * ((x * x) + ((-3.) * (y * y))) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-8.) * (z * z)));
+		o[46] = (-0.5045649007287242) * ((x * x * x * x) + ((-6.) * (x * x) * (y * y)) + (y * y * y * y)) * ((x * x) + (y * y) + ((-10.) * (z * z)));
+		o[47] = (-2.366619162231752) * (x) * ((x * x * x * x) + ((-10.) * (x * x) * (y * y)) + ((5.) * (y * y * y * y))) * (z);
+		o[48] = (0.6831841051919143) * ((x * x * x * x * x * x) + ((-15.) * (x * x * x * x) * (y * y)) + ((15.) * (x * x) * (y * y * y * y)) + ((-1.) * (y * y * y * y * y * y)));
+	}
+	if (order >= 7) {
+		o[49] = (0.7071627325245962) * (y) * (((-7.) * (x * x * x * x * x * x)) + ((35.) * (x * x * x * x) * (y * y)) + ((-21.) * (x * x) * (y * y * y * y)) + (y * y * y * y * y * y));
+		o[50] = (-5.291921323603801) * (x) * (y) * (((3.) * (x * x * x * x)) + ((-10.) * (x * x) * (y * y)) + ((3.) * (y * y * y * y))) * (z);
+		o[51] = (0.5189155787202604) * (y) * (((5.) * (x * x * x * x)) + ((-10.) * (x * x) * (y * y)) + (y * y * y * y)) * ((x * x) + (y * y) + ((-12.) * (z * z)));
+		o[52] = (4.151324629762083) * (x) * (y) * ((x * x) + ((-1.) * (y * y))) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-10.) * (z * z)));
+		o[53] = (0.15645893386229404) * (y) * (((-3.) * (x * x)) + (y * y)) * (((3.) * (x * x * x * x)) + ((3.) * (y * y * y * y)) + ((-60.) * (y * y) * (z * z)) + ((80.) * (z * z * z * z)) + ((6.) * (x * x) * ((y * y) + ((-10.) * (z * z)))));
+		o[54] = (-0.4425326924449826) * (x) * (y) * (z) * (((15.) * (x * x * x * x)) + ((15.) * (y * y * y * y)) + ((-80.) * (y * y) * (z * z)) + ((48.) * (z * z * z * z)) + ((10.) * (x * x) * (((3.) * (y * y)) + ((-8.) * (z * z)))));
+		o[55] = (0.0903316075825173) * (y) * (((5.) * (x * x * x * x * x * x)) + ((5.) * (y * y * y * y * y * y)) + ((-120.) * (y * y * y * y) * (z * z)) + ((240.) * (y * y) * (z * z * z * z)) + ((-64.) * (z * z * z * z * z * z)) + ((15.) * (x * x * x * x) * ((y * y) + ((-8.) * (z * z)))) + ((15.) * (x * x) * ((y * y * y * y) + ((-16.) * (y * y) * (z * z)) + ((16.) * (z * z * z * z)))));
+		o[56] = (0.06828427691200495) * (z) * (((-35.) * (x * x * x * x * x * x)) + ((-35.) * (y * y * y * y * y * y)) + ((210.) * (y * y * y * y) * (z * z)) + ((-168.) * (y * y) * (z * z * z * z)) + ((16.) * (z * z * z * z * z * z)) + ((-105.) * (x * x * x * x) * ((y * y) + ((-2.) * (z * z)))) + ((-21.) * (x * x) * (((5.) * (y * y * y * y)) + ((-20.) * (y * y) * (z * z)) + ((8.) * (z * z * z * z)))));
+		o[57] = (0.0903316075825173) * (x) * (((5.) * (x * x * x * x * x * x)) + ((5.) * (y * y * y * y * y * y)) + ((-120.) * (y * y * y * y) * (z * z)) + ((240.) * (y * y) * (z * z * z * z)) + ((-64.) * (z * z * z * z * z * z)) + ((15.) * (x * x * x * x) * ((y * y) + ((-8.) * (z * z)))) + ((15.) * (x * x) * ((y * y * y * y) + ((-16.) * (y * y) * (z * z)) + ((16.) * (z * z * z * z)))));
+		o[58] = (0.2212663462224913) * ((x * x) + ((-1.) * (y * y))) * (z) * (((15.) * (x * x * x * x)) + ((15.) * (y * y * y * y)) + ((-80.) * (y * y) * (z * z)) + ((48.) * (z * z * z * z)) + ((10.) * (x * x) * (((3.) * (y * y)) + ((-8.) * (z * z)))));
+		o[59] = (-0.15645893386229404) * (x) * ((x * x) + ((-3.) * (y * y))) * (((3.) * (x * x * x * x)) + ((3.) * (y * y * y * y)) + ((-60.) * (y * y) * (z * z)) + ((80.) * (z * z * z * z)) + ((6.) * (x * x) * ((y * y) + ((-10.) * (z * z)))));
+		o[60] = (-1.0378311574405208) * ((x * x * x * x) + ((-6.) * (x * x) * (y * y)) + (y * y * y * y)) * (z) * (((3.) * (x * x)) + ((3.) * (y * y)) + ((-10.) * (z * z)));
+		o[61] = (0.5189155787202604) * (x) * ((x * x * x * x) + ((-10.) * (x * x) * (y * y)) + ((5.) * (y * y * y * y))) * ((x * x) + (y * y) + ((-12.) * (z * z)));
+		o[62] = (2.6459606618019005) * ((x * x * x * x * x * x) + ((-15.) * (x * x * x * x) * (y * y)) + ((15.) * (x * x) * (y * y * y * y)) + ((-1.) * (y * y * y * y * y * y))) * (z);
+		o[63] = (-0.7071627325245962) * (x) * ((x * x * x * x * x * x) + ((-21.) * (x * x * x * x) * (y * y)) + ((35.) * (x * x) * (y * y * y * y)) + ((-7.) * (y * y * y * y * y * y)));
+	}
 }
-
-float SH10(const vec3 d) {
-	return 0.488603 * d.z;
-}
-
-float SH1p1(const vec3 d) {
-	return 0.488603 * d.x;
-}
-
-float SH2n2(const vec3 d) {
-	return 1.092548 * d.x * d.y;
-}
-
-float SH2n1(const vec3 d) {
-	return 1.092548 * d.y * d.z;
-}
-
-float SH20(const vec3 d) {
-	return 0.315392 * (3.0 * d.z * d.z - 1);
-}
-
-float SH2p1(const vec3 d) {
-	return 1.092548 * d.x * d.z;
-}
-
-float SH2p2(const vec3 d) {
-	return 0.546274 * (d.x * d.x - d.y * d.y);
-}
-
 
 //Christer Ericson's Real-Time Collision Detection 
 static glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
@@ -706,7 +756,7 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 	int toRemoveIndex = -1;
 	while (probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
-		float radius = calculate_radius(receivers, receiverCount, probes, nOverlaps);
+		float radius = 10;// calculate_radius(receivers, receiverCount, probes, nOverlaps);
 		printf("Current radius: %f\n", radius);
 		GPUProbeDensityUniformData ub = { probes.size(), radius };
 		vkutils::cpu_to_gpu(engine._allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
@@ -960,16 +1010,10 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 	int shCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
 
 	for (int i = 0; i < rays * probes.size(); i++) {
-		Eigen::Vector3d dir(probeRaycastResult[i].direction.x,
-			probeRaycastResult[i].direction.y,
-			probeRaycastResult[i].direction.z);
-		dir.normalize();
-		int ctr = 0;
-		for (int l = 0; l <= sphericalHarmonicsOrder; l++) {
-			for (int m = -l; m <= l; m++) {
-				probeRaycastBasisFunctions[i * shCoeff + ctr] = (float)(sh::EvalSH(l, m, dir) * 4 * M_PI / rays);
-				ctr++;
-			}
+		calcY(&probeRaycastBasisFunctions[i * shCoeff], normalize(glm::vec3(probeRaycastResult[i].direction)), sphericalHarmonicsOrder);
+
+		for (int l = 0; l < shCoeff; l++) {
+			probeRaycastBasisFunctions[i * shCoeff + l] *= 4 * M_PI / rays;
 		}
 	}
 
@@ -985,6 +1029,20 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData)
 {
 	int shNumCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
+	int maxReceiverInABatch = 128;
+
+	{
+		int recCounter = 0;
+		for (int i = 0; i < aabbClusters.size(); i++) {
+#pragma omp parallel for
+			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
+				for (int k = 0; k < probes.size(); k++) {
+					receiverProbeWeightData[(recCounter + j) * probes.size() + k] = calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[k])), radius);
+				}
+			}
+			recCounter += aabbClusters[i].receivers.size();
+		}
+	}
 
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
@@ -1037,14 +1095,16 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	AllocatedBuffer receiverLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUReceiverData) * maxReceivers, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverLocationsBuffer._descriptorBufferInfo, 4));
 
-	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, maxReceivers * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU);
+	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 5));
+
+	AllocatedBuffer outputBufferCPU = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vkinit::pipeline_layout_create_info(&rtDescriptorSetLayout, 1);
 
-	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_RAYGEN_BIT_KHR , 0, sizeof(int) };
+	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_RAYGEN_BIT_KHR , 0, sizeof(int) * 2 };
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRanges;
 
@@ -1094,7 +1154,10 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 	int nodeReceiverDataOffset = 0;
 	int receiverOffset = 0;
+
 	for (int nodeIndex = 0; nodeIndex < aabbClusters.size(); nodeIndex++) {
+		Eigen::MatrixXf clusterMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * probes.size());
+		clusterMatrix.fill(0);
 
 		{
 			void* data;
@@ -1107,67 +1170,93 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaUnmapMemory(engine._allocator, receiverLocationsBuffer._allocation);
 		}
 
-		{
-			int probeCount = probes.size();
-			VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, true);
-			std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
-			vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
-			vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
-				(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
-			vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
-				sizeof(int), &probeCount);
-			vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, aabbClusters[nodeIndex].receivers.size(), rays, 1);
-			vkutils::submit_and_free_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, cmdBuf, engine.vulkanRaytracing._queue, engine.vulkanRaytracing._raytracingContext._fence);
-		}
+		for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i += maxReceiverInABatch) {
+			
+			//printf("Starting raytracing for batch\n");
+			{
+				int probeCount = probes.size();
+				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, true);
+				std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
+				vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
+				vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
+					(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 
-		Eigen::MatrixXf clusterMatrix = Eigen::MatrixXf(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * probes.size());
-		clusterMatrix.fill(0);
-		void* mappedOutputData;
-		vmaMapMemory(engine._allocator, outputBuffer._allocation, &mappedOutputData);
+				int pushConstantVariables[2] = { probeCount, i };
 
-		// I need below as compute shader
-#pragma omp parallel for
-		for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i++) {
-			for (int j = 0; j < probes.size(); j++) {
-				receiverProbeWeightData[(receiverOffset + i) * probes.size() + j] = calculate_density(glm::distance(aabbClusters[nodeIndex].receivers[i].position, glm::vec3(probes[j])), radius);
+				vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
+					sizeof(int) * 2, pushConstantVariables);
+				vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, maxReceiverInABatch, rays, 1);
+				
+				VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+				memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				memoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+				vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_TRANSFER_BIT,
+					0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+
+				VkBufferCopy cpy;
+				cpy.size = maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult);
+				cpy.srcOffset = 0;
+				cpy.dstOffset = 0;
+				vkCmdCopyBuffer(cmdBuf, outputBuffer._buffer, outputBufferCPU._buffer, 1, &cpy);
+
+				vkutils::submit_and_free_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, cmdBuf, engine.vulkanRaytracing._queue, engine.vulkanRaytracing._raytracingContext._fence);
 			}
-
-			int validRays = 0;
-			for (int j = 0; j < rays; j++) {
-				float totalWeight = 0.f;
-				for (int k = 0; k < probes.size(); k++) {
-					int result = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + i * probes.size() * rays].visibility;
-					totalWeight += result * receiverProbeWeightData[(receiverOffset + i) * probes.size() + k];
+			void* mappedOutputData;
+			vmaMapMemory(engine._allocator, outputBufferCPU._allocation, &mappedOutputData);
+			
+			//rintf("Compare 21: %f\n", ((GPUReceiverRaycastResult*)mappedOutputData)[0 + 0 * probes.size() + 21 * probes.size() * rays].basisFunctions[5]);
+			//rintf("Compare 22: %f\n", ((GPUReceiverRaycastResult*)mappedOutputData)[0 + 0 * probes.size() + 22 * probes.size() * rays].basisFunctions[5]);
+			auto start = std::chrono::system_clock::now();
+#pragma omp parallel for
+			for (int rec = 0; rec < maxReceiverInABatch; rec++) {
+				int receiverId = i + rec;
+				if (receiverId >= aabbClusters[nodeIndex].receivers.size()) {
+					break;
 				}
-				if (totalWeight > 0.f) {
-					for (int k = 0; k < probes.size(); k++) {
-						int ctr = 0;
-						auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + i * probes.size() * rays];
-						Eigen::Vector3d dir(res.dir.x,
-							res.dir.y,
-							res.dir.z);
-						dir.normalize();
-						float weight = res.visibility * receiverProbeWeightData[(receiverOffset + i) * probes.size() + k];
 
-						for (int l = 0; l <= sphericalHarmonicsOrder; l++) {
-							for (int m = -l; m <= l; m++) {
-								clusterMatrix(i, k * shNumCoeff + ctr) += ((float)(sh::EvalSH(l, m, dir)) * weight) / totalWeight;
-								ctr++;
+				int validRays = 0;
+				for (int j = 0; j < rays; j++) {
+					float totalWeight = 0.f;
+					for (int k = 0; k < probes.size(); k++) {
+						int visibility = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + rec * probes.size() * rays].basisFunctions[0] == 0 ? 0 : 1;
+						totalWeight += visibility * receiverProbeWeightData[(receiverOffset + receiverId) * probes.size() + k];
+					}
+					if (totalWeight > 0.f) {
+						for (int k = 0; k < probes.size(); k++) {
+							auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + rec * probes.size() * rays];
+							int visibility = res.basisFunctions[0] == 0 ? 0 : 1;
+							float weight = visibility * receiverProbeWeightData[(receiverOffset + receiverId) * probes.size() + k] / totalWeight;
+							//__m256 weight8 = _mm256_set1_ps(weight);
+							for (int basis = 0; basis < shNumCoeff; basis += 1) {
+								clusterMatrix(receiverId, k * shNumCoeff + basis) += res.basisFunctions[basis] * weight;
+								//float* location = (clusterMatrix.data() + receiverId * shNumCoeff * probes.size() + k * shNumCoeff + basis);
+								//__m256 cluster8 = _mm256_load_ps(location);
+								//__m256 basis8 = _mm256_load_ps(res.basisFunctions + basis);
+								//__m256 mulResult = _mm256_mul_ps(basis8, weight8);
+								//__m256 sumResult = _mm256_add_ps(cluster8, mulResult);
+								//_mm256_store_ps(location, sumResult);
 							}
 						}
+						validRays++;
 					}
-					validRays++;
+				}
+				//printf("Valid rays for receiver %d is %d/%d\n", receiverId, validRays, rays);
+				if (validRays > 0) {
+					clusterMatrix.row(receiverId) *= M_PI * 1.0f / validRays; //maybe do not divide to valid rays? rather divide to rays?
 				}
 			}
-			printf("Valid rays for receiver %d is %d/%d\n", i, validRays, rays);
-			if (validRays > 0) {
-				clusterMatrix.row(i) *= M_PI * 1.0f / validRays; //maybe do not divide to valid rays? rather divide to rays?
-			}
+			auto end = std::chrono::system_clock::now();
+
+			vmaUnmapMemory(engine._allocator, outputBufferCPU._allocation);
+
+			std::chrono::duration<double> elapsed_seconds = end - start;
+			printf("Batch processing done! It took: %f\n", elapsed_seconds.count());
 		}
 
-		//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-		//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-		//file << clusterMatrix.format(CSVFormat);
+		std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+		const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		file << clusterMatrix.format(CSVFormat);
 
 		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
@@ -1206,8 +1295,6 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		memcpy(receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
 		nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
 		receiverOffset += aabbClusters[nodeIndex].receivers.size();
-		printf("Famous offset %d: %d\n", nodeIndex, nodeReceiverDataOffset);
-		vmaUnmapMemory(engine._allocator, outputBuffer._allocation);
 		printf("Node tracing done %d/%d\n", nodeIndex, aabbClusters.size());
 	}
 
@@ -1218,5 +1305,6 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, receiverLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, outputBufferCPU._buffer, outputBufferCPU._allocation);
 	vkDestroyDescriptorSetLayout(engine._device, rtDescriptorSetLayout, nullptr);
 }

@@ -57,7 +57,6 @@ AllocatedBuffer clusterProjectionOutputBuffer;
 
 VkExtent2D giLightmapExtent{ 0 , 0 };
 
-
 bool enableGi = false;
 bool showProbes = false;
 bool showProbeRays = false;
@@ -69,6 +68,7 @@ int speicificReceiverRaySampleCount = 10;
 bool showSpecificProbeRays = false;
 bool probesEnabled[300];
 
+int renderMode = 0;
 
 void VulkanEngine::init()
 {
@@ -154,11 +154,12 @@ vec3 hemiSpherePointCos(float u, float v, vec3 normal)
 
 void VulkanEngine::draw()
 {
+	OPTICK_EVENT();
+	
 	vulkanCompute.rebuildPipeline(probeRelight, "../../shaders/gi_probe_projection.comp.spv");
 	vulkanCompute.rebuildPipeline(clusterProjection, "../../shaders/gi_cluster_projection.comp.spv");
 	vulkanCompute.rebuildPipeline(receiverReconstruction, "../../shaders/gi_receiver_reconstruction.comp.spv");
 	init_pipelines(true); //recompile shaders
-	OPTICK_EVENT();
 
 	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
 	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
@@ -638,7 +639,6 @@ void VulkanEngine::draw()
 		}
 
 		// GI RENDERING
-		
 		{
 			VkClearValue clearValue;
 			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
@@ -2125,7 +2125,7 @@ void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 
 void VulkanEngine::init_gi()
 {
-	bool loadPrecomputedData = true;
+	bool loadPrecomputedData = false;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.9;
@@ -2133,7 +2133,7 @@ void VulkanEngine::init_gi()
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 8000;
-		precalculationInfo.sphericalHarmonicsOrder = 2;
+		precalculationInfo.sphericalHarmonicsOrder = 7;
 		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
