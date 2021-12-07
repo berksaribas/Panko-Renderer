@@ -7,6 +7,8 @@
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_debug_printf : enable
 
+#define RAYTRACING
+
 #include "common.glsl"
 
 layout(location = 0) rayPayloadEXT GPUHitPayload payload;

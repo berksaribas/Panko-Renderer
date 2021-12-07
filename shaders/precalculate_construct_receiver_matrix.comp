@@ -1,0 +1,155 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_debug_printf : enable
+
+#include "common.glsl"
+
+layout (local_size_x = 256) in;
+
+layout(set = 0, binding = 0) uniform _Config { PrecalculateReceiverMatrixConfig config; };
+layout(set = 0, binding = 1) readonly buffer _ReceiverRaycastResult { GPUReceiverRaycastResult results[]; };
+layout(set = 0, binding = 2) readonly buffer _ReceiverProbeWeights { float weights[]; };
+layout(set = 0, binding = 3) buffer _MatrixOutput { float matrixOutput[]; };
+
+float[64] calcY(vec3 r, int order) {
+    float x = r.x, y = r.y, z = r.z;
+    float o[64];
+
+    if(order >= 0) {
+        o[0]=0.28209479177387814;
+    }
+    if(order >= 1) {
+        o[1]=(-0.4886025119029199)*(y);
+        o[2]=(0.4886025119029199)*(z);
+        o[3]=(-0.4886025119029199)*(x);
+    }
+    if(order >= 2) {
+        o[4]=(-1.0925484305920792)*(x)*(y);
+        o[5]=(-1.0925484305920792)*(y)*(z);
+        o[6]=(-0.31539156525252005)*((x*x)+(y*y)+((-2.)*(z*z)));
+        o[7]=(-1.0925484305920792)*(x)*(z);
+        o[8]=(0.5462742152960396)*((x*x)+((-1.)*(y*y)));
+    }
+    if(order >= 3) {
+        o[9]=(0.5900435899266435)*(y)*(((-3.)*(x*x))+(y*y));
+        o[10]=(-2.890611442640554)*(x)*(y)*(z);
+        o[11]=(0.4570457994644658)*(y)*((x*x)+(y*y)+((-4.)*(z*z)));
+        o[12]=(0.3731763325901154)*(z)*(((-3.)*(x*x))+((-3.)*(y*y))+((2.)*(z*z)));
+        o[13]=(0.4570457994644658)*(x)*((x*x)+(y*y)+((-4.)*(z*z)));
+        o[14]=(1.445305721320277)*((x*x)+((-1.)*(y*y)))*(z);
+        o[15]=(-0.5900435899266435)*(x)*((x*x)+((-3.)*(y*y)));
+    }
+    if(order >= 4) {
+        o[16]=(2.5033429417967046)*(x)*(y)*(((-1.)*(x*x))+(y*y));
+        o[17]=(1.7701307697799304)*(y)*(((-3.)*(x*x))+(y*y))*(z);
+        o[18]=(0.9461746957575601)*(x)*(y)*((x*x)+(y*y)+((-6.)*(z*z)));
+        o[19]=(0.6690465435572892)*(y)*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-4.)*(z*z)));
+        o[20]=(0.10578554691520431)*(((3.)*(x*x*x*x))+((3.)*(y*y*y*y))+((-24.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((6.)*(x*x)*((y*y)+((-4.)*(z*z)))));
+        o[21]=(0.6690465435572892)*(x)*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-4.)*(z*z)));
+        o[22]=(-0.47308734787878004)*((x*x)+((-1.)*(y*y)))*((x*x)+(y*y)+((-6.)*(z*z)));
+        o[23]=(-1.7701307697799304)*(x)*((x*x)+((-3.)*(y*y)))*(z);
+        o[24]=(0.6258357354491761)*((x*x*x*x)+((-6.)*(x*x)*(y*y))+(y*y*y*y));
+    }
+    if(order >= 5) {
+        o[25]=(-0.6563820568401701)*(y)*(((5.)*(x*x*x*x))+((-10.)*(x*x)*(y*y))+(y*y*y*y));
+        o[26]=(8.302649259524166)*(x)*(y)*(((-1.)*(x*x))+(y*y))*(z);
+        o[27]=(-0.4892382994352504)*(y)*(((-3.)*(x*x))+(y*y))*((x*x)+(y*y)+((-8.)*(z*z)));
+        o[28]=(4.793536784973324)*(x)*(y)*(z)*((x*x)+(y*y)+((-2.)*(z*z)));
+        o[29]=(-0.45294665119569694)*(y)*((x*x*x*x)+(y*y*y*y)+((-12.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((2.)*(x*x)*((y*y)+((-6.)*(z*z)))));
+        o[30]=(0.1169503224534236)*(z)*(((15.)*(x*x*x*x))+((15.)*(y*y*y*y))+((-40.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((10.)*(x*x)*(((3.)*(y*y))+((-4.)*(z*z)))));
+        o[31]=(-0.45294665119569694)*(x)*((x*x*x*x)+(y*y*y*y)+((-12.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((2.)*(x*x)*((y*y)+((-6.)*(z*z)))));
+        o[32]=(-2.396768392486662)*((x*x)+((-1.)*(y*y)))*(z)*((x*x)+(y*y)+((-2.)*(z*z)));
+        o[33]=(0.4892382994352504)*(x)*((x*x)+((-3.)*(y*y)))*((x*x)+(y*y)+((-8.)*(z*z)));
+        o[34]=(2.0756623148810416)*((x*x*x*x)+((-6.)*(x*x)*(y*y))+(y*y*y*y))*(z);
+        o[35]=(-0.6563820568401701)*(x)*((x*x*x*x)+((-10.)*(x*x)*(y*y))+((5.)*(y*y*y*y)));
+    }
+    if(order >= 6) {
+        o[36]=(-1.3663682103838286)*(x)*(y)*(((3.)*(x*x*x*x))+((-10.)*(x*x)*(y*y))+((3.)*(y*y*y*y)));
+        o[37]=(-2.366619162231752)*(y)*(((5.)*(x*x*x*x))+((-10.)*(x*x)*(y*y))+(y*y*y*y))*(z);
+        o[38]=(2.0182596029148967)*(x)*(y)*((x*x)+((-1.)*(y*y)))*((x*x)+(y*y)+((-10.)*(z*z)));
+        o[39]=(-0.9212052595149236)*(y)*(((-3.)*(x*x))+(y*y))*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-8.)*(z*z)));
+        o[40]=(-0.9212052595149236)*(x)*(y)*((x*x*x*x)+(y*y*y*y)+((-16.)*(y*y)*(z*z))+((16.)*(z*z*z*z))+((2.)*(x*x)*((y*y)+((-8.)*(z*z)))));
+        o[41]=(-0.5826213625187314)*(y)*(z)*(((5.)*(x*x*x*x))+((5.)*(y*y*y*y))+((-20.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((10.)*(x*x)*((y*y)+((-2.)*(z*z)))));
+        o[42]=(-0.06356920226762842)*(((5.)*(x*x*x*x*x*x))+((5.)*(y*y*y*y*y*y))+((-90.)*(y*y*y*y)*(z*z))+((120.)*(y*y)*(z*z*z*z))+((-16.)*(z*z*z*z*z*z))+((15.)*(x*x*x*x)*((y*y)+((-6.)*(z*z))))+((15.)*(x*x)*((y*y*y*y)+((-12.)*(y*y)*(z*z))+((8.)*(z*z*z*z)))));
+        o[43]=(-0.5826213625187314)*(x)*(z)*(((5.)*(x*x*x*x))+((5.)*(y*y*y*y))+((-20.)*(y*y)*(z*z))+((8.)*(z*z*z*z))+((10.)*(x*x)*((y*y)+((-2.)*(z*z)))));
+        o[44]=(0.4606026297574618)*((x*x)+((-1.)*(y*y)))*((x*x*x*x)+(y*y*y*y)+((-16.)*(y*y)*(z*z))+((16.)*(z*z*z*z))+((2.)*(x*x)*((y*y)+((-8.)*(z*z)))));
+        o[45]=(0.9212052595149236)*(x)*((x*x)+((-3.)*(y*y)))*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-8.)*(z*z)));
+        o[46]=(-0.5045649007287242)*((x*x*x*x)+((-6.)*(x*x)*(y*y))+(y*y*y*y))*((x*x)+(y*y)+((-10.)*(z*z)));
+        o[47]=(-2.366619162231752)*(x)*((x*x*x*x)+((-10.)*(x*x)*(y*y))+((5.)*(y*y*y*y)))*(z);
+        o[48]=(0.6831841051919143)*((x*x*x*x*x*x)+((-15.)*(x*x*x*x)*(y*y))+((15.)*(x*x)*(y*y*y*y))+((-1.)*(y*y*y*y*y*y)));
+    }
+    if(order >= 7) {
+        o[49]=(0.7071627325245962)*(y)*(((-7.)*(x*x*x*x*x*x))+((35.)*(x*x*x*x)*(y*y))+((-21.)*(x*x)*(y*y*y*y))+(y*y*y*y*y*y));
+        o[50]=(-5.291921323603801)*(x)*(y)*(((3.)*(x*x*x*x))+((-10.)*(x*x)*(y*y))+((3.)*(y*y*y*y)))*(z);
+        o[51]=(0.5189155787202604)*(y)*(((5.)*(x*x*x*x))+((-10.)*(x*x)*(y*y))+(y*y*y*y))*((x*x)+(y*y)+((-12.)*(z*z)));
+        o[52]=(4.151324629762083)*(x)*(y)*((x*x)+((-1.)*(y*y)))*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-10.)*(z*z)));
+        o[53]=(0.15645893386229404)*(y)*(((-3.)*(x*x))+(y*y))*(((3.)*(x*x*x*x))+((3.)*(y*y*y*y))+((-60.)*(y*y)*(z*z))+((80.)*(z*z*z*z))+((6.)*(x*x)*((y*y)+((-10.)*(z*z)))));
+        o[54]=(-0.4425326924449826)*(x)*(y)*(z)*(((15.)*(x*x*x*x))+((15.)*(y*y*y*y))+((-80.)*(y*y)*(z*z))+((48.)*(z*z*z*z))+((10.)*(x*x)*(((3.)*(y*y))+((-8.)*(z*z)))));
+        o[55]=(0.0903316075825173)*(y)*(((5.)*(x*x*x*x*x*x))+((5.)*(y*y*y*y*y*y))+((-120.)*(y*y*y*y)*(z*z))+((240.)*(y*y)*(z*z*z*z))+((-64.)*(z*z*z*z*z*z))+((15.)*(x*x*x*x)*((y*y)+((-8.)*(z*z))))+((15.)*(x*x)*((y*y*y*y)+((-16.)*(y*y)*(z*z))+((16.)*(z*z*z*z)))));
+        o[56]=(0.06828427691200495)*(z)*(((-35.)*(x*x*x*x*x*x))+((-35.)*(y*y*y*y*y*y))+((210.)*(y*y*y*y)*(z*z))+((-168.)*(y*y)*(z*z*z*z))+((16.)*(z*z*z*z*z*z))+((-105.)*(x*x*x*x)*((y*y)+((-2.)*(z*z))))+((-21.)*(x*x)*(((5.)*(y*y*y*y))+((-20.)*(y*y)*(z*z))+((8.)*(z*z*z*z)))));
+        o[57]=(0.0903316075825173)*(x)*(((5.)*(x*x*x*x*x*x))+((5.)*(y*y*y*y*y*y))+((-120.)*(y*y*y*y)*(z*z))+((240.)*(y*y)*(z*z*z*z))+((-64.)*(z*z*z*z*z*z))+((15.)*(x*x*x*x)*((y*y)+((-8.)*(z*z))))+((15.)*(x*x)*((y*y*y*y)+((-16.)*(y*y)*(z*z))+((16.)*(z*z*z*z)))));
+        o[58]=(0.2212663462224913)*((x*x)+((-1.)*(y*y)))*(z)*(((15.)*(x*x*x*x))+((15.)*(y*y*y*y))+((-80.)*(y*y)*(z*z))+((48.)*(z*z*z*z))+((10.)*(x*x)*(((3.)*(y*y))+((-8.)*(z*z)))));
+        o[59]=(-0.15645893386229404)*(x)*((x*x)+((-3.)*(y*y)))*(((3.)*(x*x*x*x))+((3.)*(y*y*y*y))+((-60.)*(y*y)*(z*z))+((80.)*(z*z*z*z))+((6.)*(x*x)*((y*y)+((-10.)*(z*z)))));
+        o[60]=(-1.0378311574405208)*((x*x*x*x)+((-6.)*(x*x)*(y*y))+(y*y*y*y))*(z)*(((3.)*(x*x))+((3.)*(y*y))+((-10.)*(z*z)));
+        o[61]=(0.5189155787202604)*(x)*((x*x*x*x)+((-10.)*(x*x)*(y*y))+((5.)*(y*y*y*y)))*((x*x)+(y*y)+((-12.)*(z*z)));
+        o[62]=(2.6459606618019005)*((x*x*x*x*x*x)+((-15.)*(x*x*x*x)*(y*y))+((15.)*(x*x)*(y*y*y*y))+((-1.)*(y*y*y*y*y*y)))*(z);
+        o[63]=(-0.7071627325245962)*(x)*((x*x*x*x*x*x)+((-21.)*(x*x*x*x)*(y*y))+((35.)*(x*x)*(y*y*y*y))+((-7.)*(y*y*y*y*y*y)));
+    }
+
+    return o;
+}
+
+const float PI  = 3.14159265358979323846264;
+
+void main()
+{
+	uint gID = gl_GlobalInvocationID.x;
+    
+    if((gID / config.probeCount) < config.batchSize) {
+
+        uint relativeReceiver = gID / config.probeCount;
+        uint absoluteReceiver = gID / config.probeCount + config.batchOffset;
+
+        uint probe = gID % config.probeCount;
+
+        uint validRays = 0;
+
+        uint outputIndex = relativeReceiver * config.probeCount * config.basisFunctionCount + probe * config.basisFunctionCount;
+
+        for(int k = 0; k < config.basisFunctionCount; k++) {
+            matrixOutput[outputIndex + k] = 0;
+        }
+
+        for(int i = 0; i < config.rayCount; i++) {
+            float totalWeight = 0;
+            for(int j = 0; j < config.probeCount; j++) {
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.probeCount + j;
+                totalWeight += results[j + i * config.probeCount + relativeReceiver * config.probeCount * config.rayCount].visibility 
+                                * weights[weightIndex];
+            }
+
+            if(totalWeight > 0) {
+                validRays++;
+                uint resultIndex = probe + i * config.probeCount + relativeReceiver * config.probeCount * config.rayCount;
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.probeCount + probe;
+                float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
+                vec3 dir = normalize(results[resultIndex].dir);
+                float basis[64] = calcY(dir, 7);
+                for(int k = 0; k < config.basisFunctionCount; k++) {
+                    matrixOutput[outputIndex + k] += weight * basis[k];
+                }
+            }
+        }
+
+       //if(probe == 0) {
+       //    debugPrintfEXT("Receiver: %d, Valid rays: %d\n", absoluteReceiver, validRays);
+       //}
+
+        if(validRays > 0) {
+            for(int k = 0; k < config.basisFunctionCount; k++) {
+                matrixOutput[outputIndex + k] *= PI * 1.0 / validRays;
+            }
+        }
+
+    }
+}

@@ -2125,7 +2125,7 @@ void VulkanEngine::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 
 void VulkanEngine::init_gi()
 {
-	bool loadPrecomputedData = false;
+	bool loadPrecomputedData = true;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.9;

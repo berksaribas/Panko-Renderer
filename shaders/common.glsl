@@ -46,6 +46,7 @@ struct GPUObjectData{
 	float pad0, pad1, pad2;
 };
 
+#ifdef RAYTRACING
 struct GPUSceneDesc {
 	uint64_t vertexAddress;
 	uint64_t normalAddress;
@@ -53,6 +54,7 @@ struct GPUSceneDesc {
 	uint64_t lightmapUvAddress;
 	uint64_t indexAddress;
 };
+#endif
 
 struct GPUMeshInfo {
 	uint indexOffset;
@@ -89,7 +91,8 @@ struct GPUReceiverData {
 };
 
 struct GPUReceiverRaycastResult {
-	float basisFunctions[64];
+	vec3 dir;
+	int visibility;
 };
 
 struct GIConfig {
@@ -108,6 +111,15 @@ struct ClusterReceiverInfo {
 	int receiverOffset;
 	float pad0;
 	float pad1;
+};
+
+struct PrecalculateReceiverMatrixConfig {
+	int probeCount;
+	int basisFunctionCount;
+	int rayCount;
+	int receiverOffset;
+	int batchOffset;
+	int batchSize;
 };
 
 #ifndef __cplusplus

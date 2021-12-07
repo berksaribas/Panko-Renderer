@@ -15,6 +15,9 @@
 
 #include <chrono>
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
 
@@ -756,7 +759,7 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 	int toRemoveIndex = -1;
 	while (probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
-		float radius = 10;// calculate_radius(receivers, receiverCount, probes, nOverlaps);
+		float radius = calculate_radius(receivers, receiverCount, probes, nOverlaps);
 		printf("Current radius: %f\n", radius);
 		GPUProbeDensityUniformData ub = { probes.size(), radius };
 		vkutils::cpu_to_gpu(engine._allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
@@ -1029,10 +1032,10 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData)
 {
 	int shNumCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
-	int maxReceiverInABatch = 128;
+	int maxReceiverInABatch = 1024;
 
+	int recCounter = 0;
 	{
-		int recCounter = 0;
 		for (int i = 0; i < aabbClusters.size(); i++) {
 #pragma omp parallel for
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
@@ -1095,10 +1098,18 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	AllocatedBuffer receiverLocationsBuffer = vkutils::create_buffer(engine._allocator, sizeof(GPUReceiverData) * maxReceivers, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverLocationsBuffer._descriptorBufferInfo, 4));
 
-	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 5));
 
-	AllocatedBuffer outputBufferCPU = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	PrecalculateReceiverMatrixConfig matrixConfig = {};
+	matrixConfig.basisFunctionCount = shNumCoeff;
+	matrixConfig.probeCount = probes.size();
+	matrixConfig.rayCount = rays;
+
+	AllocatedBuffer receiverMatrixConfig = engine.create_upload_buffer(&matrixConfig, sizeof(PrecalculateReceiverMatrixConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	AllocatedBuffer receiverProbeWeights = engine.create_upload_buffer(receiverProbeWeightData, sizeof(float) * (probes.size() * recCounter), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	AllocatedBuffer matrixBuffer = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * probes.size() * shNumCoeff * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	AllocatedBuffer matrixBufferCPU = vkutils::create_buffer(engine._allocator, maxReceiverInABatch * probes.size() * shNumCoeff * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	vkUpdateDescriptorSets(engine._device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
@@ -1112,6 +1123,13 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		"../../shaders/precalculate_receiver_rt.rgen.spv",
 		"../../shaders/precalculate_probe_rt.rmiss.spv",
 		"../../shaders/precalculate_probe_rt.rchit.spv");
+
+	ComputeInstance matrixCompute = {};
+	engine.vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::UNIFORM, receiverMatrixConfig);
+	engine.vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::STORAGE, outputBuffer);
+	engine.vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::STORAGE, receiverProbeWeights);
+	engine.vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::STORAGE, matrixBuffer);
+	engine.vulkanCompute.build(matrixCompute, engine._descriptorPool, "../../shaders/precalculate_construct_receiver_matrix.comp.spv");
 
 	{
 		GPUSceneDesc desc = {};
@@ -1156,7 +1174,9 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	int receiverOffset = 0;
 
 	for (int nodeIndex = 0; nodeIndex < aabbClusters.size(); nodeIndex++) {
-		Eigen::MatrixXf clusterMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * probes.size());
+		auto start = std::chrono::system_clock::now();
+
+		auto clusterMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * probes.size());
 		clusterMatrix.fill(0);
 
 		{
@@ -1171,9 +1191,15 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		}
 
 		for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i += maxReceiverInABatch) {
-			
-			//printf("Starting raytracing for batch\n");
+			int remaningSize = MIN(aabbClusters[nodeIndex].receivers.size() - i, maxReceiverInABatch);
+
+			//printf("Batch size: %d\n I is %d\n", remaningSize, i);
+
 			{
+				matrixConfig.receiverOffset = receiverOffset;
+				matrixConfig.batchOffset = i;
+				matrixConfig.batchSize = remaningSize;
+				vkutils::cpu_to_gpu(engine._allocator, receiverMatrixConfig, &matrixConfig, sizeof(PrecalculateReceiverMatrixConfig));
 				int probeCount = probes.size();
 				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, true);
 				std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
@@ -1186,78 +1212,50 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
 					sizeof(int) * 2, pushConstantVariables);
 				vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, maxReceiverInABatch, rays, 1);
-				
-				VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-				memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-				memoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				{
+					VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+					memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+					memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-				vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_TRANSFER_BIT,
-					0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+					vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+						0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+				}
+				//compute shader
+				{
+					int groupcount = ((probeCount * remaningSize) / 256) + 1;
+					vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, matrixCompute.pipeline);
+					vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, matrixCompute.pipelineLayout, 0, 1, &matrixCompute.descriptorSet, 0, nullptr);
+					vkCmdDispatch(cmdBuf, groupcount, 1, 1);
+				}
+
+				{
+					VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+					memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+					memoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+					vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+						0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+				}
 
 				VkBufferCopy cpy;
-				cpy.size = maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult);
+				cpy.size = maxReceiverInABatch * probes.size() * shNumCoeff * sizeof(float);
 				cpy.srcOffset = 0;
 				cpy.dstOffset = 0;
-				vkCmdCopyBuffer(cmdBuf, outputBuffer._buffer, outputBufferCPU._buffer, 1, &cpy);
+				vkCmdCopyBuffer(cmdBuf, matrixBuffer._buffer, matrixBufferCPU._buffer, 1, &cpy);
 
 				vkutils::submit_and_free_command_buffer(engine._device, engine.vulkanRaytracing._raytracingContext._commandPool, cmdBuf, engine.vulkanRaytracing._queue, engine.vulkanRaytracing._raytracingContext._fence);
 			}
+
 			void* mappedOutputData;
-			vmaMapMemory(engine._allocator, outputBufferCPU._allocation, &mappedOutputData);
-			
-			//rintf("Compare 21: %f\n", ((GPUReceiverRaycastResult*)mappedOutputData)[0 + 0 * probes.size() + 21 * probes.size() * rays].basisFunctions[5]);
-			//rintf("Compare 22: %f\n", ((GPUReceiverRaycastResult*)mappedOutputData)[0 + 0 * probes.size() + 22 * probes.size() * rays].basisFunctions[5]);
-			auto start = std::chrono::system_clock::now();
-#pragma omp parallel for
-			for (int rec = 0; rec < maxReceiverInABatch; rec++) {
-				int receiverId = i + rec;
-				if (receiverId >= aabbClusters[nodeIndex].receivers.size()) {
-					break;
-				}
-
-				int validRays = 0;
-				for (int j = 0; j < rays; j++) {
-					float totalWeight = 0.f;
-					for (int k = 0; k < probes.size(); k++) {
-						int visibility = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + rec * probes.size() * rays].basisFunctions[0] == 0 ? 0 : 1;
-						totalWeight += visibility * receiverProbeWeightData[(receiverOffset + receiverId) * probes.size() + k];
-					}
-					if (totalWeight > 0.f) {
-						for (int k = 0; k < probes.size(); k++) {
-							auto res = ((GPUReceiverRaycastResult*)mappedOutputData)[k + j * probes.size() + rec * probes.size() * rays];
-							int visibility = res.basisFunctions[0] == 0 ? 0 : 1;
-							float weight = visibility * receiverProbeWeightData[(receiverOffset + receiverId) * probes.size() + k] / totalWeight;
-							//__m256 weight8 = _mm256_set1_ps(weight);
-							for (int basis = 0; basis < shNumCoeff; basis += 1) {
-								clusterMatrix(receiverId, k * shNumCoeff + basis) += res.basisFunctions[basis] * weight;
-								//float* location = (clusterMatrix.data() + receiverId * shNumCoeff * probes.size() + k * shNumCoeff + basis);
-								//__m256 cluster8 = _mm256_load_ps(location);
-								//__m256 basis8 = _mm256_load_ps(res.basisFunctions + basis);
-								//__m256 mulResult = _mm256_mul_ps(basis8, weight8);
-								//__m256 sumResult = _mm256_add_ps(cluster8, mulResult);
-								//_mm256_store_ps(location, sumResult);
-							}
-						}
-						validRays++;
-					}
-				}
-				//printf("Valid rays for receiver %d is %d/%d\n", receiverId, validRays, rays);
-				if (validRays > 0) {
-					clusterMatrix.row(receiverId) *= M_PI * 1.0f / validRays; //maybe do not divide to valid rays? rather divide to rays?
-				}
-			}
-			auto end = std::chrono::system_clock::now();
-
-			vmaUnmapMemory(engine._allocator, outputBufferCPU._allocation);
-
-			std::chrono::duration<double> elapsed_seconds = end - start;
-			printf("Batch processing done! It took: %f\n", elapsed_seconds.count());
+			vmaMapMemory(engine._allocator, matrixBufferCPU._allocation, &mappedOutputData);
+			memcpy(clusterMatrix.data() + i * probes.size() * shNumCoeff, mappedOutputData, remaningSize* probes.size()* shNumCoeff * sizeof(float));
+			vmaUnmapMemory(engine._allocator, matrixBufferCPU._allocation);
 		}
 
-		std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-		const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-		file << clusterMatrix.format(CSVFormat);
-
+		//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+		//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		//file << clusterMatrix.format(CSVFormat);
+		
 		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
 		int nc = clusterCoefficientCount;
@@ -1295,7 +1293,10 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		memcpy(receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
 		nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
 		receiverOffset += aabbClusters[nodeIndex].receivers.size();
-		printf("Node tracing done %d/%d\n", nodeIndex, aabbClusters.size());
+
+		auto end = std::chrono::system_clock::now();
+		std::chrono::duration<double> elapsed_seconds = end - start;
+		printf("Node tracing done %d/%d (took %f s)\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count());
 	}
 
 	engine.vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
@@ -1305,6 +1306,5 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, receiverLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
-	vmaDestroyBuffer(engine._allocator, outputBufferCPU._buffer, outputBufferCPU._allocation);
 	vkDestroyDescriptorSetLayout(engine._device, rtDescriptorSetLayout, nullptr);
 }

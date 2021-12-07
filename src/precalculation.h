@@ -1,10 +1,10 @@
 #pragma once
 
+#define RAYTRACING
 #include <vector>
 #include <glm/glm.hpp>
 #include <gltf_scene.hpp>
 #include <vk_engine.h>
-#include "../shaders/common.glsl"
 
 #define SPHERICAL_HARMONICS_NUM_COEFF(ORDER) ((ORDER + 1) * (ORDER + 1))
 

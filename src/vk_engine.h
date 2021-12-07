@@ -212,6 +212,8 @@ public:
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
+
+	AllocatedBuffer create_upload_buffer(void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 private:
 
 	void init_vulkan();
@@ -233,8 +235,6 @@ private:
 	void init_descriptors();
 
 	void init_pipelines(bool rebuild = false);
-
-	AllocatedBuffer create_upload_buffer(void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 
 	void init_scene();
 
