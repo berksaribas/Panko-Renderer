@@ -155,11 +155,6 @@ vec3 hemiSpherePointCos(float u, float v, vec3 normal)
 void VulkanEngine::draw()
 {
 	OPTICK_EVENT();
-	
-	vulkanCompute.rebuildPipeline(probeRelight, "../../shaders/gi_probe_projection.comp.spv");
-	vulkanCompute.rebuildPipeline(clusterProjection, "../../shaders/gi_cluster_projection.comp.spv");
-	vulkanCompute.rebuildPipeline(receiverReconstruction, "../../shaders/gi_receiver_reconstruction.comp.spv");
-	init_pipelines(true); //recompile shaders
 
 	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
 	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
@@ -180,13 +175,6 @@ void VulkanEngine::draw()
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
 	_camData.lightmapTargetSize = {_lightmapExtent.width, _lightmapExtent.height};
-
-	static float timer = 0.f;
-	static bool pauseTimer = false;
-
-	if (!pauseTimer) {
-		timer += 1 / 144.f;
-	}
 
 	glm::vec3 lightInvDir = glm::vec3(_camData.lightPos); 
 	float radius = gltf_scene.m_dimensions.max.x > gltf_scene.m_dimensions.max.y ? gltf_scene.m_dimensions.max.x : gltf_scene.m_dimensions.max.y;
@@ -236,6 +224,17 @@ void VulkanEngine::draw()
 		//todo: imgui stuff
 		static char buffer[128];
 		ImGui::Begin("Engine Config");
+
+		sprintf_s(buffer, "Rebuild Shaders");
+		if(ImGui::Button(buffer)) {
+			vulkanCompute.rebuildPipeline(probeRelight, "../../shaders/gi_probe_projection.comp.spv");
+			vulkanCompute.rebuildPipeline(clusterProjection, "../../shaders/gi_cluster_projection.comp.spv");
+			vulkanCompute.rebuildPipeline(receiverReconstruction, "../../shaders/gi_receiver_reconstruction.comp.spv");
+			init_pipelines(true);
+		}
+
+		ImGui::NewLine();
+
 		sprintf_s(buffer, "Positive Exponent");
 		ImGui::DragFloat(buffer, &_shadowMapData.positiveExponent);
 		sprintf_s(buffer, "Negative Exponent");
@@ -255,13 +254,9 @@ void VulkanEngine::draw()
 		sprintf_s(buffer, "Factor");
 		ImGui::DragFloat(buffer, &radius);
 
-
-		sprintf_s(buffer, "Pause Timer");
-		ImGui::Checkbox(buffer, &pauseTimer);
-
 		ImGui::Image(shadowMapTextureDescriptor, { 128, 128 });
 		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
-		ImGui::Image(giInirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
+		ImGui::Image(dilatedGiInirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
 		ImGui::End();
 
 		sprintf_s(buffer, "Show Probes");
@@ -1202,6 +1197,15 @@ void VulkanEngine::init_framebuffers()
 	VK_CHECK(vkCreateSampler(_device, &samplerInfo, nullptr, &_linearSampler));
 
 
+	//Create a nearest sampler
+	VkSamplerCreateInfo samplerInfo2 = vkinit::sampler_create_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.maxAnisotropy = 1.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 1.0f;
+	VK_CHECK(vkCreateSampler(_device, &samplerInfo2, nullptr, &_nearestSampler));
+
+
 	// Create shadowmap framebuffer
 	{
 		VkExtent3D depthImageExtent3D = {
@@ -1876,6 +1880,7 @@ void VulkanEngine::init_scene()
 	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
 	packOptions.resolution = 256;
+	packOptions.padding = 4;
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;

@@ -168,7 +168,8 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 	float radius = 0;
 	int receiverCount = 0;
 	Receiver* previousReceiver = nullptr;
-	for (int r = 0; r < receiverSize; r += 1) {
+#pragma omp parallel for
+	for (int r = 0; r < receiverSize; r += 3) {
 		if (!receivers[r].exists) {
 			continue;
 		}
@@ -189,9 +190,12 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 			minheap.pop();
 		}
 
+#pragma omp critical
+		{
 		radius += minheap.top();
 		receiverCount++;
-		previousReceiver = &receivers[r];
+		}
+		//previousReceiver = &receivers[r];
 	}
 
 	return radius / receiverCount;
@@ -854,7 +858,7 @@ Receiver* Precalculation::generate_receivers(GltfScene& scene)
 						glm::vec2 pixelMiddle = { i + 0.5f, j + 0.5f };
 						glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
 							texVertices[0], texVertices[1], texVertices[2]);
-						if (barycentric.x >= -0.01 && barycentric.y >= -0.01 && barycentric.z >= -0.01) {
+						if (barycentric.x >= -0.00001 && barycentric.y >= -0.00001 && barycentric.z >= -0.00001) {
 							Receiver receiver = {};
 							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
@@ -879,10 +883,10 @@ Receiver* Precalculation::generate_receivers(GltfScene& scene)
 		}
 	}
 
-	//FILE* ptr;
-	//fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
-	//fwrite(image, scene.lightmap_height * scene.lightmap_width, 1, ptr);
-	//fclose(ptr);
+	FILE* ptr;
+	fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
+	fwrite(image, scene.lightmap_height * scene.lightmap_width, 1, ptr);
+	fclose(ptr);
 	printf("Created receivers: %d!\n", receiverCounter);
 
 	return _receivers;
@@ -1306,5 +1310,11 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	vmaDestroyBuffer(engine._allocator, probeLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, receiverLocationsBuffer._buffer, probeLocationsBuffer._allocation);
 	vmaDestroyBuffer(engine._allocator, outputBuffer._buffer, outputBuffer._allocation);
+
+	vmaDestroyBuffer(engine._allocator, receiverMatrixConfig._buffer, receiverMatrixConfig._allocation);
+	vmaDestroyBuffer(engine._allocator, receiverProbeWeights._buffer, receiverProbeWeights._allocation);
+	vmaDestroyBuffer(engine._allocator, matrixBuffer._buffer, matrixBuffer._allocation);
+	vmaDestroyBuffer(engine._allocator, matrixBufferCPU._buffer, matrixBufferCPU._allocation);
+
 	vkDestroyDescriptorSetLayout(engine._device, rtDescriptorSetLayout, nullptr);
 }

@@ -43,5 +43,5 @@ void main()
 
     vec3 lightmapResult = texture(lightMap, inLightmapCoord).xyz + texture(indirectLightMap, inLightmapCoord).xyz;
 
-    outFragColor = vec4((color.xyz * lightmapResult / 2), 1.0f);
+    outFragColor = vec4((color.xyz * lightmapResult), 1.0f);
 }

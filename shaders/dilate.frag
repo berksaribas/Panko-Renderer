@@ -14,13 +14,44 @@ layout(set = 0, binding = 0) uniform sampler2D source;
 void main(void) {
     vec4 c = texture(source, InUv);
     vec2 pixelOffset = vec2(1.0) / size;
-    c = c.a>0.0? c : texture(source, InUv - pixelOffset);
-    c = c.a>0.0? c : texture(source, InUv + vec2(0, -pixelOffset.y));
-    c = c.a>0.0? c : texture(source, InUv + vec2(pixelOffset.x, -pixelOffset.y));
-    c = c.a>0.0? c : texture(source, InUv + vec2(-pixelOffset.x, 0));
-    c = c.a>0.0? c : texture(source, InUv + vec2(pixelOffset.x, 0));
-    c = c.a>0.0? c : texture(source, InUv + vec2(-pixelOffset.x, pixelOffset.y));
-    c = c.a>0.0? c : texture(source, InUv + vec2(0, pixelOffset.y));
-    c = c.a>0.0? c : texture(source, InUv + pixelOffset);
+    if(c.a <= 0.0) {
+        int ctr = 0;
+        c = vec4(0);
+
+        if(texture(source, InUv - pixelOffset).a > 0.0) {
+            c += texture(source, InUv - pixelOffset);
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(pixelOffset.x, -pixelOffset.y)).a > 0.0) {
+            c += texture(source, InUv + vec2(pixelOffset.x, -pixelOffset.y));
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(-pixelOffset.x, 0)).a > 0.0) {
+            c += texture(source, InUv + vec2(-pixelOffset.x, 0));
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(pixelOffset.x, 0)).a > 0.0) {
+            c += texture(source, InUv + vec2(pixelOffset.x, 0));
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(-pixelOffset.x, pixelOffset.y)).a > 0.0) {
+            c += texture(source, InUv + vec2(-pixelOffset.x, pixelOffset.y));
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(0, pixelOffset.y)).a > 0.0) {
+            c += texture(source, InUv + vec2(0, pixelOffset.y));
+            ctr++;
+        }
+        if(texture(source, InUv + vec2(0, -pixelOffset.y)).a > 0.0) {
+            c += texture(source, InUv + vec2(0, -pixelOffset.y));
+            ctr++;
+        }
+        if(texture(source, InUv + pixelOffset).a > 0.0) {
+            c += texture(source, InUv + pixelOffset);
+            ctr++;
+        }
+
+        c /= ctr;
+    }
     outFragColor = c;
 }

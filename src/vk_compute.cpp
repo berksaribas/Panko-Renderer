@@ -4,9 +4,6 @@
 #include <vk_engine.h>
 #include <vk_utils.h>
 
-// TODO: This only supports storage and uniform buffers at the moment.
-// Potentially it will be able to write to textures as well
-
 void VulkanCompute::init(VkDevice device, VmaAllocator allocator, VkQueue computeQueue, uint32_t computeQueueFamily)
 {
 	_device = device;
