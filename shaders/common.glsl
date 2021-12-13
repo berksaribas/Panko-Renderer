@@ -103,7 +103,6 @@ struct GIConfig {
 	int clusterCount;
 	int pcaCoefficient;
 	int maxReceiversInCluster;
-	int frameNumber;
 };
 
 struct ClusterReceiverInfo {

@@ -4,20 +4,20 @@
 #include <vk_engine.h>
 #include <vk_utils.h>
 
-void VulkanCompute::init(VkDevice device, VmaAllocator allocator, VkQueue computeQueue, uint32_t computeQueueFamily)
+void VulkanCompute::init(EngineData& engineData)
 {
-	_device = device;
-	_computeQueue = computeQueue;
-	_computeQueueFamily = computeQueueFamily;
-	_allocator = allocator;
+	_device = engineData.device;
+	_computeQueue = engineData.computeQueue;
+	_computeQueueFamily = engineData.computeQueueFamily;
+	_allocator = engineData.allocator;
 
 	//create pool for compute context
 	VkCommandPoolCreateInfo computeCommandPoolInfo = vkinit::command_pool_create_info(_computeQueueFamily);
-	VK_CHECK(vkCreateCommandPool(_device, &computeCommandPoolInfo, nullptr, &_computeContext._commandPool));
+	VK_CHECK(vkCreateCommandPool(_device, &computeCommandPoolInfo, nullptr, &_computeContext.commandPool));
 
 	//create fence
 	VkFenceCreateInfo computeFenceCreateInfo = vkinit::fence_create_info();
-	VK_CHECK(vkCreateFence(_device, &computeFenceCreateInfo, nullptr, &_computeContext._fence));
+	VK_CHECK(vkCreateFence(_device, &computeFenceCreateInfo, nullptr, &_computeContext.fence));
 }
 
 void VulkanCompute::create_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size)
@@ -147,13 +147,13 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 
 void VulkanCompute::compute(ComputeInstance& computeInstance, int x, int y, int z)
 {
-	VkCommandBuffer cmd = vkutils::create_command_buffer(_device, _computeContext._commandPool, true);
+	VkCommandBuffer cmd = vkutils::create_command_buffer(_device, _computeContext.commandPool, true);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeInstance.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeInstance.pipelineLayout, 0, 1, &computeInstance.descriptorSet, 0, nullptr);
 	vkCmdDispatch(cmd, x, y, z);
 
-	vkutils::submit_and_free_command_buffer(_device, _computeContext._commandPool, cmd, _computeQueue, _computeContext._fence);
+	vkutils::submit_and_free_command_buffer(_device, _computeContext.commandPool, cmd, _computeQueue, _computeContext.fence);
 }
 
 void VulkanCompute::rebuildPipeline(ComputeInstance& computeInstance, const char* computeShader)

@@ -35,7 +35,7 @@ struct ComputeInstance {
 
 class VulkanCompute {
 public:
-	void init(VkDevice device, VmaAllocator allocator, VkQueue computeQueue, uint32_t computeQueueFamily);
+	void init(EngineData& engineData);
 	void create_buffer(ComputeInstance& computeInstance, ComputeBufferType bufferType, VmaMemoryUsage memoryUsage, size_t size);
 	void add_buffer_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, AllocatedBuffer buffer);
 	void add_texture_binding(ComputeInstance& computeInstance, ComputeBufferType bufferType, VkSampler sampler, VkImageView imageView);

@@ -45,7 +45,7 @@ struct RaytracingPipeline {
 class VulkanRaytracing {
 public:
 	//Setup functions
-	void init(VkDevice device, VkPhysicalDeviceRayTracingPipelinePropertiesKHR gpuRaytracingProperties, VmaAllocator allocator, VkQueue queue, uint32_t queueFamily);
+	void init(EngineData& engineData, VkPhysicalDeviceRayTracingPipelinePropertiesKHR gpuRaytracingProperties);
 	void convert_scene_to_vk_geometry(GltfScene& scene, AllocatedBuffer& vertexBuffer, AllocatedBuffer& indexBuffer);
 	void build_blas(VkBuildAccelerationStructureFlagsKHR flags);
 	void build_tlas(GltfScene& scene, VkBuildAccelerationStructureFlagsKHR flags, bool update);

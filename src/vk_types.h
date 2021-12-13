@@ -24,8 +24,46 @@ struct Texture {
 };
 
 struct CommandContext {
-    VkFence _fence;
-    VkCommandPool _commandPool;
+    VkFence fence;
+    VkCommandPool commandPool;
+};
+
+struct EngineData {
+    VkDevice device;
+
+    VkQueue graphicsQueue;
+    uint32_t graphicsQueueFamily;
+
+    VkQueue computeQueue;
+    uint32_t computeQueueFamily;
+
+    CommandContext uploadContext;
+
+    VmaAllocator allocator;
+    VkDescriptorPool descriptorPool;
+
+    VkRenderPass colorDepthRenderPass;
+    VkRenderPass colorRenderPass;
+
+    VkSampler linearSampler;
+    VkSampler nearestSampler;
+
+    VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+};
+
+struct SceneDescriptors {
+    VkDescriptorSet globalDescriptor;
+    VkDescriptorSet objectDescriptor;
+    VkDescriptorSet materialDescriptor;
+    VkDescriptorSet textureDescriptor;
+
+    VkDescriptorSetLayout globalSetLayout; //vertex, fragment, compute, ray
+    VkDescriptorSetLayout objectSetLayout; //vertex, fragment, compute, ray
+    VkDescriptorSetLayout materialSetLayout; //vertex, fragment, compute, ray
+    VkDescriptorSetLayout textureSetLayout; //fragment, compute, ray
+
+    VkDescriptorSetLayout singleImageSetLayout; //fragment, compute, ray
 };
 
 //we will add our main reusable types here

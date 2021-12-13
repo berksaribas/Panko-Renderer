@@ -22,6 +22,9 @@ namespace vkutils {
 	void cpu_to_gpu(VmaAllocator allocator, AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 	void cpu_to_gpu_staging(VmaAllocator allocator, VkCommandBuffer commandBuffer, AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 
-	bool load_image_from_memory(VulkanEngine& engine, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels);
+	bool load_image_from_memory(EngineData* engineData, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels);
 	bool load_shader_module(VkDevice device, const char* filePath, VkShaderModule* outShaderModule);
+	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
+	AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void immediate_submit(EngineData* engineData, std::function<void(VkCommandBuffer cmd)>&& function);
 }

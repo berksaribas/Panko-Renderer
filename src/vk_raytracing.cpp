@@ -7,20 +7,20 @@ static bool hasFlag(VkFlags item, VkFlags flag) {
 	return (item & flag) == flag;
 }
 
-void VulkanRaytracing::init(VkDevice device, VkPhysicalDeviceRayTracingPipelinePropertiesKHR gpuRaytracingProperties, VmaAllocator allocator, VkQueue queue, uint32_t queueFamily)
+void VulkanRaytracing::init(EngineData& engineData, VkPhysicalDeviceRayTracingPipelinePropertiesKHR gpuRaytracingProperties)
 {
-	_device = device;
-	_allocator = allocator;
-	_queue = queue;
-	_queueFamily = queueFamily;
+	_device = engineData.device;
+	_allocator = engineData.allocator;
+	_queue = engineData.computeQueue;
+	_queueFamily = engineData.computeQueueFamily;
 	_gpuRaytracingProperties = gpuRaytracingProperties;
 	//create pool for compute context
 	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_queueFamily);
-	VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_raytracingContext._commandPool));
+	VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_raytracingContext.commandPool));
 
 	//create fence
 	VkFenceCreateInfo fenceCreateInfo = vkinit::fence_create_info();
-	VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_raytracingContext._fence));
+	VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_raytracingContext.fence));
 }
 
 void VulkanRaytracing::convert_scene_to_vk_geometry(GltfScene& scene, AllocatedBuffer& vertexBuffer, AllocatedBuffer& indexBuffer)
@@ -126,15 +126,15 @@ void VulkanRaytracing::build_blas(VkBuildAccelerationStructureFlagsKHR flags)
 		// Over the limit or last BLAS element
 		if (batchSize >= batchLimit || idx == nbBlas - 1)
 		{
-			VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext._commandPool, true);
+			VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext.commandPool, true);
 			cmd_create_blas(cmdBuf, indices, buildAs, scratchAddress, queryPool);
-			vkutils::submit_and_free_command_buffer(_device, _raytracingContext._commandPool, cmdBuf, _queue, _raytracingContext._fence);
+			vkutils::submit_and_free_command_buffer(_device, _raytracingContext.commandPool, cmdBuf, _queue, _raytracingContext.fence);
 
 			if (queryPool)
 			{
-				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext._commandPool, true);
+				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext.commandPool, true);
 				cmd_compact_blas(cmdBuf, indices, buildAs, queryPool);
-				vkutils::submit_and_free_command_buffer(_device, _raytracingContext._commandPool, cmdBuf, _queue, _raytracingContext._fence);
+				vkutils::submit_and_free_command_buffer(_device, _raytracingContext.commandPool, cmdBuf, _queue, _raytracingContext.fence);
 
 				// Destroy the non-compacted version
 				for (auto i : indices) {
@@ -189,7 +189,7 @@ void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructure
 	uint32_t countInstance = static_cast<uint32_t>(instances.size());
 
 	// Command buffer to create the TLAS
-	VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext._commandPool, true);
+	VkCommandBuffer cmdBuf = vkutils::create_command_buffer(_device, _raytracingContext.commandPool, true);
 
 	// Create a buffer holding the actual instance data (matrices++) for use by the AS builder
 	AllocatedBuffer instancesBuffer;  // Buffer of instances containing the matrices and BLAS ids
@@ -215,7 +215,7 @@ void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructure
 	cmd_create_tlas(cmdBuf, countInstance, instBufferAddr, scratchBuffer, flags, update);
 
 	// Finalizing and destroying temporary data
-	vkutils::submit_and_free_command_buffer(_device, _raytracingContext._commandPool, cmdBuf, _queue, _raytracingContext._fence);
+	vkutils::submit_and_free_command_buffer(_device, _raytracingContext.commandPool, cmdBuf, _queue, _raytracingContext.fence);
 
 	vmaDestroyBuffer(_allocator, scratchBuffer._buffer, scratchBuffer._allocation);
 	vmaDestroyBuffer(_allocator, instancesBuffer._buffer, instancesBuffer._allocation);

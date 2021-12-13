@@ -82,7 +82,7 @@ void generate_mipmaps(VkCommandBuffer& cmd, VkImage image, int32_t width, int32_
 		1, &barrier);
 }
 
-bool vkutils::load_image_from_memory(VulkanEngine& engine, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels)
+bool vkutils::load_image_from_memory(EngineData* engineData, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels)
 {
 	outMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 	
@@ -92,15 +92,15 @@ bool vkutils::load_image_from_memory(VulkanEngine& engine, void* pixels, int wid
 	VkFormat image_format = VK_FORMAT_R8G8B8A8_SRGB;
 	
 	//allocate temporary buffer for holding texture data to upload
-	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engine._allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engineData->allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	
 	//copy data to buffer
 	void* data;
-	vmaMapMemory(engine._allocator, stagingBuffer._allocation, &data);
+	vmaMapMemory(engineData->allocator, stagingBuffer._allocation, &data);
 	
 	memcpy(data, pixels, static_cast<size_t>(imageSize));
 	
-	vmaUnmapMemory(engine._allocator, stagingBuffer._allocation);
+	vmaUnmapMemory(engineData->allocator, stagingBuffer._allocation);
 	
 	VkExtent3D imageExtent;
 	imageExtent.width = static_cast<uint32_t>(width);
@@ -115,9 +115,9 @@ bool vkutils::load_image_from_memory(VulkanEngine& engine, void* pixels, int wid
 	dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 	
 	//allocate and create the image
-	vmaCreateImage(engine._allocator, &dimg_info, &dimg_allocinfo, &newImage._image, &newImage._allocation, nullptr);
+	vmaCreateImage(engineData->allocator, &dimg_info, &dimg_allocinfo, &newImage._image, &newImage._allocation, nullptr);
 	
-	engine.immediate_submit([&](VkCommandBuffer cmd) {
+	immediate_submit(engineData, [&](VkCommandBuffer cmd) {
 		VkImageSubresourceRange range;
 		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		range.baseMipLevel = 0;
@@ -174,7 +174,7 @@ bool vkutils::load_image_from_memory(VulkanEngine& engine, void* pixels, int wid
 	//	vmaDestroyImage(engine._allocator, newImage._image, newImage._allocation);
 	//	});
 	
-	vmaDestroyBuffer(engine._allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+	vmaDestroyBuffer(engineData->allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 	
 	std::cout << "Texture loaded successfully \n";
 	
@@ -309,4 +309,72 @@ bool vkutils::load_shader_module(VkDevice device, const char* filePath, VkShader
 	}
 	*outShaderModule = shaderModule;
 	return true;
+}
+
+void vkutils::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
+{
+	VkViewport viewport;
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float)extent.width;
+	viewport.height = (float)extent.height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	VkRect2D scissor;
+	scissor.offset = { 0, 0 };
+	scissor.extent = extent;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+}
+
+AllocatedBuffer vkutils::create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+{
+	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engineData->allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+	vkutils::cpu_to_gpu(engineData->allocator, stagingBuffer, buffer_data, size);
+
+	AllocatedBuffer new_buffer = vkutils::create_buffer(engineData->allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
+
+	vkutils::immediate_submit(engineData, [=](VkCommandBuffer cmd) {
+		VkBufferCopy copy;
+		copy.dstOffset = 0;
+		copy.srcOffset = 0;
+		copy.size = size;
+		vkCmdCopyBuffer(cmd, stagingBuffer._buffer, new_buffer._buffer, 1, &copy);
+		});
+
+	vmaDestroyBuffer(engineData->allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+
+	return new_buffer;
+}
+
+void vkutils::immediate_submit(EngineData* engineData, std::function<void(VkCommandBuffer cmd)>&& function)
+{
+	//allocate the default command buffer that we will use for the instant commands
+	VkCommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(engineData->uploadContext.commandPool, 1);
+
+	VkCommandBuffer cmd;
+	VK_CHECK(vkAllocateCommandBuffers(engineData->device, &cmdAllocInfo, &cmd));
+
+	//begin the command buffer recording. We will use this command buffer exactly once, so we want to let vulkan know that
+	VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+	//execute the function
+	function(cmd);
+
+	VK_CHECK(vkEndCommandBuffer(cmd));
+
+	VkSubmitInfo submit = vkinit::submit_info(&cmd);
+
+	//submit command buffer to the queue and execute it.
+	// _uploadFence will now block until the graphic commands finish execution
+	VK_CHECK(vkQueueSubmit(engineData->graphicsQueue, 1, &submit, engineData->uploadContext.fence));
+
+	vkWaitForFences(engineData->device, 1, &engineData->uploadContext.fence, true, 9999999999);
+	vkResetFences(engineData->device, 1, &engineData->uploadContext.fence);
+
+	//clear the command pool. This will free the command buffer too
+	vkResetCommandPool(engineData->device, engineData->uploadContext.commandPool, 0);
 }

@@ -15,11 +15,11 @@ private:
 	VkPipelineLayout _pipelineLayout;
 
 	//Point
-	std::vector<glm::vec3> pointPositions, pointColors;
+	std::vector<glm::vec3> _pointPositions, _pointColors;
 	AllocatedBuffer _pointVertexBuffer, _pointColorBuffer;
 	VkPipeline _pointPipeline;
 	//Line
-	std::vector<glm::vec3> linePositions, lineColors;
+	std::vector<glm::vec3> _linePositions, _lineColors;
 	AllocatedBuffer _lineVertexBuffer, _lineColorBuffer;
 	VkPipeline _linePipeline;
 
