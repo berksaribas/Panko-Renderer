@@ -14,7 +14,7 @@ public:
 	void debug_draw_specific_receiver(VulkanDebugRenderer& debugRenderer, int specificCluster, int specificReceiver, int specificReceiverRaySampleCount, bool* enabledProbes, bool showSpecificProbeRays, float sceneScale);
 
 	void cleanup();
-	VkDescriptorSet dilatedGiInirectLightTextureDescriptor;
+	VkDescriptorSet _dilatedGiIndirectLightTextureDescriptor;
 private:
 	VkDevice _device;
 	VmaAllocator _allocator;
@@ -26,23 +26,23 @@ private:
 	PrecalculationLoadData* _precalculationLoadData;
 	PrecalculationResult* _precalculationResult;
 
-	AllocatedBuffer configBuffer;
-	GIConfig config = {};
+	AllocatedBuffer _configBuffer;
+	GIConfig _config = {};
 
-	ComputeInstance probeRelight = {};
-	ComputeInstance clusterProjection = {};
-	ComputeInstance receiverReconstruction = {};
+	ComputeInstance _probeRelight = {};
+	ComputeInstance _clusterProjection = {};
+	ComputeInstance _receiverReconstruction = {};
 
-	AllocatedImage giInirectLightImage;
-	VkImageView giInirectLightImageView;
-	VkDescriptorSet giInirectLightTextureDescriptor;
+	AllocatedImage _giIndirectLightImage;
+	VkImageView _giIndirectLightImageView;
+	VkDescriptorSet _giIndirectLightTextureDescriptor;
 
-	AllocatedImage dilatedGiInirectLightImage;
-	VkImageView dilatedGiInirectLightImageView;
-	VkFramebuffer dilatedGiInirectLightFramebuffer;
+	AllocatedImage _dilatedGiIndirectLightImage;
+	VkImageView _dilatedGiIndirectLightImageView;
+	VkFramebuffer _dilatedGiIndirectLightFramebuffer;
 
-	AllocatedBuffer probeRelightOutputBuffer;
-	AllocatedBuffer clusterProjectionOutputBuffer;
+	AllocatedBuffer _probeRelightOutputBuffer;
+	AllocatedBuffer _clusterProjectionOutputBuffer;
 
-	VkExtent2D giLightmapExtent{ 0 , 0 };
+	VkExtent2D _giLightmapExtent{ 0 , 0 };
 };

@@ -97,28 +97,6 @@ public:
 	GPUCameraData _camData;
 	float _sceneScale = 0.3f;
 
-	/* SHADOW MAP VARIABLES */
-	AllocatedBuffer _shadowMapDataBuffer;
-	VkDescriptorSet _shadowMapDataDescriptor;
-
-	VkExtent2D _shadowMapExtent{ 4096 , 4096 };
-
-	AllocatedImage _shadowMapDepthImage;
-	VkImageView _shadowMapDepthImageView;
-
-	AllocatedImage _shadowMapColorImage;
-	VkImageView _shadowMapColorImageView;
-
-	VkFramebuffer _shadowMapFramebuffer;
-
-	VkDescriptorSet shadowMapTextureDescriptor;
-
-	VkPipeline _shadowMapPipeline;
-	VkPipelineLayout _shadowMapPipelineLayout;
-
-	VkDescriptorSetLayout _shadowMapDataSetLayout;
-	GPUShadowMapData _shadowMapData;
-
 	/* LIGHTMAP VARIABLES */
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
 
@@ -184,6 +162,8 @@ private:
 	void init_commands();
 
 	void init_sync_structures();
+
+	void init_descriptor_pool();
 
 	void init_descriptors();
 
