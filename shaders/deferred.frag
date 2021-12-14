@@ -7,16 +7,16 @@
 #include "brdf.glsl"
 
 //shader input
-layout (location = 0) in vec2 inTexCoord;
-layout (location = 1) flat in int inMaterialId;
-layout (location = 2) in vec2 inLightmapCoord;
-layout (location = 3) in vec3 inNormal;
-layout (location = 4) in vec4 inWorldPosition;
+layout (location = 0) in vec2 InUv;
 
 layout (location = 0) out vec4 outFragColor;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 layout(set = 0, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMapData; };
+
+layout(set = 1, binding = 0) uniform sampler2D gbufferPositionMaterial;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
+layout(set = 1, binding = 2) uniform sampler2D gbufferUV;
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(set = 4, binding = 0) uniform sampler2D shadowMap;
@@ -32,6 +32,16 @@ layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
 
 void main()
 {
+    vec3 inWorldPosition = texture(gbufferPositionMaterial, InUv).xyz;
+    int inMaterialId = int(texture(gbufferPositionMaterial, InUv).a);
+    vec3 inNormal = texture(gbufferNormal, InUv).xyz;
+    vec2 inTexCoord = texture(gbufferUV, InUv).xy;
+    vec2 inLightmapCoord = texture(gbufferUV, InUv).zw;
+
+    if(inMaterialId < 0) {
+        discard;
+    }
+
     vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
     vec3 emissive_color = materialBuffer.materials[inMaterialId].emissive_color;
 
@@ -50,7 +60,7 @@ void main()
         }
     }
 
-    vec4 shadowPos = biasMat * shadowMapData.depthMVP * inWorldPosition;
+    vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(inWorldPosition, 1.0);
     //float shadow = textureProj(shadowPos / shadowPos.w, vec2(0.0));
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 

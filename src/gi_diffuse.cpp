@@ -49,13 +49,13 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 
 	{
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.colorFormat, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_giIndirectLightImage._image, &_giIndirectLightImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.colorFormat, _giIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _giIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_giIndirectLightImageView));
 		}
 
@@ -99,13 +99,13 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 
 	{
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedGiIndirectLightImage._image, &_dilatedGiIndirectLightImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.colorFormat, _dilatedGiIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _dilatedGiIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedGiIndirectLightImageView));
 		}
 

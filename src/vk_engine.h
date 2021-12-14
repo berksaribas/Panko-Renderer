@@ -113,17 +113,6 @@ public:
 	VkPipeline _lightmapPipeline;
 	VkPipelineLayout _lightmapPipelineLayout;
 
-	/* GI VARIABLES */
-	VkPipeline _giPipeline;
-	VkPipelineLayout _giPipelineLayout;
-
-	AllocatedImage _giColorImage;
-	VkImageView _giColorImageView;
-	AllocatedImage _giDepthImage;
-	VkImageView _giDepthImageView;
-	VkFramebuffer _giFramebuffer;
-	VkDescriptorSet _giColorTextureDescriptor;
-
 	/* Post processing pipelines */
 	VkPipeline _dilationPipeline;
 	VkPipelineLayout _dilationPipelineLayout;

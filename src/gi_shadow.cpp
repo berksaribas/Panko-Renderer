@@ -14,24 +14,24 @@ void Shadow::init_images(EngineData& engineData)
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_shadowMapColorImage._image, &_shadowMapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.colorFormat, _shadowMapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _shadowMapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_shadowMapColorImageView));
 		}
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.depth32Format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depthImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_shadowMapDepthImage._image, &_shadowMapDepthImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.depthFormat, _shadowMapDepthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.depth32Format, _shadowMapDepthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
 			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_shadowMapDepthImageView));
 		}
 
@@ -125,7 +125,8 @@ void Shadow::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDescr
 
 	//a single blend attachment with no blending and writing to RGBA
 
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &vkinit::color_blend_attachment_state());
+	auto blendAttachmentState = vkinit::color_blend_attachment_state();
+	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendAttachmentState);
 
 	//build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
@@ -181,7 +182,6 @@ void Shadow::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptor
 
 	function(cmd);
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowMapPipeline);
 	vkCmdEndRenderPass(cmd);
 }
 

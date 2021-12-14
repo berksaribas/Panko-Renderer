@@ -48,8 +48,9 @@ struct EngineData {
     VkSampler linearSampler;
     VkSampler nearestSampler;
 
-    VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+    VkFormat color32Format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    VkFormat color16Format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    VkFormat depth32Format = VK_FORMAT_D32_SFLOAT;
 };
 
 struct SceneDescriptors {

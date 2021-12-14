@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vk_compute.h>
 #include <vk_raytracing.h>
 #include <precalculation_types.h>

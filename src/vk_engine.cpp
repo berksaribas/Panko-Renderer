@@ -26,6 +26,8 @@
 #include <gi_diffuse.h>
 #include <gi_glossy.h>
 #include <gi_shadow.h>
+#include <gi_gbuffer.h>
+#include <gi_deferred.h>
 
 const int MAX_TEXTURES = 75; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
@@ -37,8 +39,10 @@ PrecalculationLoadData precalculationLoadData = {};
 PrecalculationResult precalculationResult = {};
 
 //GI Models
+GBuffer gbuffer;
 DiffuseIllumination diffuseIllumination;
 Shadow shadow;
+Deferred deferred;
 
 //Imgui
 bool enableGi = false;
@@ -79,9 +83,12 @@ void VulkanEngine::init()
 	init_default_renderpass();
 	init_colordepth_renderpass();
 	init_color_renderpass();
+	gbuffer.init_render_pass(_engineData);
 
 	init_framebuffers();
 	shadow.init_images(_engineData);
+	gbuffer.init_images(_engineData, _windowExtent);
+	deferred.init_images(_engineData, _windowExtent);
 
 	init_commands();
 	init_sync_structures();
@@ -90,9 +97,13 @@ void VulkanEngine::init()
 	shadow.init_buffers(_engineData);
 	init_descriptors();
 	shadow.init_descriptors(_engineData, _sceneDescriptors);
+	gbuffer.init_descriptors(_engineData);
+	deferred.init_descriptors(_engineData, _sceneDescriptors);
 
+	gbuffer.init_pipelines(_engineData, _sceneDescriptors);
 	init_pipelines();
 	shadow.init_pipelines(_engineData, _sceneDescriptors);
+	deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
 
 	_vulkanCompute.init(_engineData);
 	_vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
@@ -236,6 +247,8 @@ void VulkanEngine::draw()
 			diffuseIllumination.rebuild_shaders();
 			init_pipelines(true);
 			shadow.init_pipelines(_engineData, _sceneDescriptors, true);
+			gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
+			deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
 		}
 
 		ImGui::NewLine();
@@ -357,6 +370,10 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 	{
+		gbuffer.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
+			draw_objects(cmd);
+		});
+
 		// SHADOW MAP RENDERING
 		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
@@ -423,35 +440,7 @@ void VulkanEngine::draw()
 
 		diffuseIllumination.render(cmd, _dilationPipeline, _dilationPipelineLayout, _sceneDescriptors);
 
-		// GI RENDERING
-		{
-			VkClearValue clearValue;
-			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-
-			VkClearValue depthClear;
-			depthClear.depthStencil = { 1.0f, 0 };
-			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_engineData.colorDepthRenderPass, _windowExtent, _giFramebuffer);
-
-			rpInfo.clearValueCount = 2;
-			VkClearValue clearValues[] = { clearValue, depthClear };
-			rpInfo.pClearValues = clearValues;
-
-			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkutils::cmd_viewport_scissor(cmd, _windowExtent);
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 0, 1, &_sceneDescriptors.globalDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 1, 1, &_sceneDescriptors.objectDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 2, 1, &_sceneDescriptors.textureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 3, 1, &_sceneDescriptors.materialDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 5, 1, &diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, 0, nullptr);
-
-			draw_objects(cmd);
-
-			vkCmdEndRenderPass(cmd);
-		}
+		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
 		
 		//POST PROCESSING + UI
 		{
@@ -471,7 +460,7 @@ void VulkanEngine::draw()
 			vkutils::cmd_viewport_scissor(cmd, _windowExtent);
 			
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipelineLayout, 0, 1, &_giColorTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipelineLayout, 0, 1, &deferred._deferredColorTextureDescriptor, 0, nullptr);
 			vkCmdDraw(cmd, 3, 1, 0, 0);
 			
 			_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
@@ -713,7 +702,7 @@ void VulkanEngine::init_swapchain()
 		1
 	};
 	
-	VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
+	VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.depth32Format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
 
 	VmaAllocationCreateInfo dimg_allocinfo = {};
 	dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -723,7 +712,7 @@ void VulkanEngine::init_swapchain()
 	vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_depthImage._image, &_depthImage._allocation, nullptr);
 
 	//build an image-view for the depth image to use for rendering
-	VkImageViewCreateInfo dview_info = vkinit::imageview_create_info(_engineData.depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
+	VkImageViewCreateInfo dview_info = vkinit::imageview_create_info(_engineData.depth32Format, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 	VK_CHECK(vkCreateImageView(_engineData.device, &dview_info, nullptr, &_depthImageView));
 
@@ -761,7 +750,7 @@ void VulkanEngine::init_default_renderpass()
 	VkAttachmentDescription depth_attachment = {};
 	// Depth attachment
 	depth_attachment.flags = 0;
-	depth_attachment.format = _engineData.depthFormat;
+	depth_attachment.format = _engineData.depth32Format;
 	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -824,7 +813,7 @@ void VulkanEngine::init_colordepth_renderpass()
 	OPTICK_EVENT();
 
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = _engineData.colorFormat;
+	colorAttachment.format = _engineData.color32Format;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -838,7 +827,7 @@ void VulkanEngine::init_colordepth_renderpass()
 	colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentDescription depthAttachment{};
-	depthAttachment.format = _engineData.depthFormat;
+	depthAttachment.format = _engineData.depth32Format;
 	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;							// Clear depth at beginning of the render pass
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;						// We will read from depth, so it's important to store the depth attachment results
@@ -895,7 +884,7 @@ void VulkanEngine::init_color_renderpass()
 	OPTICK_EVENT();
 
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = _engineData.colorFormat;
+	colorAttachment.format = _engineData.color32Format;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1001,13 +990,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_lightmapColorImage._image, &_lightmapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.colorFormat, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.color32Format, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_lightmapColorImageView));
 		}
 
@@ -1028,13 +1017,13 @@ void VulkanEngine::init_framebuffers()
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_dilatedLightmapColorImage._image, &_dilatedLightmapColorImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.colorFormat, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.color32Format, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_dilatedLightmapColorImageView));
 		}
 
@@ -1044,45 +1033,7 @@ void VulkanEngine::init_framebuffers()
 		fb_info.pAttachments = attachments;
 		fb_info.attachmentCount = 1;
 		VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_dilatedLightmapFramebuffer));
-	}
-
-	// Create GI framebuffer
-	{
-		VkExtent3D giImageExtent3D = {
-			_windowExtent.width,
-			_windowExtent.height,
-			1
-		};
-
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, giImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_giColorImage._image, &_giColorImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.colorFormat, _giColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_giColorImageView));
-		}
-
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, giImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_giDepthImage._image, &_giDepthImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.depthFormat, _giDepthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
-			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_giDepthImageView));
-		}
-
-		VkImageView attachments[2] = { _giColorImageView, _giDepthImageView };
-
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_engineData.colorDepthRenderPass, _windowExtent);
-		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 2;
-		VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_giFramebuffer));
-	}
+	}	
 }
 
 void VulkanEngine::init_commands()
@@ -1266,22 +1217,6 @@ void VulkanEngine::init_descriptors()
 		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
 	}
 
-	//GI texture descriptor
-	{
-		VkDescriptorImageInfo imageBufferInfo;
-		imageBufferInfo.sampler = _engineData.linearSampler;
-		imageBufferInfo.imageView = _giColorImageView;
-		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.singleImageSetLayout, 1);
-
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_giColorTextureDescriptor);
-
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _giColorTextureDescriptor, &imageBufferInfo, 0, 1);
-
-		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
-	}
-
 	_mainDeletionQueue.push_function([&]() {
 		vkDestroyDescriptorPool(_engineData.device, _engineData.descriptorPool, nullptr);
 		//TODO: destroy buffers, layouts
@@ -1302,18 +1237,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/lightmap.frag.spv", &lightmapFragShader))
 	{
 		assert("Lightmap Vertex Shader Loading Issue");
-	}
-
-	VkShaderModule giVertShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/gi.vert.spv", &giVertShader))
-	{
-		assert("GI Vertex Shader Loading Issue");
-	}
-
-	VkShaderModule giFragShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/gi.frag.spv", &giFragShader))
-	{
-		assert("GI Fragment Shader Loading Issue");
 	}
 
 	VkShaderModule fullscreenVertShader;
@@ -1343,13 +1266,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
 		}
 
-		//GI PIPELINE LAYOUT INFO
-		{
-			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.globalSetLayout, _sceneDescriptors.objectSetLayout, _sceneDescriptors.textureSetLayout, _sceneDescriptors.materialSetLayout, _sceneDescriptors.singleImageSetLayout, _sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
-			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_giPipelineLayout));
-		}
-
 		//DILATION PIPELINE LAYOUT INFO
 		{
 			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
@@ -1371,7 +1287,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	}
 	else {
 		vkDestroyPipeline(_engineData.device, _lightmapPipeline, nullptr);
-		vkDestroyPipeline(_engineData.device, _giPipeline, nullptr);
 		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
 		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
 	}
@@ -1421,20 +1336,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	_lightmapPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
 
 	/*
-	* / VVVVVVVVVVVVV GI PIPELINE VVVVVVVVVVVVV
-	*/
-	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
-	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-
-	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, giVertShader));
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, giFragShader));
-	pipelineBuilder._pipelineLayout = _giPipelineLayout;
-	_giPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorDepthRenderPass);
-
-	/*
 	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
 	*/
 	pipelineBuilder._shaderStages.clear();
@@ -1470,8 +1371,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	//destroy all shader modules, outside of the queue
 	vkDestroyShaderModule(_engineData.device, lightmapVertShader, nullptr);
 	vkDestroyShaderModule(_engineData.device, lightmapFragShader, nullptr);
-	vkDestroyShaderModule(_engineData.device, giVertShader, nullptr);
-	vkDestroyShaderModule(_engineData.device, giFragShader, nullptr);
 
 	vkDestroyShaderModule(_engineData.device, fullscreenVertShader, nullptr);
 	vkDestroyShaderModule(_engineData.device, dilationFragShader, nullptr);
@@ -1480,9 +1379,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	_mainDeletionQueue.push_function([=]() {
 		vkDestroyPipeline(_engineData.device, _lightmapPipeline, nullptr);
 		vkDestroyPipelineLayout(_engineData.device, _lightmapPipelineLayout, nullptr);
-
-		vkDestroyPipeline(_engineData.device, _giPipeline, nullptr);
-		vkDestroyPipelineLayout(_engineData.device, _giPipelineLayout, nullptr);
 
 		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
 		vkDestroyPipelineLayout(_engineData.device, _dilationPipelineLayout, nullptr);
