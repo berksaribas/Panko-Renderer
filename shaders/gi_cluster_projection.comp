@@ -29,7 +29,7 @@ float window(float l, float w) {
 	return pow(x, 2);
 }
 
-#define WINDOWING 8
+#define WINDOWING 16
 
 void main()
 {

@@ -12,6 +12,8 @@ layout (location = 3) in vec2 vLightmapCoord;
 layout (location = 0) out vec2 outTexCoord;
 layout (location = 1) flat out int outMaterialId;
 layout (location = 2) out vec2 outLightmapCoord;
+layout (location = 3) out vec3 outNormal;
+layout (location = 4) out vec4 outWorldPosition;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -30,4 +32,6 @@ void main()
 	outTexCoord = vTexCoord;
 	outMaterialId = objectBuffer.objects[gl_BaseInstance].material_id;
 	outLightmapCoord = vLightmapCoord / cameraData.lightmapInputSize;
+	outNormal = mat3(transpose(inverse(modelMatrix))) * vNormal;
+	outWorldPosition = modelPos;
 }

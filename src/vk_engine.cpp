@@ -177,6 +177,7 @@ void VulkanEngine::draw()
 	_camData.proj = projection;
 	_camData.view = view;
 	_camData.viewproj = projection * view;
+	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
 	_camData.lightmapTargetSize = {_lightmapExtent.width, _lightmapExtent.height};
@@ -444,7 +445,7 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 1, 1, &_sceneDescriptors.objectDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 2, 1, &_sceneDescriptors.textureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 3, 1, &_sceneDescriptors.materialDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 4, 1, &_dilatedLightmapTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _giPipelineLayout, 5, 1, &diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
