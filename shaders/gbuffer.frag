@@ -15,7 +15,7 @@ void main()
 	gbufferPositionMaterial.xyz = inWorldPosition;
 	gbufferPositionMaterial.w = inMaterialId;
 
-	gbufferNormal.xyz = inNormal;
+	gbufferNormal.xyz = normalize(inNormal);
 
 	gbufferUV.xy = inTexCoord;
 	gbufferUV.zw = inLightmapCoord;

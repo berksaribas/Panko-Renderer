@@ -19,16 +19,12 @@ layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
 layout(set = 1, binding = 2) uniform sampler2D gbufferUV;
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
+layout(std140, set = 3, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
 layout(set = 4, binding = 0) uniform sampler2D shadowMap;
 layout(set = 5, binding = 0) uniform sampler2D indirectLightMap;
+layout(set = 6, binding = 0) uniform sampler2D glossyReflections;
 
 #include "shadow.glsl"
-
-//all object matrices
-layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
-
-	GPUBasicMaterialData materials[];
-} materialBuffer;
 
 void main()
 {
@@ -43,32 +39,38 @@ void main()
     }
 
     vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
-    vec3 emissive_color = materialBuffer.materials[inMaterialId].emissive_color;
+    vec3 emissive_color = materials[inMaterialId].emissive_color;
 
-    float roughness = materialBuffer.materials[inMaterialId].roughness_factor;
-    float metallic = materialBuffer.materials[inMaterialId].metallic_factor;
+    float roughness = materials[inMaterialId].roughness_factor;
+    float metallic = materials[inMaterialId].metallic_factor;
 
     if(emissive_color.r > 0 || emissive_color.g > 0 || emissive_color.b > 0) {
         albedo = vec3(1.0f, 1.0f, 1.0f);
     }
     else {
-	    if(materialBuffer.materials[inMaterialId].texture > -1) {
-            albedo = pow(texture(textures[materialBuffer.materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
+	    if(materials[inMaterialId].texture > -1) {
+            albedo = pow(texture(textures[materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
         }
         else {
-          albedo = materialBuffer.materials[inMaterialId].base_color.xyz;
+          albedo = materials[inMaterialId].base_color.xyz;
         }
     }
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(inWorldPosition, 1.0);
-    //float shadow = textureProj(shadowPos / shadowPos.w, vec2(0.0));
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 
-    roughness = 1;
-    metallic = 0;
+    if(inMaterialId == 5) {
+        roughness = 0;
+        metallic = 1;
+    }
+    else {
+        roughness = 1;
+        metallic = 0;
+    }
 
-    vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, normalize(cameraData.lightColor).xyz) * shadow;
-    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), texture(indirectLightMap, inLightmapCoord).xyz, vec3(0));
+    vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
+    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), texture(indirectLightMap, inLightmapCoord).xyz, texture(glossyReflections, InUv).xyz);
+    vec3 outColor = directLight + indirectLight;
 
-    outFragColor = vec4(directLight + indirectLight, 1.0f);
+    outFragColor = vec4(outColor, 1.0f);
 }

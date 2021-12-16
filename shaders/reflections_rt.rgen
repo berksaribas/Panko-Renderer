@@ -1,0 +1,50 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_debug_printf : enable
+
+#define RAYTRACING
+
+#include "common.glsl"
+
+layout(location = 0) rayPayloadEXT vec3 payload;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout (set = 0, binding = 3, rgba32f) uniform image2D resultImage;
+
+layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+
+layout(set = 3, binding = 0) uniform sampler2D gbufferPositionMaterial;
+layout(set = 3, binding = 1) uniform sampler2D gbufferNormal;
+layout(set = 3, binding = 2) uniform sampler2D gbufferUV;
+
+layout(std140, set = 5, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
+
+void main()
+{
+	ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+
+	vec3 pos = texelFetch(gbufferPositionMaterial, pixel, 0).xyz / 0.3;
+	int material = int(texelFetch(gbufferPositionMaterial, pixel, 0).w);
+	vec3 normal = texelFetch(gbufferNormal, pixel, 0).xyz;
+	vec3 view = normalize(cameraData.cameraPos.xyz / 0.3 - pos.xyz);
+    vec3 direction = reflect(-view, normal);
+
+	if(material >= 0 && materials[material].metallic_factor > 0) {
+		uint rayFlags = gl_RayFlagsOpaqueEXT;
+		uint cullMask = 0xff;
+		float tmin = 0.0001;
+		float tmax = 100000.0;
+
+		traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.01, tmin, direction, tmax, 0);
+
+		imageStore(resultImage, pixel, vec4(payload, 1.0));
+	}
+	else {
+		imageStore(resultImage, pixel, vec4(0, 0, 0, 1));
+	}
+}

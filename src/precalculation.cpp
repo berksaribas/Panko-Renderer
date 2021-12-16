@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 
 #include <chrono>
+#include <unordered_set>
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
@@ -1039,16 +1040,24 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	int maxReceiverInABatch = 1024;
 
 	int recCounter = 0;
+	int maxProbesPerCluster = 0; //will be useful when allocating from gpu
 	{
 		for (int i = 0; i < aabbClusters.size(); i++) {
-#pragma omp parallel for
+			std::unordered_set<int> supportingProbes;
+//#pragma omp parallel for
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
 				for (int k = 0; k < probes.size(); k++) {
 					receiverProbeWeightData[(recCounter + j) * probes.size() + k] = calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[k])), radius);
+					if (receiverProbeWeightData[(recCounter + j) * probes.size() + k] > 0.0f) {
+						supportingProbes.insert(k);
+					}
 				}
 			}
+			printf("Cluster (%d) supporting probe count: %d\n", i, supportingProbes.size());
+			maxProbesPerCluster = MAX(maxProbesPerCluster, supportingProbes.size());
 			recCounter += aabbClusters[i].receivers.size();
 		}
+		printf("MAX probe count per cluster: %d", maxProbesPerCluster);
 	}
 
 	RaytracingPipeline rtPipeline = {};
@@ -1066,8 +1075,9 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	VkDescriptorSetLayoutBinding receiverLocationsBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
 		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 4);
 	VkDescriptorSetLayoutBinding outBuffer = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 5);
-	VkDescriptorSetLayoutBinding bindings[6] = { tlasBind, sceneDescBind, meshInfoBind, probeLocationsBind, receiverLocationsBind, outBuffer };
-	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 6);
+	VkDescriptorSetLayoutBinding weightBuffer = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 6);
+	VkDescriptorSetLayoutBinding bindings[7] = { tlasBind, sceneDescBind, meshInfoBind, probeLocationsBind, receiverLocationsBind, outBuffer, weightBuffer };
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 7);
 	vkCreateDescriptorSetLayout(engine._engineData.device, &setinfo, nullptr, &rtDescriptorSetLayout);
 
 	VkDescriptorSetAllocateInfo allocateInfo =
@@ -1104,6 +1114,9 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * rays * probes.size() * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 5));
+	
+	AllocatedBuffer receiverProbeWeights = vkutils::create_upload_buffer(&engine._engineData, receiverProbeWeightData, sizeof(float) * (probes.size() * recCounter), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverProbeWeights._descriptorBufferInfo, 6));
 
 	PrecalculateReceiverMatrixConfig matrixConfig = {};
 	matrixConfig.basisFunctionCount = shNumCoeff;
@@ -1111,7 +1124,6 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	matrixConfig.rayCount = rays;
 
 	AllocatedBuffer receiverMatrixConfig = vkutils::create_upload_buffer(&engine._engineData, &matrixConfig, sizeof(PrecalculateReceiverMatrixConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	AllocatedBuffer receiverProbeWeights = vkutils::create_upload_buffer(&engine._engineData, receiverProbeWeightData, sizeof(float) * (probes.size() * recCounter), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	AllocatedBuffer matrixBuffer = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * probes.size() * shNumCoeff * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	AllocatedBuffer matrixBufferCPU = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * probes.size() * shNumCoeff * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -1119,7 +1131,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vkinit::pipeline_layout_create_info(&rtDescriptorSetLayout, 1);
 
-	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_RAYGEN_BIT_KHR , 0, sizeof(int) * 2 };
+	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_RAYGEN_BIT_KHR , 0, sizeof(int) * 3 };
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRanges;
 
@@ -1211,10 +1223,10 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
 					(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 
-				int pushConstantVariables[2] = { probeCount, i };
+				int pushConstantVariables[3] = { probeCount, i, receiverOffset };
 
 				vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
-					sizeof(int) * 2, pushConstantVariables);
+					sizeof(int) * 3, pushConstantVariables);
 				vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, maxReceiverInABatch, rays, 1);
 				{
 					VkMemoryBarrier memoryBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
@@ -1266,15 +1278,34 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().block(0, 0, svd.matrixU().rows(), nc));
 
+		{
+			float total = 0.f;
+			float realTotal = 0.f;
+			for (int aa = 0; aa < nc; aa++) {
+				total += svd.singularValues()[aa];
+			}
+			for (int aa = 0; aa < svd.singularValues().size(); aa++) {
+				realTotal += svd.singularValues()[aa];
+			}
+
+			printf("Error: %f (total singular value count: %d)\n", 1.0f - total / realTotal, svd.singularValues().size());
+		}
 		Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
+		int singularValueSize = svd.singularValues().size();
 		singularMatrix.setZero();
 		for (int aa = 0; aa < nc; aa++) {
-			singularMatrix(aa, aa) = svd.singularValues()[aa];
+			if (aa < singularValueSize) {
+				singularMatrix(aa, aa) = svd.singularValues()[aa];
+			}
+			else {
+				singularMatrix(aa, aa) = 0;
+			}
 		}
 		auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * svd.matrixV().transpose());
 
 		//printf("Singular matrix size: %d x %d\n", singularMatrix.rows(), singularMatrix.cols());
 		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
+
 
 		/*
 		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;

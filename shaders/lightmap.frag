@@ -21,34 +21,43 @@ layout(set = 0, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMap
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(set = 4, binding = 0) uniform sampler2D shadowMap;
+layout(set = 5, binding = 0) uniform sampler2D indirectLightMap;
 
 //all object matrices
 layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
 
 	GPUBasicMaterialData materials[];
-} materialBuffer;
+};
 
 #include "shadow.glsl"
 
 void main()
 {
-    vec3 color = vec3(1.0f, 1.0f, 1.0f);
-    vec3 emissive_color = materialBuffer.materials[material_id].emissive_color;
+    vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
+    vec3 emissive_color = materials[material_id].emissive_color;
 
     if(emissive_color.r > 0 || emissive_color.g > 0 || emissive_color.b > 0) {
-        outFragColor = vec4(0);
+        albedo = vec3(1.0f, 1.0f, 1.0f);
     }
     else {
-        vec4 shadowPos = biasMat * shadowMapData.depthMVP * inFragPos;
-        //float shadow = textureProj(shadowPos / shadowPos.w, vec2(0.0));
-        float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
-        //float shadow = filterPCF(shadowPos / shadowPos.w);
-
-        vec3 N = normalize(inNormal);
-        vec3 L = normalize(inLightVec);
-        
-	    vec3 diffuse = clamp(dot(N, L), 0.0, 1.0) * inLightColor * color;
-
-        outFragColor = vec4(diffuse * shadow, 1.0f);  
+	    if(materials[material_id].texture > -1) {
+            albedo = pow(texture(textures[materials[material_id].texture], texCoord).xyz, vec3(2.2));
+        }
+        else {
+          albedo = materials[material_id].base_color.xyz;
+        }
     }
+
+    vec4 shadowPos = biasMat * shadowMapData.depthMVP * inFragPos;
+    //float shadow = textureProj(shadowPos / shadowPos.w, vec2(0.0));
+    float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
+    //float shadow = filterPCF(shadowPos / shadowPos.w);
+
+    vec3 N = normalize(inNormal);
+    vec3 L = normalize(inLightVec);
+        
+	vec3 diffuse = clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow + texture(indirectLightMap, inLightmapCoord).xyz * albedo;
+
+    outFragColor = vec4(diffuse, 1.0f);  
+   
 }

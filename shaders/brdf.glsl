@@ -85,7 +85,7 @@ vec3 calculate_indirect_lighting(vec3 albedo, float metallic, float roughness, v
     kD *= 1.0 - metallic;
 
     vec3 diffuse = diffuseIrradiance * c_diffuse;
-    vec3 specular = vec3(0); //TODO
+    vec3 specular = glossyIrradiance * metallic; //TODO: blurring, mipmapping etc.
 
     return (kD * diffuse + specular);
 }

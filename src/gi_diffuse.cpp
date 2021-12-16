@@ -89,8 +89,8 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 
 		vkCmdPipelineBarrier(
 			cmd,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 			0,
 			0, nullptr,
 			0, nullptr,
@@ -180,6 +180,24 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_vulkanCompute->add_buffer_binding(_receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverUvs);
 	_vulkanCompute->add_texture_binding(_receiverReconstruction, ComputeBufferType::TEXTURE_STORAGE, 0, _giIndirectLightImageView);
 	_vulkanCompute->build(_receiverReconstruction, _descriptorPool, "../../shaders/gi_receiver_reconstruction.comp.spv");
+	
+	vkutils::setObjectName(engineData.device, _receiverReconstruction.pipeline, "DiffuseReceiverReconstructionPipeline");
+	vkutils::setObjectName(engineData.device, _receiverReconstruction.pipelineLayout, "DiffuseReceiverReconstructionPipelineLayout");
+
+	vkutils::setObjectName(engineData.device, _clusterProjection.pipeline, "DiffuseClusterProjectionPipeline");
+	vkutils::setObjectName(engineData.device, _clusterProjection.pipelineLayout, "DiffuseClusterProjectionPipelineLayout");
+
+	vkutils::setObjectName(engineData.device, _probeRelight.pipeline, "DiffuseProbeRelightPipeline");
+	vkutils::setObjectName(engineData.device, _probeRelight.pipelineLayout, "DiffuseProbeRelightPipelineLayout");
+
+	vkutils::setObjectName(engineData.device, _giIndirectLightImage._image, "DiffuseIndirectLightImage");
+	vkutils::setObjectName(engineData.device, _giIndirectLightImageView, "DiffuseIndirectLightImageView");
+
+	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightImage._image, "DilatedDiffuseIndirectLightImage");
+	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightImageView, "DilatedDiffuseIndirectLightImageView");
+
+	vkutils::setObjectName(engineData.device, _giIndirectLightTextureDescriptor, "DiffuseIndirectLightTextureDescriptor");
+	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightTextureDescriptor, "DilatedDiffuseIndirectLightTextureDescriptor");		
 }
 
 void DiffuseIllumination::render(VkCommandBuffer cmd, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout, SceneDescriptors& sceneDescriptors)

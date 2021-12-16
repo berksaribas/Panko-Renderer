@@ -133,10 +133,17 @@ void main()
                 uint resultIndex = probe + i * config.probeCount + relativeReceiver * config.probeCount * config.rayCount;
                 uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.probeCount + probe;
                 float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
-                vec3 dir = normalize(results[resultIndex].dir);
-                float basis[64] = calcY(dir, 7);
-                for(int k = 0; k < config.basisFunctionCount; k++) {
-                    matrixOutput[outputIndex + k] += weight * basis[k];
+                if(weight > 0.0) {
+                    vec3 dir = normalize(results[resultIndex].dir);
+                    float basis[64] = calcY(dir, 7);
+                    for(int k = 0; k < config.basisFunctionCount; k++) {
+                        matrixOutput[outputIndex + k] += weight * basis[k];
+                    }
+                }
+                else {
+                    for(int k = 0; k < config.basisFunctionCount; k++) {
+                        matrixOutput[outputIndex + k] += 0;
+                    }
                 }
             }
         }

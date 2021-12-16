@@ -68,8 +68,8 @@ void Deferred::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDes
 
 	if (!rebuild)
 	{
-		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
+		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 7);
 		VK_CHECK(vkCreatePipelineLayout(engineData.device, &pipeline_layout_info, nullptr, &_deferredPipelineLayout));
 	}
 	else {
@@ -81,7 +81,9 @@ void Deferred::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDes
 	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
 	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &vkinit::color_blend_attachment_state());
+
+	auto blendAttachmentState = vkinit::color_blend_attachment_state();
+	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendAttachmentState);
 
 	pipelineBuilder._shaderStages.push_back(
 		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
@@ -105,7 +107,7 @@ void Deferred::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDes
 	vkDestroyShaderModule(engineData.device, fullscreenVertShader, nullptr);
 }
 
-void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination)
+void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination)
 {
 	VkClearValue clearValue;
 	clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
@@ -127,6 +129,7 @@ void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescript
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 3, 1, &sceneDescriptors.materialDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 5, 1, &diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 6, 1, &glossyIllumination._glossyReflectionsColorTextureDescriptor, 0, nullptr);
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 

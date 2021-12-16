@@ -15,7 +15,9 @@
 #include "vk_mem_alloc.h"
 #include "VkBootstrap.h"
 #include <vk_raytracing.h>
+#define RAYTRACING
 #include "../shaders/common.glsl"
+#undef RAYTRACING
 #include <vk_debug_renderer.h>
 
 struct DeletionQueue
@@ -77,6 +79,7 @@ public:
 	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
 	AllocatedBuffer vertex_buffer, index_buffer, normal_buffer, tex_buffer, material_buffer, lightmap_tex_buffer;
+	AllocatedBuffer sceneDescBuffer, meshInfoBuffer;
 
 	/* DEFAULT RENDERING VARIABLES */
 

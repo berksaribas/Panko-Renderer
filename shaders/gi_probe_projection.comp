@@ -31,16 +31,7 @@ void main()
 
 		vec4 color = vec4(0, 0, 0, 1);
 		if(probeRaycasts[gID].objectId != -1) {
-			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb + texture(indirectLightMap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
-			
-			int materialId = objects[probeRaycasts[gID].objectId].material_id;
-			
-			if(materials[materialId].texture > -1) {
-				color *= vec4(pow(texture(textures[materials[materialId].texture], probeRaycasts[gID].texUv).xyz, vec3(2.2)), 1.0);
-			}
-			else {
-				color *= vec4(materials[materialId].base_color.xyz, 1.0);
-			}
+			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
 		}
 		else {
 			//sample from skybox?

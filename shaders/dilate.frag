@@ -51,7 +51,12 @@ void main(void) {
             ctr++;
         }
 
-        c /= ctr;
+        if(ctr == 0) {
+            c = vec4(0);
+        }
+        else {
+            c /= ctr;
+        }
     }
     outFragColor = c;
 }

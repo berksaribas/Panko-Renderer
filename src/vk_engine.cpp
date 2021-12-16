@@ -29,7 +29,7 @@
 #include <gi_gbuffer.h>
 #include <gi_deferred.h>
 
-const int MAX_TEXTURES = 75; //TODO: Replace this
+const int MAX_TEXTURES = 1; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
 //Precalculation
@@ -43,6 +43,7 @@ GBuffer gbuffer;
 DiffuseIllumination diffuseIllumination;
 Shadow shadow;
 Deferred deferred;
+GlossyIllumination glossyIllumination;
 
 //Imgui
 bool enableGi = false;
@@ -112,7 +113,13 @@ void VulkanEngine::init()
 	init_imgui();
 	init_scene();
 
-	bool loadPrecomputedData = true;
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.materialDescriptor, "MaterialDescriptor");
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.materialSetLayout, "MaterialDescriptorSetLayout");
+
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
+
+	bool loadPrecomputedData = false;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.9;
@@ -121,7 +128,7 @@ void VulkanEngine::init()
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 8000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 32;
+		precalculationInfo.clusterCoefficientCount = 180;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
 		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
@@ -132,6 +139,10 @@ void VulkanEngine::init()
 
 	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors, _lightmapColorImageView);
 	
+	glossyIllumination.init(_vulkanRaytracing);
+	glossyIllumination.init_images(_engineData, _windowExtent);
+	glossyIllumination.init_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
+	glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
 
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
@@ -249,6 +260,7 @@ void VulkanEngine::draw()
 			shadow.init_pipelines(_engineData, _sceneDescriptors, true);
 			gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
 			deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
+			glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
 		}
 
 		ImGui::NewLine();
@@ -274,6 +286,7 @@ void VulkanEngine::draw()
 		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
 		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
 		ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
+		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 		ImGui::End();
 
 		sprintf_s(buffer, "Show Probes");
@@ -400,6 +413,7 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &_sceneDescriptors.textureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &_sceneDescriptors.materialDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
 
@@ -440,7 +454,9 @@ void VulkanEngine::draw()
 
 		diffuseIllumination.render(cmd, _dilationPipeline, _dilationPipelineLayout, _sceneDescriptors);
 
-		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
+		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
+
+		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination);
 		
 		//POST PROCESSING + UI
 		{
@@ -603,18 +619,28 @@ void VulkanEngine::init_vulkan()
 	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = VkPhysicalDeviceFeatures();
-	//physicalDeviceFeatures.fillModeNonSolid = true;
+	physicalDeviceFeatures.fillModeNonSolid = true;
 	physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 	physicalDeviceFeatures.shaderInt64 = true;
 
 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR featureRt = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR featureAccel = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-	
+	VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+
+	features11.shaderDrawParameters = VK_TRUE;
+	features11.pNext = &features12;
+
 	features12.bufferDeviceAddress = true;
 	features12.pNext = &featureRt;
+	
+	features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+	features12.runtimeDescriptorArray = VK_TRUE;
+	features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+
 	featureRt.rayTracingPipeline = true;
 	featureRt.pNext = &featureAccel;
+
 	featureAccel.accelerationStructure = true;
 
 	//use vkbootstrap to select a gpu. 
@@ -637,7 +663,7 @@ void VulkanEngine::init_vulkan()
 
 	//create the final vulkan device
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
-	deviceBuilder.add_pNext(&features12);
+	deviceBuilder.add_pNext(&features11);
 	vkb::Device vkbDevice = deviceBuilder.build().value();
 
 	// Get the VkDevice handle used in the rest of a vulkan application_engineData.colorDepthRenderPass
@@ -1153,7 +1179,7 @@ void VulkanEngine::init_descriptors()
 	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.textureSetLayout);
 
 	//binding set for materials
-	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
 	setinfo = vkinit::descriptorset_layout_create_info(&materialBind, 1);
 	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.materialSetLayout);
 
@@ -1217,11 +1243,18 @@ void VulkanEngine::init_descriptors()
 		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
 	}
 
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalDescriptor, "GlobalDescriptor");
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalSetLayout, "GlobalDescriptorSetLayout");
+
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.objectDescriptor, "ObjectDescriptor");
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.objectSetLayout, "ObjectDescriptorSetLayout");
+
+	vkutils::setObjectName(_engineData.device, _sceneDescriptors.singleImageSetLayout, "SingleImageSetLayout");
+
 	_mainDeletionQueue.push_function([&]() {
 		vkDestroyDescriptorPool(_engineData.device, _engineData.descriptorPool, nullptr);
 		//TODO: destroy buffers, layouts
 	});
-
 }
 
 void VulkanEngine::init_pipelines(bool rebuild) {
@@ -1261,8 +1294,8 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 
 		//LIGHTMAP PIPELINE LAYOUT INFO
 		{
-			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.globalSetLayout, _sceneDescriptors.objectSetLayout, _sceneDescriptors.textureSetLayout, _sceneDescriptors.materialSetLayout, _sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 5);
+			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.globalSetLayout, _sceneDescriptors.objectSetLayout, _sceneDescriptors.textureSetLayout, _sceneDescriptors.materialSetLayout, _sceneDescriptors.singleImageSetLayout, _sceneDescriptors.singleImageSetLayout };
+			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
 			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
 		}
 
@@ -1284,6 +1317,11 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
 			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
 		}
+
+		vkutils::setObjectName(_engineData.device, _lightmapPipelineLayout, "LightmapPipelineLayout");
+		vkutils::setObjectName(_engineData.device, _dilationPipelineLayout, "DilationPipelineLayout");
+		vkutils::setObjectName(_engineData.device, _gammaPipelineLayout, "GammaPipelineLayout");
+
 	}
 	else {
 		vkDestroyPipeline(_engineData.device, _lightmapPipeline, nullptr);
@@ -1310,7 +1348,8 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 
 	//a single blend attachment with no blending and writing to RGBA
 
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &vkinit::color_blend_attachment_state());
+	auto blendState = vkinit::color_blend_attachment_state();
+	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendState);
 
 	//build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
@@ -1367,6 +1406,11 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	pipelineBuilder._pipelineLayout = _gammaPipelineLayout;
 
 	_gammaPipeline = pipelineBuilder.build_pipeline(_engineData.device, _renderPass);
+
+	vkutils::setObjectName(_engineData.device, _lightmapPipeline, "LightmapPipeline");
+	vkutils::setObjectName(_engineData.device, _dilationPipeline, "DilationPipeline");
+	vkutils::setObjectName(_engineData.device, _gammaPipeline, "GammaPipeline");
+
 
 	//destroy all shader modules, outside of the queue
 	vkDestroyShaderModule(_engineData.device, lightmapVertShader, nullptr);
@@ -1612,6 +1656,37 @@ void VulkanEngine::init_scene()
 	_vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, vertex_buffer, index_buffer);
 	_vulkanRaytracing.build_blas(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
 	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR, false);
+
+	GPUSceneDesc desc = {};
+	VkBufferDeviceAddressInfo info = { };
+	info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+
+	info.buffer = vertex_buffer._buffer;
+	desc.vertexAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
+
+	info.buffer = normal_buffer._buffer;
+	desc.normalAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
+
+	info.buffer = tex_buffer._buffer;
+	desc.uvAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
+
+	info.buffer = index_buffer._buffer;
+	desc.indexAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
+
+	info.buffer = lightmap_tex_buffer._buffer;
+	desc.lightmapUvAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
+
+	GPUMeshInfo* dataMesh = new GPUMeshInfo[gltf_scene.prim_meshes.size()];
+	for (int i = 0; i < gltf_scene.prim_meshes.size(); i++) {
+		dataMesh[i].indexOffset = gltf_scene.prim_meshes[i].first_idx;
+		dataMesh[i].vertexOffset = gltf_scene.prim_meshes[i].vtx_offset;
+		dataMesh[i].materialIndex = gltf_scene.prim_meshes[i].material_idx;
+	}
+
+	sceneDescBuffer = vkutils::create_upload_buffer(&_engineData, &desc, sizeof(GPUSceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	meshInfoBuffer = vkutils::create_upload_buffer(&_engineData, dataMesh, sizeof(GPUMeshInfo) * gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	delete[] dataMesh;
 }
 
 void VulkanEngine::init_imgui()

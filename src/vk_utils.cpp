@@ -205,7 +205,7 @@ void vkutils::submit_and_free_command_buffer(VkDevice device, VkCommandPool comm
 	VkSubmitInfo submit = vkinit::submit_info(&cmd);
 	VK_CHECK(vkQueueSubmit(queue, 1, &submit, fence));
 
-	vkWaitForFences(device, 1, &fence, true, 9999999999);
+	vkWaitForFences(device, 1, &fence, true, 999999999999);
 	vkResetFences(device, 1, &fence);
 
 	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
@@ -378,3 +378,31 @@ void vkutils::immediate_submit(EngineData* engineData, std::function<void(VkComm
 	//clear the command pool. This will free the command buffer too
 	vkResetCommandPool(engineData->device, engineData->uploadContext.commandPool, 0);
 }
+
+void vkutils::setObjectName(VkDevice device, const uint64_t object, const std::string& name, VkObjectType t)
+{
+	VkDebugUtilsObjectNameInfoEXT s{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, nullptr, t, object, name.c_str() };
+	vkSetDebugUtilsObjectNameEXT(device, &s);
+}
+
+void vkutils::setObjectName(VkDevice device, VkBuffer object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_BUFFER); }
+void vkutils::setObjectName(VkDevice device, VkBufferView object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_BUFFER_VIEW); }
+void vkutils::setObjectName(VkDevice device, VkCommandBuffer object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_COMMAND_BUFFER); }
+void vkutils::setObjectName(VkDevice device, VkCommandPool object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_COMMAND_POOL); }
+void vkutils::setObjectName(VkDevice device, VkDescriptorPool object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_POOL); }
+void vkutils::setObjectName(VkDevice device, VkDescriptorSet object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_SET); }
+void vkutils::setObjectName(VkDevice device, VkDescriptorSetLayout object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT); }
+void vkutils::setObjectName(VkDevice device, VkDevice object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DEVICE); }
+void vkutils::setObjectName(VkDevice device, VkDeviceMemory object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_DEVICE_MEMORY); }
+void vkutils::setObjectName(VkDevice device, VkFramebuffer object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_FRAMEBUFFER); }
+void vkutils::setObjectName(VkDevice device, VkImage object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_IMAGE); }
+void vkutils::setObjectName(VkDevice device, VkImageView object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_IMAGE_VIEW); }
+void vkutils::setObjectName(VkDevice device, VkPipeline object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_PIPELINE); }
+void vkutils::setObjectName(VkDevice device, VkPipelineLayout object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_PIPELINE_LAYOUT); }
+void vkutils::setObjectName(VkDevice device, VkQueryPool object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_QUERY_POOL); }
+void vkutils::setObjectName(VkDevice device, VkQueue object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_QUEUE); }
+void vkutils::setObjectName(VkDevice device, VkRenderPass object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_RENDER_PASS); }
+void vkutils::setObjectName(VkDevice device, VkSampler object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SAMPLER); }
+void vkutils::setObjectName(VkDevice device, VkSemaphore object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SEMAPHORE); }
+void vkutils::setObjectName(VkDevice device, VkShaderModule object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SHADER_MODULE); }
+void vkutils::setObjectName(VkDevice device, VkSwapchainKHR object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SWAPCHAIN_KHR); }

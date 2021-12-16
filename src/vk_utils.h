@@ -27,4 +27,29 @@ namespace vkutils {
 	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
 	AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void immediate_submit(EngineData* engineData, std::function<void(VkCommandBuffer cmd)>&& function);
+
+	//debug (from nvpro_core)
+	void setObjectName(VkDevice device, const uint64_t object, const std::string& name, VkObjectType t);
+
+	void setObjectName(VkDevice device, VkBuffer object, const std::string& name);
+	void setObjectName(VkDevice device, VkBufferView object, const std::string& name);
+	void setObjectName(VkDevice device, VkCommandBuffer object, const std::string& name);
+	void setObjectName(VkDevice device, VkCommandPool object, const std::string& name); 
+	void setObjectName(VkDevice device, VkDescriptorPool object, const std::string& name);
+	void setObjectName(VkDevice device, VkDescriptorSet object, const std::string& name);
+	void setObjectName(VkDevice device, VkDescriptorSetLayout object, const std::string& name);
+	void setObjectName(VkDevice device, VkDevice object, const std::string& name);
+	void setObjectName(VkDevice device, VkDeviceMemory object, const std::string& name);
+	void setObjectName(VkDevice device, VkFramebuffer object, const std::string& name);
+	void setObjectName(VkDevice device, VkImage object, const std::string& name);
+	void setObjectName(VkDevice device, VkImageView object, const std::string& name);
+	void setObjectName(VkDevice device, VkPipeline object, const std::string& name);
+	void setObjectName(VkDevice device, VkPipelineLayout object, const std::string& name);
+	void setObjectName(VkDevice device, VkQueryPool object, const std::string& name);
+	void setObjectName(VkDevice device, VkQueue object, const std::string& name);
+	void setObjectName(VkDevice device, VkRenderPass object, const std::string& name);
+	void setObjectName(VkDevice device, VkSampler object, const std::string& name);
+	void setObjectName(VkDevice device, VkSemaphore object, const std::string& name);
+	void setObjectName(VkDevice device, VkShaderModule object, const std::string& name);
+	void setObjectName(VkDevice device, VkSwapchainKHR object, const std::string& name);
 }

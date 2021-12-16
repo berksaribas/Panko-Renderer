@@ -19,8 +19,9 @@ layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo mes
 layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
 layout(std140, set = 0, binding = 4) readonly buffer _ReceiverData { GPUReceiverData receivers[]; };
 layout(set = 0, binding = 5) buffer _ReceiverRaycastResult { GPUReceiverRaycastResult results[]; };
+layout(set = 0, binding = 6, scalar) readonly buffer _ReceiverProbeWeights { float weights[]; };
 
-layout(push_constant) uniform _PushConstantRay { int probeCount; int receiverOffset; };
+layout(push_constant) uniform _PushConstantRay { int probeCount; int batchOffset; int receiverOffset; };
 
 float random (vec2 st)
 {
@@ -36,13 +37,14 @@ vec3 hemiSpherePointCos(float u, float v, vec3 normal)
 
 void main()
 {
-    uint receiverId = receiverOffset + gl_LaunchIDEXT.x;
+    uint receiverId = batchOffset + gl_LaunchIDEXT.x;
     vec3 receiverPos = receivers[receiverId].pos;
+    vec3 receiverNormal = normalize(receivers[receiverId].normal.xyz);
 
     float _u = random(vec2(receiverId, gl_LaunchIDEXT.y * 2));
     float _v = random(vec2(receiverId, gl_LaunchIDEXT.y * 2 + 1));
 
-    vec3 direction = hemiSpherePointCos(_u, _v, receivers[receiverId].normal);
+    vec3 direction = hemiSpherePointCos(_u, _v, receiverNormal);
 
     uint  rayFlags = gl_RayFlagsOpaqueEXT;
     float tMin     = 0.001;
@@ -54,7 +56,7 @@ void main()
                 0,              // sbtRecordOffset
                 0,              // sbtRecordStride
                 0,              // missIndex
-                receiverPos.xyz,     // ray origin
+                receiverPos.xyz + receiverNormal * 0.05,     // ray origin
                 tMin,           // ray min range
                 direction.xyz,  // ray direction
                 tMax,           // ray max range
@@ -66,54 +68,60 @@ void main()
     int hitObjectId = payload.objectId;
 
     for(int i = 0; i < probeCount; i++) {
-        int visibility = 0;
-        vec4 probePos = probeLocations[i];
-        vec3 probeDir = direction.xyz;
+        if(weights[(receiverId + receiverOffset) * probeCount + i] > 0) {
+            int visibility = 0;
+            vec4 probePos = probeLocations[i];
+            vec3 probeDir = direction.xyz;
 
-        if(hitObjectId == -1) {
-            //ray is a miss
-            //trace a ray from the probe with the same direction
-            traceRayEXT(topLevelAS,     // acceleration structure
-                    rayFlags,       // rayFlags
-                    0xFF,           // cullMask
-                    0,              // sbtRecordOffset
-                    0,              // sbtRecordStride
-                    0,              // missIndex
-                    probePos.xyz,     // ray origin
-                    tMin,           // ray min range
-                    direction.xyz,  // ray direction
-                    tMax,           // ray max range
-                    0               // payload (location = 0)
-            );
-            //???
-            if(payload.objectId == -1) {
-                visibility = 1;
+            if(hitObjectId == -1) {
+                //ray is a miss
+                //trace a ray from the probe with the same direction
+                traceRayEXT(topLevelAS,     // acceleration structure
+                        rayFlags,       // rayFlags
+                        0xFF,           // cullMask
+                        0,              // sbtRecordOffset
+                        0,              // sbtRecordStride
+                        0,              // missIndex
+                        probePos.xyz,     // ray origin
+                        tMin,           // ray min range
+                        direction.xyz,  // ray direction
+                        tMax,           // ray max range
+                        0               // payload (location = 0)
+                );
+                //???
+                if(payload.objectId == -1) {
+                    visibility = 1;
+                }
             }
+            else {
+                //ray hit a location
+                //trace a ray from the probe towards hit location
+                probeDir = normalize(hitLocation - probePos.xyz);
+
+                traceRayEXT(topLevelAS,     // acceleration structure
+                        rayFlags,       // rayFlags
+                        0xFF,           // cullMask
+                        0,              // sbtRecordOffset
+                        0,              // sbtRecordStride
+                        0,              // missIndex
+                        probePos.xyz,     // ray origin
+                        tMin,           // ray min range
+                        probeDir,  // ray direction
+                        tMax,           // ray max range
+                        0               // payload (location = 0)
+                );
+
+                if(payload.objectId == hitObjectId && distance(hitLocation, payload.pos) < 1 && dot(hitNormal, direction) < 0 && dot(payload.normal, probeDir) < 0 && dot(hitNormal, payload.normal) > 0) {
+                    visibility = 1;
+                }
+            }
+
+            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = probeDir;
+            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = visibility;
         }
         else {
-            //ray hit a location
-            //trace a ray from the probe towards hit location
-            probeDir = normalize(hitLocation - probePos.xyz);
-
-            traceRayEXT(topLevelAS,     // acceleration structure
-                    rayFlags,       // rayFlags
-                    0xFF,           // cullMask
-                    0,              // sbtRecordOffset
-                    0,              // sbtRecordStride
-                    0,              // missIndex
-                    probePos.xyz,     // ray origin
-                    tMin,           // ray min range
-                    probeDir,  // ray direction
-                    tMax,           // ray max range
-                    0               // payload (location = 0)
-            );
-
-            if(payload.objectId == hitObjectId && distance(hitLocation, payload.pos) < 1 && dot(hitNormal, direction) < 0 && dot(payload.normal, probeDir) < 0 && dot(hitNormal, payload.normal) > 0) {
-                visibility = 1;
-            }
+            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = vec3(0);
+            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = 0;
         }
-
-        results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = probeDir;
-        results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = visibility;
     }
 }
