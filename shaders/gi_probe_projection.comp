@@ -43,18 +43,21 @@ void main()
 		}
 	}
 
-    barrier();
     memoryBarrier();
+    barrier();
 
-	//not sure below computation is correct, somehow control it
 	if(gID < config.probeCount * config.basisFunctionCount) {
-		outColors[gID] = vec4(0);
 		uint probe = gID / config.basisFunctionCount;
 		uint basis = gID % config.basisFunctionCount;
 		uint index = gID * config.rayCount;
+
+		vec4 tempResult = vec4(0);
+
 		for(int j = 0; j < config.rayCount; j++) {
-			outColors[gID] += tempCalculation[index + j];
+			tempResult += tempCalculation[index + j];
 		}
+
+		outColors[gID] = tempResult;
 	}
 }
 

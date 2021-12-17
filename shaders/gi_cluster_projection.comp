@@ -3,6 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_debug_printf : enable
+#extension GL_EXT_scalar_block_layout : enable
 
 #include "common.glsl"
 
@@ -11,7 +12,9 @@ layout (local_size_x = 256) in;
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 probeRelightColors[]; };
 layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 clusterProjectionMatrices[]; };
-layout(set = 0, binding = 3) buffer _OutputBuffer { vec4 outColors[]; };
+layout(std430, set = 0, binding = 3) readonly buffer _InputBuffer3 { ClusterReceiverInfo clusterReceiverInfos[]; };
+layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { ivec4 probes[]; };
+layout(set = 0, binding = 5) buffer _OutputBuffer { vec4 outColors[]; };
 
 const float PI  = 3.14159265358979323846264;
 
@@ -37,14 +40,22 @@ void main()
 
 	if(gID < config.clusterCount * config.pcaCoefficient) {
 		outColors[gID] = vec4(0.0);
-		int total = config.probeCount * config.basisFunctionCount;
-		
-		for(int i = 0; i < total; i++) {
-			vec4 color = probeRelightColors[i];
-			uint index = total * gID + i ;
-			int basis = i % config.basisFunctionCount;
-			float w = window(floor(sqrt(float(basis))), WINDOWING);
-			outColors[gID] += color * clusterProjectionMatrices[index / 4][index % 4] * w;
+
+		uint currCluster = gID / config.pcaCoefficient;
+		uint currCoeff = gID % config.pcaCoefficient;
+
+		int clusterProbeCount = clusterReceiverInfos[currCluster].probeCount;
+		int clusterProbeOffset = clusterReceiverInfos[currCluster].probeOffset;
+
+		for(int i = 0; i < clusterProbeCount; i++) {
+			int probeIndex = clusterProbeOffset + i;
+			int currProbe = probes[probeIndex / 4][probeIndex % 4];
+			for(int k = 0; k < config.basisFunctionCount; k++) {
+				float w = window(floor(sqrt(float(k))), WINDOWING);
+				vec4 color = probeRelightColors[currProbe * config.basisFunctionCount + k];
+				uint index = config.pcaCoefficient * clusterProbeOffset * config.basisFunctionCount + currCoeff * config.basisFunctionCount * clusterProbeCount + i * config.basisFunctionCount + k;
+				outColors[gID] += color * clusterProjectionMatrices[index / 4][index % 4] * w;
+			}
 		}
 	}
 }

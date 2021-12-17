@@ -51,7 +51,7 @@ bool showProbes = false;
 bool showProbeRays = false;
 bool showReceivers = false;
 bool showSpecificReceiver = true;
-int specificCluster = 145;
+int specificCluster = 1;
 int specificReceiver = 135;
 int specificReceiverRaySampleCount = 10;
 bool showSpecificProbeRays = false;
@@ -128,7 +128,7 @@ void VulkanEngine::init()
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 8000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 180;
+		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
 		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);

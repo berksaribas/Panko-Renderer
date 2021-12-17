@@ -109,12 +109,13 @@ struct GIConfig {
 struct ClusterReceiverInfo {
 	int receiverCount;
 	int receiverOffset;
-	float pad0;
-	float pad1;
+	int probeCount;
+	int probeOffset;
 };
 
 struct PrecalculateReceiverMatrixConfig {
-	int probeCount;
+	int clusterProbeCount;
+	int totalProbeCount;
 	int basisFunctionCount;
 	int rayCount;
 	int receiverOffset;

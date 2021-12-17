@@ -17,6 +17,7 @@ struct AABB {
 	glm::vec3 min;
 	glm::vec3 max;
 	std::vector<Receiver> receivers;
+	int probeCount;
 };
 
 struct GPUProbeDensityUniformData {
@@ -42,6 +43,8 @@ struct PrecalculationLoadData {
 	int probesCount;
 	int totalClusterReceiverCount;
 	int aabbClusterCount;
+	int maxProbesPerCluster;
+	int totalProbesPerCluster;
 };
 
 struct PrecalculationResult {
@@ -56,6 +59,8 @@ struct PrecalculationResult {
 	float* receiverCoefficientMatrices;
 	ClusterReceiverInfo* clusterReceiverInfos;
 	glm::ivec4* clusterReceiverUvs;
+
+	int* clusterProbes;
 
 	//Debug data
 	float* receiverProbeWeightData;

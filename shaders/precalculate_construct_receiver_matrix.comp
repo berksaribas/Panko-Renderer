@@ -9,7 +9,8 @@ layout (local_size_x = 256) in;
 layout(set = 0, binding = 0) uniform _Config { PrecalculateReceiverMatrixConfig config; };
 layout(set = 0, binding = 1) readonly buffer _ReceiverRaycastResult { GPUReceiverRaycastResult results[]; };
 layout(set = 0, binding = 2) readonly buffer _ReceiverProbeWeights { float weights[]; };
-layout(set = 0, binding = 3) buffer _MatrixOutput { float matrixOutput[]; };
+layout(set = 0, binding = 3) readonly buffer _ClusterProbes { int probes[]; };
+layout(set = 0, binding = 4) buffer _MatrixOutput { float matrixOutput[]; };
 
 float[64] calcY(vec3 r, int order) {
     float x = r.x, y = r.y, z = r.z;
@@ -105,16 +106,16 @@ void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
     
-    if((gID / config.probeCount) < config.batchSize) {
+    if((gID / config.clusterProbeCount) < config.batchSize) {
 
-        uint relativeReceiver = gID / config.probeCount;
-        uint absoluteReceiver = gID / config.probeCount + config.batchOffset;
+        uint relativeReceiver = gID / config.clusterProbeCount;
+        uint absoluteReceiver = gID / config.clusterProbeCount + config.batchOffset;
 
-        uint probe = gID % config.probeCount;
+        uint clusterProbe = gID % config.clusterProbeCount;
 
         uint validRays = 0;
 
-        uint outputIndex = relativeReceiver * config.probeCount * config.basisFunctionCount + probe * config.basisFunctionCount;
+        uint outputIndex = relativeReceiver * config.clusterProbeCount * config.basisFunctionCount + clusterProbe * config.basisFunctionCount;
 
         for(int k = 0; k < config.basisFunctionCount; k++) {
             matrixOutput[outputIndex + k] = 0;
@@ -122,16 +123,16 @@ void main()
 
         for(int i = 0; i < config.rayCount; i++) {
             float totalWeight = 0;
-            for(int j = 0; j < config.probeCount; j++) {
-                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.probeCount + j;
-                totalWeight += results[j + i * config.probeCount + relativeReceiver * config.probeCount * config.rayCount].visibility 
+            for(int j = 0; j < config.clusterProbeCount; j++) {
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[j];
+                totalWeight += results[j + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount].visibility 
                                 * weights[weightIndex];
             }
 
             if(totalWeight > 0) {
                 validRays++;
-                uint resultIndex = probe + i * config.probeCount + relativeReceiver * config.probeCount * config.rayCount;
-                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.probeCount + probe;
+                uint resultIndex = clusterProbe + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount;
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[clusterProbe];
                 float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
                 if(weight > 0.0) {
                     vec3 dir = normalize(results[resultIndex].dir);

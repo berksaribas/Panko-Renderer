@@ -20,6 +20,7 @@ layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 prob
 layout(std140, set = 0, binding = 4) readonly buffer _ReceiverData { GPUReceiverData receivers[]; };
 layout(set = 0, binding = 5) buffer _ReceiverRaycastResult { GPUReceiverRaycastResult results[]; };
 layout(set = 0, binding = 6, scalar) readonly buffer _ReceiverProbeWeights { float weights[]; };
+layout(set = 0, binding = 7, scalar) readonly buffer _ClusterProbes { int probes[]; };
 
 layout(push_constant) uniform _PushConstantRay { int probeCount; int batchOffset; int receiverOffset; };
 
@@ -67,10 +68,15 @@ void main()
     vec3 hitLocation = payload.pos;
     int hitObjectId = payload.objectId;
 
-    for(int i = 0; i < probeCount; i++) {
-        if(weights[(receiverId + receiverOffset) * probeCount + i] > 0) {
+    for(int a = 0; a < probeCount; a++) {
+        int probeIndex = probes[a];
+        if(receiverId == 35 && gl_LaunchIDEXT.y == 0) {
+            debugPrintfEXT("Probes: %d\n", probeIndex);
+        }
+
+        if(true || weights[(receiverId + receiverOffset) * 14 + probeIndex] > 0) {
             int visibility = 0;
-            vec4 probePos = probeLocations[i];
+            vec4 probePos = probeLocations[probeIndex];
             vec3 probeDir = direction.xyz;
 
             if(hitObjectId == -1) {
@@ -116,12 +122,12 @@ void main()
                 }
             }
 
-            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = probeDir;
-            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = visibility;
+            results[a + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = probeDir;
+            results[a + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = visibility;
         }
         else {
-            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = vec3(0);
-            results[i + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = 0;
+            results[a + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].dir = vec3(0);
+            results[a + gl_LaunchIDEXT.y * probeCount + gl_LaunchIDEXT.x * gl_LaunchSizeEXT.y * probeCount].visibility = 0;
         }
     }
 }
