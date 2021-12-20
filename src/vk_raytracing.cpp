@@ -15,7 +15,7 @@ void VulkanRaytracing::init(EngineData& engineData, VkPhysicalDeviceRayTracingPi
 	_queueFamily = engineData.computeQueueFamily;
 	_gpuRaytracingProperties = gpuRaytracingProperties;
 	//create pool for compute context
-	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_queueFamily);
+	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_queueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 	VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_raytracingContext.commandPool));
 
 	//create fence

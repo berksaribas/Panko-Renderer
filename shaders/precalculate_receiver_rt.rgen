@@ -70,9 +70,9 @@ void main()
 
     for(int a = 0; a < probeCount; a++) {
         int probeIndex = probes[a];
-        if(receiverId == 35 && gl_LaunchIDEXT.y == 0) {
-            debugPrintfEXT("Probes: %d\n", probeIndex);
-        }
+        //if(receiverId == 35 && gl_LaunchIDEXT.y == 0) {
+        //    debugPrintfEXT("Probes: %d\n", probeIndex);
+        //}
 
         if(true || weights[(receiverId + receiverOffset) * 14 + probeIndex] > 0) {
             int visibility = 0;

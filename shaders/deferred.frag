@@ -59,14 +59,16 @@ void main()
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(inWorldPosition, 1.0);
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 
-    if(inMaterialId == 5) {
-        roughness = 0;
-        metallic = 1;
-    }
-    else {
+    //if(inMaterialId == 5) {
+    //    roughness = 0;
+    //    metallic = 1;
+    //}
+    //else {
+    //}
+    //if(roughness > 0) {
         roughness = 1;
         metallic = 0;
-    }
+    //}
 
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
     vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), texture(indirectLightMap, inLightmapCoord).xyz, texture(glossyReflections, InUv).xyz);

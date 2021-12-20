@@ -205,8 +205,8 @@ void vkutils::submit_and_free_command_buffer(VkDevice device, VkCommandPool comm
 	VkSubmitInfo submit = vkinit::submit_info(&cmd);
 	VK_CHECK(vkQueueSubmit(queue, 1, &submit, fence));
 
-	vkWaitForFences(device, 1, &fence, true, 999999999999);
-	vkResetFences(device, 1, &fence);
+	VK_CHECK(vkWaitForFences(device, 1, &fence, true, 999999999999));
+	VK_CHECK(vkResetFences(device, 1, &fence));
 
 	vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 }

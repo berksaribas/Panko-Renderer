@@ -170,7 +170,7 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 	float radius = 0;
 	int receiverCount = 0;
 	Receiver* previousReceiver = nullptr;
-//#pragma omp parallel for
+#pragma omp parallel for
 	for (int r = 0; r < receiverSize; r += 1) {
 		if (!receivers[r].exists) {
 			continue;
@@ -192,7 +192,7 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 			minheap.pop();
 		}
 
-//#pragma omp critical
+#pragma omp critical
 		{
 		radius += minheap.top();
 		receiverCount++;
@@ -419,6 +419,35 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	initial_node.max = scene.m_dimensions.max + glm::vec3(1.0); //adding some padding
 	divide_aabb(aabbClusters, initial_node, receivers, scene.lightmap_width * scene.lightmap_height, precalculationInfo.maxReceiversInCluster);
 	
+	for (int i = 0; i < aabbClusters.size(); i++) {
+		std::sort(aabbClusters[i].receivers.begin(), aabbClusters[i].receivers.end(), [](Receiver a, Receiver b) {
+			float adot = glm::dot(a.normal, a.normal);
+			float bdot = glm::dot(b.normal, b.normal);
+	
+			if (std::abs(adot - bdot) < 0.00001) {
+				if (std::abs(a.normal.x - b.normal.x) > 0.00001) {
+					return a.normal.x > b.normal.x;
+				}
+				else if (std::abs(a.normal.y - b.normal.y) > 0.00001) {
+					return a.normal.y > b.normal.y;
+				}
+				else if (std::abs(a.normal.z - b.normal.z) > 0.00001) {
+					return a.normal.z > b.normal.z;
+				}
+				else {
+					return false;
+				}
+			}
+			else {
+				return adot > bdot;
+			}
+		});
+		//printf("--------------------------------------------------------------\n");
+		//for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
+		//	printf("%f %f %f\n", aabbClusters[i].receivers[j].normal.x, aabbClusters[i].receivers[j].normal.y, aabbClusters[i].receivers[j].normal.z);
+		//}
+	}
+
 	outPrecalculationLoadData.aabbClusterCount = aabbClusters.size();
 
 	//Allocate memory for the results
@@ -1331,28 +1360,35 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaUnmapMemory(engine._engineData.allocator, matrixBufferCPU._allocation);
 		}
 
-		//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-		//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-		//file << clusterMatrix.format(CSVFormat);
-		
-		Eigen::JacobiSVD<Eigen::MatrixXf> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
+		{
+			std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			file << clusterMatrix.format(CSVFormat);
+		}
+
+		Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
 		int nc = clusterCoefficientCount;
-
-		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().block(0, 0, svd.matrixU().rows(), nc));
 
 		{
 			float total = 0.f;
 			float realTotal = 0.f;
 			for (int aa = 0; aa < nc; aa++) {
-				total += svd.singularValues()[aa];
+				if (aa < svd.singularValues().size()) {
+					total += svd.singularValues()[aa];
+				}
 			}
 			for (int aa = 0; aa < svd.singularValues().size(); aa++) {
 				realTotal += svd.singularValues()[aa];
 			}
 
-			printf("Error: %f (total singular value count: %d)\n", 1.0f - total / realTotal, svd.singularValues().size());
+			printf("Error: %f (total singular value count: %d)\n", 1.0f - sqrt(total / realTotal), svd.singularValues().size());
 		}
+
+		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().rows(), nc);
+		receiverReconstructionCoefficientMatrix.fill(0);
+		receiverReconstructionCoefficientMatrix.block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols())) = svd.matrixU().block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols()));
+
 		Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
 		int singularValueSize = svd.singularValues().size();
 		singularMatrix.setZero();
@@ -1360,7 +1396,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			if (aa < singularValueSize) {
 				singularMatrix(aa, aa) = svd.singularValues()[aa];
 			}
-			else {
+			else if(aa < svd.matrixV().cols()) {
 				singularMatrix(aa, aa) = 0;
 			}
 		}
@@ -1370,8 +1406,13 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
 
 
-		/*
 		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
+		{
+			std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
+			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			file << newMatrix.format(CSVFormat);
+		}
+		/*
 		printf("Size of the new matrix: %d x %d", newMatrix.rows(), newMatrix.cols());
 		auto diff = clusterMatrix - newMatrix;
 		printf("diff: %f\n", diff.array().abs().sum());

@@ -29,7 +29,7 @@
 #include <gi_gbuffer.h>
 #include <gi_deferred.h>
 
-const int MAX_TEXTURES = 1; //TODO: Replace this
+const int MAX_TEXTURES = 80; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
 
 //Precalculation
@@ -119,7 +119,7 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = false;
+	bool loadPrecomputedData = true;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.9;
