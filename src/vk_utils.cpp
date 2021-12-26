@@ -6,6 +6,8 @@
 #include <vk_initializers.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 void generate_mipmaps(VkCommandBuffer& cmd, VkImage image, int32_t width, int32_t height, uint32_t mipLevels) {
 	VkImageMemoryBarrier barrier{};
@@ -406,3 +408,152 @@ void vkutils::setObjectName(VkDevice device, VkSampler object, const std::string
 void vkutils::setObjectName(VkDevice device, VkSemaphore object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SEMAPHORE); }
 void vkutils::setObjectName(VkDevice device, VkShaderModule object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SHADER_MODULE); }
 void vkutils::setObjectName(VkDevice device, VkSwapchainKHR object, const std::string& name) { setObjectName(device, (uint64_t)object, name, VK_OBJECT_TYPE_SWAPCHAIN_KHR); }
+
+void vkutils::screenshot(EngineData* engineData, const char* filename, VkImage srcImage, VkExtent2D size) {
+	AllocatedImage dstImage;
+
+	VkImageCreateInfo dimg_info = vkinit::image_create_info(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT, { size.width, size.height, 1 });
+	dimg_info.tiling = VK_IMAGE_TILING_LINEAR;
+	VmaAllocationCreateInfo dimg_allocinfo = {};
+	dimg_allocinfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+	vmaCreateImage(engineData->allocator, &dimg_info, &dimg_allocinfo, &dstImage._image, &dstImage._allocation, nullptr);
+
+	vkutils::immediate_submit(engineData, [&](VkCommandBuffer cmd) {
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.image = dstImage._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = 0;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageMemoryBarrier.image = srcImage;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+
+		// Define the region to blit (we will blit the whole swapchain image)
+		// Otherwise use image copy (requires us to manually flip components)
+		VkImageCopy imageCopyRegion{};
+		imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.srcSubresource.layerCount = 1;
+		imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.dstSubresource.layerCount = 1;
+		imageCopyRegion.extent.width = size.width;
+		imageCopyRegion.extent.height = size.height;
+		imageCopyRegion.extent.depth = 1;
+
+		// Issue the copy command
+		vkCmdCopyImage(
+			cmd,
+			srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			dstImage._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&imageCopyRegion);
+
+
+		// Transition destination image to general layout, which is the required layout for mapping the image memory later on
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageMemoryBarrier.image = dstImage._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+
+		// Transition back the swap chain image after the blit is done
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imageMemoryBarrier.image = srcImage;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+	});
+
+	// Get layout of the image (including row pitch)
+	VkImageSubresource subResource{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+	VkSubresourceLayout subResourceLayout;
+	vkGetImageSubresourceLayout(engineData->device, dstImage._image, &subResource, &subResourceLayout);
+
+	// Map image memory so we can start copying from it
+	const char* data;
+	vmaMapMemory(engineData->allocator, dstImage._allocation, (void**)&data);
+	data += subResourceLayout.offset;
+
+	char* newdata = new char[size.width * size.height * 4];
+	memcpy(newdata, data, size.width* size.height * 4);
+
+	vmaUnmapMemory(engineData->allocator, dstImage._allocation);
+
+	for (int i = 0; i < size.width * size.height * 4; i += 4) {
+		char temp = newdata[i + 0];
+		newdata[i + 0] = newdata[i + 2];
+		newdata[i + 2] = temp;
+	}
+
+	//save data
+	stbi_write_png(filename, size.width, size.height, 4, newdata, size.width * 4);
+
+	delete[] newdata;
+	vmaDestroyImage(engineData->allocator, dstImage._image, dstImage._allocation);
+}

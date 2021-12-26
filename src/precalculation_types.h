@@ -10,6 +10,7 @@ struct Receiver {
 	glm::vec3 position;
 	glm::vec3 normal;
 	glm::ivec2 uv;
+	int objectId;
 	bool exists;
 };
 

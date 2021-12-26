@@ -135,7 +135,7 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	//GPUProbeRaycastResult buffer (GPU ONLY)
 	auto probeRaycastResultBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastResult, sizeof(GPUProbeRaycastResult) * _config.probeCount * _config.rayCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//ProbeBasisFunctions buffer (GPU ONLY)
-	auto probeBasisBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastBasisFunctions, sizeof(glm::vec4) * (_config.probeCount * _config.rayCount * _config.basisFunctionCount / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	auto probeBasisBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastBasisFunctions, sizeof(glm::vec4) * (_config.rayCount * _config.basisFunctionCount / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection Temp buffer (GPU ONLY)
 	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * _config.probeCount * _config.rayCount * _config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection output buffer (GPU ONLY)

@@ -110,7 +110,7 @@ void Deferred::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDes
 void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination)
 {
 	VkClearValue clearValue;
-	clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+	clearValue.color = { { 0, 0, 0, 0 } };
 
 	VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(engineData.colorRenderPass, _imageSize, _deferredFramebuffer);
 

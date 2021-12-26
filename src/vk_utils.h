@@ -52,4 +52,6 @@ namespace vkutils {
 	void setObjectName(VkDevice device, VkSemaphore object, const std::string& name);
 	void setObjectName(VkDevice device, VkShaderModule object, const std::string& name);
 	void setObjectName(VkDevice device, VkSwapchainKHR object, const std::string& name);
+
+	void screenshot(EngineData* engineData, const char* filename, VkImage srcImage, VkExtent2D size);
 }

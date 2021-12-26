@@ -102,6 +102,22 @@ float[64] calcY(vec3 r, int order) {
 
 const float PI  = 3.14159265358979323846264;
 
+float window(float l, float w) {
+	if(l == 0) {
+		return 1;
+	}
+	else if(l >= w) {
+		return 0;
+	}
+
+	float x = PI * l / w;
+	x = sin(x) / x;
+
+	return pow(x, 1);
+}
+
+#define WINDOWING 10
+
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
@@ -129,21 +145,16 @@ void main()
                                 * weights[weightIndex];
             }
 
-            if(totalWeight > 0) {
+            if(totalWeight > 0.0001) {
                 validRays++;
                 uint resultIndex = clusterProbe + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount;
                 uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[clusterProbe];
                 float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
-                if(weight > 0.0) {
+                if(weight > 0.0001) {
                     vec3 dir = normalize(results[resultIndex].dir);
                     float basis[64] = calcY(dir, 7);
                     for(int k = 0; k < config.basisFunctionCount; k++) {
                         matrixOutput[outputIndex + k] += weight * basis[k];
-                    }
-                }
-                else {
-                    for(int k = 0; k < config.basisFunctionCount; k++) {
-                        matrixOutput[outputIndex + k] += 0;
                     }
                 }
             }
@@ -155,7 +166,8 @@ void main()
 
         if(validRays > 0) {
             for(int k = 0; k < config.basisFunctionCount; k++) {
-                matrixOutput[outputIndex + k] *= PI * 1.0 / validRays;
+                float w = window(floor(sqrt(float(k))), WINDOWING);
+                matrixOutput[outputIndex + k] *= w * PI * 1.0 / validRays;
             }
         }
 

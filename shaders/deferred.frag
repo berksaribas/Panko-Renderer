@@ -65,10 +65,16 @@ void main()
     //}
     //else {
     //}
+    
+    //if(metallic > 0) {
+    //    roughness = 0;
+    //}
+
     //if(roughness > 0) {
-        roughness = 1;
+        roughness = 1; //roughness 0 breaks some dilation stuff.
         metallic = 0;
     //}
+    //metallic = 0;
 
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
     vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), texture(indirectLightMap, inLightmapCoord).xyz, texture(glossyReflections, InUv).xyz);

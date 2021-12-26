@@ -278,138 +278,246 @@ void load_binary(std::string filename, void* destination, size_t size) {
 	fclose(ptr);
 }
 
-void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult) {
+void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult, const char* loadProbes) {
+	printf("Scene center: %f x %f x %f\n", scene.m_dimensions.center.x, scene.m_dimensions.center.y, scene.m_dimensions.center.z);
 	printf("Scene dimensions: %f x %f x %f\n", scene.m_dimensions.size.x, scene.m_dimensions.size.y, scene.m_dimensions.size.z);
-	
-	int voxelDimX, voxelDimY, voxelDimZ;
-	uint8_t* voxelData = voxelize(scene, precalculationInfo.voxelSize, precalculationInfo.voxelPadding, voxelDimX, voxelDimY, voxelDimZ);
 	Receiver* receivers = generate_receivers(scene);
 	std::vector<glm::vec4> probes;
 
-	//Place probes everywhere in the voxelized scene
-	for (int k = precalculationInfo.voxelPadding; k < voxelDimZ - precalculationInfo.voxelPadding; k += 1) {
-		for (int j = precalculationInfo.voxelPadding; j < voxelDimY - precalculationInfo.voxelPadding; j += 1) {
-			for (int i = precalculationInfo.voxelPadding; i < voxelDimX - precalculationInfo.voxelPadding; i += 1) {
-				int index = i + j * voxelDimX + k * voxelDimX * voxelDimY;
-				if (voxelData[index] == 3) {
-					probes.push_back({
-						scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
-						scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
-						scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
-						0.f
-					});
-				}
-			}
-		}
-	}
+	if (loadProbes == nullptr) {
+		int voxelDimX, voxelDimY, voxelDimZ;
+		uint8_t* voxelData = voxelize(scene, precalculationInfo.voxelSize, precalculationInfo.voxelPadding, voxelDimX, voxelDimY, voxelDimZ);
 
-	int targetProbeCount = int(ceil(pow((1 + pow((voxelDimX - precalculationInfo.voxelPadding * 2) * (voxelDimY - precalculationInfo.voxelPadding * 2) * (voxelDimZ - precalculationInfo.voxelPadding * 2), 1.0f / 3.0f) / precalculationInfo.voxelSize), 1.0f)));
-	printf("Targeted amount of probes is %d\n", targetProbeCount);
-
-	place_probes(engine, probes, targetProbeCount, receivers, scene.lightmap_width * scene.lightmap_height, precalculationInfo.probeOverlaps);
-
-	////////
-
-	if (true) {
-		std::ofstream file("mesh_voxelized_res_with_probes.obj");
-		int counter = 0;
-		
-		for (int k = 0; k < voxelDimZ; k++) {
-			for (int j = 0; j < voxelDimY; j++) {
-				for (int i = 0; i < voxelDimX; i++) {
+		//Place probes everywhere in the voxelized scene
+		for (int k = precalculationInfo.voxelPadding; k < voxelDimZ - precalculationInfo.voxelPadding; k += 1) {
+			for (int j = precalculationInfo.voxelPadding; j < voxelDimY - precalculationInfo.voxelPadding; j += 1) {
+				for (int i = precalculationInfo.voxelPadding; i < voxelDimX - precalculationInfo.voxelPadding; i += 1) {
 					int index = i + j * voxelDimX + k * voxelDimX * voxelDimY;
-
-					if (voxelData[index] != 1) {
-						continue;
+					if (voxelData[index] == 3) {
+						probes.push_back({
+							scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
+							scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
+							scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding) + precalculationInfo.voxelSize / 2.f,
+							0.f
+							});
 					}
-
-					float voxelX = scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding);
-					float voxelY = scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding);
-					float voxelZ = scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding);
-
-					//Vertices
-					file << "v " << voxelX << " " << voxelY << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
-					file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
-					file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
-					file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
-					file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
-					file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
-
-					int idx = counter * 8 + 1;
-
-					//Face 1
-					file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
-					file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
-					//Face 2
-					file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
-					file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
-					//Face 3
-					file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
-					file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
-					//Face 4
-					file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
-					file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
-					//Face 5
-					file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
-					file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
-					//Face 6
-					file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
-					file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
-
-					counter++;
 				}
 			}
 		}
 
-		for (int i = 0; i < probes.size(); i++) {
-			float voxelX = probes[i].x;
-			float voxelY = probes[i].y;
-			float voxelZ = probes[i].z;
+		float desiredSpacing = 4;
+		int targetProbeCount = (scene.m_dimensions.size.x / desiredSpacing) * (scene.m_dimensions.size.y / desiredSpacing) * (scene.m_dimensions.size.z / desiredSpacing);
+		printf("Desired spacing: %d. Targeted amount of probes is %d. Current probes: %d\n", desiredSpacing, targetProbeCount, probes.size());
 
-			//Vertices
-			file << "v " << voxelX << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
-			file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+		//probes.erase(std::remove_if(probes.begin(), probes.end(),
+		//	[](glm::vec4 i) { return i.y < 0; }), probes.end());
 
-			int idx = counter * 8 + 1;
+		if (true) {
+			std::ofstream file("mesh_voxelized.obj");
+			int counter = 0;
 
-			//Face 1
-			file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
-			file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
-			//Face 2
-			file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
-			file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
-			//Face 3
-			file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
-			file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
-			//Face 4
-			file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
-			file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
-			//Face 5
-			file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
-			file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
-			//Face 6
-			file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
-			file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
+			for (int k = 0; k < voxelDimZ; k++) {
+				for (int j = 0; j < voxelDimY; j++) {
+					for (int i = 0; i < voxelDimX; i++) {
+						int index = i + j * voxelDimX + k * voxelDimX * voxelDimY;
 
-			counter++;
+						if (voxelData[index] != 1) {
+							continue;
+						}
+
+						float voxelX = scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding);
+						float voxelY = scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding);
+						float voxelZ = scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding);
+
+						//Vertices
+						file << "v " << voxelX << " " << voxelY << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
+
+						int idx = counter * 8 + 1;
+
+						//Face 1
+						file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
+						file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
+						//Face 2
+						file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
+						file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
+						//Face 3
+						file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
+						file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
+						//Face 4
+						file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
+						file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
+						//Face 5
+						file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
+						file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
+						//Face 6
+						file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
+						file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
+
+						counter++;
+					}
+				}
+			}
+
+			for (int i = 0; i < probes.size(); i++) {
+				float voxelX = probes[i].x;
+				float voxelY = probes[i].y;
+				float voxelZ = probes[i].z;
+
+				//Vertices
+				file << "v " << voxelX << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+
+				int idx = counter * 8 + 1;
+
+				//Face 1
+				file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
+				file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
+				//Face 2
+				file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
+				file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
+				//Face 3
+				file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
+				file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
+				//Face 4
+				file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
+				file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
+				//Face 5
+				file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
+				file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
+				//Face 6
+				file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
+				file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
+
+				counter++;
+			}
+			file.close();
 		}
-		file.close();
-	}
 
+
+		place_probes(engine, probes, targetProbeCount, desiredSpacing);
+
+		////////
+
+		if (true) {
+			std::ofstream file("mesh_voxelized_res_with_probes.obj");
+			int counter = 0;
+
+			for (int k = 0; k < voxelDimZ; k++) {
+				for (int j = 0; j < voxelDimY; j++) {
+					for (int i = 0; i < voxelDimX; i++) {
+						int index = i + j * voxelDimX + k * voxelDimX * voxelDimY;
+
+						if (voxelData[index] != 1) {
+							continue;
+						}
+
+						float voxelX = scene.m_dimensions.min.x + precalculationInfo.voxelSize * (i - precalculationInfo.voxelPadding);
+						float voxelY = scene.m_dimensions.min.y + precalculationInfo.voxelSize * (j - precalculationInfo.voxelPadding);
+						float voxelZ = scene.m_dimensions.min.z + precalculationInfo.voxelSize * (k - precalculationInfo.voxelPadding);
+
+						//Vertices
+						file << "v " << voxelX << " " << voxelY << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
+						file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ + precalculationInfo.voxelSize << "\n";
+						file << "v " << voxelX + +precalculationInfo.voxelSize << " " << voxelY + precalculationInfo.voxelSize << " " << voxelZ << "\n";
+
+						int idx = counter * 8 + 1;
+
+						//Face 1
+						file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
+						file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
+						//Face 2
+						file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
+						file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
+						//Face 3
+						file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
+						file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
+						//Face 4
+						file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
+						file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
+						//Face 5
+						file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
+						file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
+						//Face 6
+						file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
+						file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
+
+						counter++;
+					}
+				}
+			}
+
+			for (int i = 0; i < probes.size(); i++) {
+				float voxelX = probes[i].x;
+				float voxelY = probes[i].y;
+				float voxelZ = probes[i].z;
+
+				//Vertices
+				file << "v " << voxelX << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ + precalculationInfo.voxelSize / 4.f << " " << 1 << " " << 0 << " " << 0 << "\n";
+				file << "v " << voxelX + +precalculationInfo.voxelSize / 4.f << " " << voxelY + precalculationInfo.voxelSize / 4.f << " " << voxelZ << " " << 1 << " " << 0 << " " << 0 << "\n";
+
+				int idx = counter * 8 + 1;
+
+				//Face 1
+				file << "f " << idx << " " << idx + 1 << " " << idx + 2 << "\n";
+				file << "f " << idx << " " << idx + 2 << " " << idx + 3 << "\n";
+				//Face 2
+				file << "f " << idx + 4 << " " << idx + 5 << " " << idx + 6 << "\n";
+				file << "f " << idx + 4 << " " << idx + 6 << " " << idx + 7 << "\n";
+				//Face 3
+				file << "f " << idx << " " << idx + 4 << " " << idx + 5 << "\n";
+				file << "f " << idx << " " << idx + 5 << " " << idx + 1 << "\n";
+				//Face 4
+				file << "f " << idx + 7 << " " << idx + 3 << " " << idx + 2 << "\n";
+				file << "f " << idx + 7 << " " << idx + 2 << " " << idx + 6 << "\n";
+				//Face 5
+				file << "f " << idx << " " << idx + 4 << " " << idx + 7 << "\n";
+				file << "f " << idx << " " << idx + 7 << " " << idx + 3 << "\n";
+				//Face 6
+				file << "f " << idx + 1 << " " << idx + 5 << " " << idx + 6 << "\n";
+				file << "f " << idx + 1 << " " << idx + 6 << " " << idx + 2 << "\n";
+
+				counter++;
+			}
+			file.close();
+		}
+	}
+	else {
+		size_t size = seek_file(loadProbes);
+		printf("The size is %d\n", size);
+		probes.resize(size / sizeof(glm::vec4));
+		load_binary(loadProbes, probes.data(), size);
+		printf("Loaded %d probes.\n", probes.size());
+	}
 	////////
 
 	outPrecalculationLoadData.probesCount = probes.size();
 	outPrecalculationResult.probes = probes;
 	outPrecalculationResult.probeRaycastResult = (GPUProbeRaycastResult*)malloc(precalculationInfo.raysPerProbe * probes.size() * sizeof(GPUProbeRaycastResult));
-	outPrecalculationResult.probeRaycastBasisFunctions = (float*)malloc(precalculationInfo.raysPerProbe * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
+	outPrecalculationResult.probeRaycastBasisFunctions = (float*)malloc(precalculationInfo.raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
 	probe_raycast(engine, probes, precalculationInfo.raysPerProbe, precalculationInfo.sphericalHarmonicsOrder, outPrecalculationResult.probeRaycastResult, outPrecalculationResult.probeRaycastBasisFunctions);
 
 	//AABB clustering
@@ -535,6 +643,12 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		}
 	}
 
+	for (int i = 0; i < aabbClusters.size(); i++) {
+		if (aabbClusters[i].probeCount == 0) {
+			printf("Cluster(%d) with no probe!\n", i);
+		}
+	}
+
 	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, precalculationInfo.maxReceiversInCluster, clusterReceiverCount, maxProbesPerCluster, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices, outPrecalculationResult.receiverProbeWeightData, outPrecalculationResult.clusterProbes);
 
 	// Save everything
@@ -563,7 +677,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".ProbeRaycastResult", outPrecalculationResult.probeRaycastResult, precalculationInfo.raysPerProbe * probes.size() * sizeof(GPUProbeRaycastResult));
 	
 	config["fileProbeRaycastBasisFunctions"] = filename + ".ProbeRaycastBasisFunctions";
-	save_binary(filename + ".ProbeRaycastBasisFunctions", outPrecalculationResult.probeRaycastBasisFunctions, precalculationInfo.raysPerProbe * probes.size() * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
+	save_binary(filename + ".ProbeRaycastBasisFunctions", outPrecalculationResult.probeRaycastBasisFunctions, precalculationInfo.raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
 
 	config["fileAabbReceivers"] = filename + ".AabbReceivers";
 	save_binary(filename + ".AabbReceivers", outPrecalculationResult.aabbReceivers, sizeof(Receiver) * clusterReceiverCount);
@@ -848,7 +962,7 @@ uint8_t* Precalculation::voxelize(GltfScene& scene, float voxelSize, int padding
 	return voxelData;
 }
 
-void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, Receiver* receivers, int receiverCount, int nOverlaps)
+void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, float spacing)
 {
 	OPTICK_EVENT()
 
@@ -864,10 +978,10 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 
 	float currMaxWeight = -1;
 	int toRemoveIndex = -1;
+	float radius = spacing;
+
 	while (probes.size() > targetProbeCount) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
-		float radius = calculate_radius(receivers, receiverCount, probes, nOverlaps);
-		printf("Current radius: %f\n", radius);
 		GPUProbeDensityUniformData ub = { probes.size(), radius };
 		vkutils::cpu_to_gpu(engine._engineData.allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
 		int groupcount = ((probes.size()) / 256) + 1;
@@ -967,10 +1081,14 @@ Receiver* Precalculation::generate_receivers(GltfScene& scene)
 							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
 							receiver.uv = glm::ivec2(i, j);
 							receiver.exists = true;
+							receiver.objectId = nodeIndex;
 							int receiverIndex = i + j * scene.lightmap_width;
 							if (!_receivers[receiverIndex].exists) {
 								_receivers[receiverIndex] = receiver;
 								receiverCounter++;
+							}
+							else {
+								_receivers[receiverIndex] = receiver;
 							}
 						}
 					}
@@ -1119,7 +1237,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 	
 	int shCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
 
-	for (int i = 0; i < rays * probes.size(); i++) {
+	for (int i = 0; i < rays; i++) {
 		calcY(&probeRaycastBasisFunctions[i * shCoeff], normalize(glm::vec3(probeRaycastResult[i].direction)), sphericalHarmonicsOrder);
 
 		for (int l = 0; l < shCoeff; l++) {
@@ -1139,7 +1257,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData, int* clusterProbes)
 {
 	int shNumCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
-	int maxReceiverInABatch = 1024;
+	int maxReceiverInABatch = MIN(256, maxReceivers);
 
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
@@ -1291,6 +1409,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i++) {
 				dataReceiver[i].pos = aabbClusters[nodeIndex].receivers[i].position;
 				dataReceiver[i].normal = aabbClusters[nodeIndex].receivers[i].normal;
+				dataReceiver[i].objectId = aabbClusters[nodeIndex].receivers[i].objectId;
 			}
 			vmaUnmapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation);
 		}
@@ -1360,11 +1479,11 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaUnmapMemory(engine._engineData.allocator, matrixBufferCPU._allocation);
 		}
 
-		{
-			std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-			file << clusterMatrix.format(CSVFormat);
-		}
+		//{
+		//	std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+		//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		//	file << clusterMatrix.format(CSVFormat);
+		//}
 
 		Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
@@ -1406,12 +1525,12 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
 
 
-		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
-		{
-			std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
-			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-			file << newMatrix.format(CSVFormat);
-		}
+		//auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
+		//{
+		//	std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
+		//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		//	file << newMatrix.format(CSVFormat);
+		//}
 		/*
 		printf("Size of the new matrix: %d x %d", newMatrix.rows(), newMatrix.cols());
 		auto diff = clusterMatrix - newMatrix;

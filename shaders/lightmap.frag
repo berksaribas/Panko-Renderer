@@ -30,6 +30,7 @@ layout(std140,set = 3, binding = 0) readonly buffer MaterialBuffer{
 };
 
 #include "shadow.glsl"
+const float PI  = 3.14159265358979323846264;
 
 void main()
 {
@@ -55,8 +56,8 @@ void main()
 
     vec3 N = normalize(inNormal);
     vec3 L = normalize(inLightVec);
-        
-	vec3 diffuse = clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow + texture(indirectLightMap, inLightmapCoord).xyz * albedo;
+    
+	vec3 diffuse = (clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow  + texture(indirectLightMap, inLightmapCoord).xyz * albedo * 0.7) ;
 
     outFragColor = vec4(diffuse, 1.0f);  
    

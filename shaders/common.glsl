@@ -86,7 +86,7 @@ struct GPUHitPayload
 
 struct GPUReceiverData {
 	vec3 pos;
-	float pad0;
+	int objectId;
 	vec3 normal;
 	float pad1;
 };

@@ -20,7 +20,7 @@ void main()
 
     if(gID < configData.probeCount)
     {
-        float weight = -1.0f;
+        float weight = 0;
         for(int i = 0; i < configData.probeCount; i++) {
             float distance = distance(sourceData.probePositions[i], sourceData.probePositions[gID]);
             float t = distance / configData.radius;

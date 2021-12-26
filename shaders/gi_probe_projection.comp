@@ -34,11 +34,15 @@ void main()
 			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
 		}
 		else {
-			//sample from skybox?
+			color = vec4(0);
 		}
+
+		//if( probe == 61 || probe == 47 || probe == 46 || probe == 43 || probe == 20 || probe == 17 || probe == 15 || probe == 9 || probe == 3 || probe == 1) {
+		//	color = vec4(0);
+		//}
 		
 		for(int i = 0; i < config.basisFunctionCount; i++) {
-			uint index = gID * config.basisFunctionCount + i;
+			uint index = ray * config.basisFunctionCount + i;
 			tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;
 		}
 	}

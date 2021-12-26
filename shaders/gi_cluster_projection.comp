@@ -29,7 +29,7 @@ float window(float l, float w) {
 	float x = PI * l / w;
 	x = sin(x) / x;
 
-	return pow(x, 2);
+	return pow(x, 1);
 }
 
 #define WINDOWING 10

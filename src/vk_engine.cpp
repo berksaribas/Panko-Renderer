@@ -1,5 +1,4 @@
 ﻿#define TINYGLTF_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "vk_engine.h"
 
 #include <SDL.h>
@@ -50,13 +49,16 @@ bool enableGi = false;
 bool showProbes = false;
 bool showProbeRays = false;
 bool showReceivers = false;
-bool showSpecificReceiver = true;
+bool showSpecificReceiver = false;
 int specificCluster = 1;
 int specificReceiver = 135;
 int specificReceiverRaySampleCount = 10;
 bool showSpecificProbeRays = false;
 bool probesEnabled[300];
 int renderMode = 0;
+
+int selectedPreset = -1;
+bool screenshot = false;
 
 void VulkanEngine::init()
 {
@@ -119,23 +121,26 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = true;
+	bool loadPrecomputedData = false;
 
 	if (!loadPrecomputedData) {
-		precalculationInfo.voxelSize = 0.9;
-		precalculationInfo.voxelPadding = 3;
-		precalculationInfo.probeOverlaps = 10;
+		precalculationInfo.voxelSize = 0.5;
+		precalculationInfo.voxelPadding = 2;
+		precalculationInfo.probeOverlaps = 20;
 		precalculationInfo.raysPerProbe = 8000;
-		precalculationInfo.raysPerReceiver = 8000;
+		precalculationInfo.raysPerReceiver = 16000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 32;
+		precalculationInfo.clusterCoefficientCount = 64;
 		precalculationInfo.maxReceiversInCluster = 1024;
 
-		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
 	}
 	else {
 		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
 	}
+
+	//exit(0);
 
 	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors, _lightmapColorImageView);
 	
@@ -248,9 +253,9 @@ void VulkanEngine::draw()
 
 	shadow._shadowMapData.depthMVP = depthProjectionMatrix * depthViewMatrix;
 
+	static char buffer[128];
 	{
 		//todo: imgui stuff
-		static char buffer[128];
 		ImGui::Begin("Engine Config");
 
 		sprintf_s(buffer, "Rebuild Shaders");
@@ -282,6 +287,42 @@ void VulkanEngine::draw()
 	
 		sprintf_s(buffer, "Factor");
 		ImGui::DragFloat(buffer, &radius);
+
+		ImGui::NewLine();
+
+		if (ImGui::Button("Light Preset 0")) {
+			selectedPreset = 0; 
+			_camData.lightPos = { -8.440, 2, 2.250, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 1")) {
+			selectedPreset = 1;
+			_camData.lightPos = { -8.440, 2, 7.510, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 2")) {
+			selectedPreset = 2;
+			_camData.lightPos = { 13.450, 2, 1.450, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 3")) {
+			selectedPreset = 3;
+			_camData.lightPos = { 15.520, 41.070, 3.180, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 4")) {
+			selectedPreset = 4;
+			_camData.lightPos = { 0, 2, 0.150, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 5")) {
+			selectedPreset = 5;
+			_camData.lightPos = { -2.75, 2, 2.44, 0.0f };
+		}
+		if (ImGui::Button("Light Preset 6")) {
+			selectedPreset = 6;
+			_camData.lightPos = { 2.75, 2, 2.44, 0.0f };
+		}
+		if (ImGui::Button("Screenshot")) {
+			screenshot = true;
+		}
+
+		ImGui::NewLine();
 
 		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
 		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
@@ -479,9 +520,11 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipelineLayout, 0, 1, &deferred._deferredColorTextureDescriptor, 0, nullptr);
 			vkCmdDraw(cmd, 3, 1, 0, 0);
 			
-			_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-			
+			if (!screenshot) {
+				_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
+				ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+			}
+
 			vkCmdEndRenderPass(cmd);
 		}
 	}
@@ -522,6 +565,12 @@ void VulkanEngine::draw()
 	presentInfo.pImageIndices = &swapchainImageIndex;
 
 	VK_CHECK(vkQueuePresentKHR(_engineData.graphicsQueue, &presentInfo));
+	
+	if (screenshot) {
+		screenshot = false;
+		sprintf_s(buffer, "preset_%d.png", selectedPreset);
+		vkutils::screenshot(&_engineData, buffer, _swapchainImages[swapchainImageIndex], _windowExtent);
+	}
 
 	//increase the number of frames drawn
 	_frameNumber++;
@@ -533,8 +582,8 @@ void VulkanEngine::run()
 
 	SDL_Event e;
 	bool bQuit = false;
-	SDL_SetRelativeMouseMode(SDL_TRUE);
-	bool onGui = false;
+	bool onGui = true;
+	SDL_SetRelativeMouseMode((SDL_bool)!onGui);
 	//main loop
 	while (!bQuit)
 	{
@@ -708,6 +757,7 @@ void VulkanEngine::init_swapchain()
 		//use vsync present mode
 		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
 		.set_desired_extent(_windowExtent.width, _windowExtent.height)
+		.set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 		.build()
 		.value();
 
@@ -1436,8 +1486,11 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	std::string file_name = "../../assets/cornellBox.gltf";
+	//std::string file_name = "../../assets/cornellBox.gltf";
+	std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
+	//std::string file_name = "../../assets/picapica/scene.gltf";
+	//std::string file_name = "../../assets/observer/scene.gltf";
 	//std::string file_name = "../../assets/VC/glTF/VC.gltf";
 	
 	tinygltf::Model tmodel;
@@ -1493,11 +1546,12 @@ void VulkanEngine::init_scene()
 		meshDecleration.indexFormat = xatlas::IndexFormat::UInt32;
 		xatlas::AddMesh(atlas, meshDecleration);
 	}
-
+	
 	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
+	//packOptions.padding = 2;
 	packOptions.resolution = 256;
-	packOptions.padding = 4;
+	packOptions.bilinear = true;
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;
