@@ -58,5 +58,5 @@ void main(void) {
             c /= ctr;
         }
     }
-    outFragColor = c;
+    outFragColor = texture(source, InUv); //disabled dilation
 }

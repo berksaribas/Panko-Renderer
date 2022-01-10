@@ -18,6 +18,11 @@ layout (set = 0, binding = 5, rgba32f) uniform image2D resultImage;
 //imageStore(resultImage, ivec2(gl_GlobalInvocationID.xy), res);
 const float PI  = 3.14159265358979323846264;
 
+float random (vec2 st)
+{
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
@@ -39,6 +44,7 @@ void main()
 
 			result = max(result, vec4(0));
 			imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverInfos[cluster].receiverOffset + j].xy), result / (PI));
+			//imageStore(resultImage, ivec2(clusterReceiverUvs[clusterReceiverInfos[cluster].receiverOffset + j].xy), vec4(random(vec2(cluster * 10, receiverCount)), random(vec2(cluster * 10, receiverCount + 1)), random(vec2(cluster * 10, receiverCount + 2)), 1.0));
 		}
 	}
 }

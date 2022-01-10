@@ -35,18 +35,13 @@ const float PI  = 3.14159265358979323846264;
 void main()
 {
     vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
-    vec3 emissive_color = materials[material_id].emissive_color;
+    vec3 emissive_color = materials[material_id].emissive_color * 0;
 
-    if(emissive_color.r > 0 || emissive_color.g > 0 || emissive_color.b > 0) {
-        albedo = vec3(1.0f, 1.0f, 1.0f);
+	if(materials[material_id].texture > -1) {
+        albedo = pow(texture(textures[materials[material_id].texture], texCoord).xyz, vec3(2.2));
     }
     else {
-	    if(materials[material_id].texture > -1) {
-            albedo = pow(texture(textures[materials[material_id].texture], texCoord).xyz, vec3(2.2));
-        }
-        else {
-          albedo = materials[material_id].base_color.xyz;
-        }
+        albedo = materials[material_id].base_color.xyz;
     }
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * inFragPos;
@@ -57,7 +52,7 @@ void main()
     vec3 N = normalize(inNormal);
     vec3 L = normalize(inLightVec);
     
-	vec3 diffuse = (clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow  + texture(indirectLightMap, inLightmapCoord).xyz * albedo * 0.7) ;
+	vec3 diffuse = (emissive_color + clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow + texture(indirectLightMap, inLightmapCoord).xyz * albedo) ;
 
     outFragColor = vec4(diffuse, 1.0f);  
    

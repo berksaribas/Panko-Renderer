@@ -167,7 +167,7 @@ void main()
         if(validRays > 0) {
             for(int k = 0; k < config.basisFunctionCount; k++) {
                 float w = window(floor(sqrt(float(k))), WINDOWING);
-                matrixOutput[outputIndex + k] *= w * PI * 1.0 / validRays;
+                matrixOutput[outputIndex + k] *= w * PI * 1.0 / config.rayCount;
             }
         }
 

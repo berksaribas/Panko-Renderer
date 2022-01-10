@@ -38,6 +38,7 @@ struct PrecalculationInfo {
 	int sphericalHarmonicsOrder;
 	int clusterCoefficientCount;
 	int maxReceiversInCluster;
+	int lightmapResolution;
 };
 
 struct PrecalculationLoadData {

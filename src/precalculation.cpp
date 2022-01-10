@@ -16,6 +16,7 @@
 #include <chrono>
 #include <unordered_set>
 #include <set>
+#include <vk_pipeline.h>
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
@@ -281,7 +282,7 @@ void load_binary(std::string filename, void* destination, size_t size) {
 void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult, const char* loadProbes) {
 	printf("Scene center: %f x %f x %f\n", scene.m_dimensions.center.x, scene.m_dimensions.center.y, scene.m_dimensions.center.z);
 	printf("Scene dimensions: %f x %f x %f\n", scene.m_dimensions.size.x, scene.m_dimensions.size.y, scene.m_dimensions.size.z);
-	Receiver* receivers = generate_receivers(scene);
+	Receiver* receivers = generate_receivers(engine, scene, precalculationInfo.lightmapResolution);
 	std::vector<glm::vec4> probes;
 
 	if (loadProbes == nullptr) {
@@ -525,7 +526,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	AABB initial_node = {};
 	initial_node.min = scene.m_dimensions.min - glm::vec3(1.0); //adding some padding
 	initial_node.max = scene.m_dimensions.max + glm::vec3(1.0); //adding some padding
-	divide_aabb(aabbClusters, initial_node, receivers, scene.lightmap_width * scene.lightmap_height, precalculationInfo.maxReceiversInCluster);
+	divide_aabb(aabbClusters, initial_node, receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, precalculationInfo.maxReceiversInCluster);
 	
 	for (int i = 0; i < aabbClusters.size(); i++) {
 		std::sort(aabbClusters[i].receivers.begin(), aabbClusters[i].receivers.end(), [](Receiver a, Receiver b) {
@@ -583,7 +584,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		currOffset +=aabbClusters[i].receivers.size();
 	}
 
-	float newRadius = calculate_radius(receivers, scene.lightmap_width * scene.lightmap_height, probes, precalculationInfo.probeOverlaps);
+	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);
 	printf("Radius for receivers: %f\n", newRadius);
 
 	int maxProbesPerCluster = 0;
@@ -1027,86 +1028,442 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 #endif
 }
 
-Receiver* Precalculation::generate_receivers(GltfScene& scene)
+Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& scene, int lightmapResolution)
 {
 	OPTICK_EVENT();
 	printf("Generating receivers!\n");
 
-	int receiverCount = scene.lightmap_width * scene.lightmap_height;
+	int receiverCount = lightmapResolution * lightmapResolution;
 	Receiver* _receivers = new Receiver[receiverCount];
 	memset(_receivers, 0, sizeof(Receiver) * receiverCount);
 	int receiverCounter = 0;
 	
-	for (int nodeIndex = 0; nodeIndex < scene.nodes.size(); nodeIndex++) {
-		auto& mesh = scene.prim_meshes[scene.nodes[nodeIndex].prim_mesh];
-			for (int triangle = 0; triangle < mesh.idx_count; triangle += 3) {
-				glm::vec3 worldVertices[3];
-				glm::vec3 worldNormals[3];
-				glm::vec2 texVertices[3];
-				int minX = scene.lightmap_width, minY = scene.lightmap_height;
-				int maxX = 0, maxY = 0;
-				for (int i = 0; i < 3; i++) {
-					int vertexIndex = mesh.vtx_offset + scene.indices[mesh.first_idx + triangle + i];
+	VkExtent2D imageSize = { lightmapResolution, lightmapResolution };
 
-					glm::vec4 vertex = scene.nodes[nodeIndex].world_matrix * glm::vec4(scene.positions[vertexIndex], 1.0);
-					worldVertices[i] = glm::vec3(vertex / vertex.w);
-						
+	//Render pass
+	VkRenderPass gbufferRenderPass;
+	{
+		VkAttachmentDescription attachmentDescs[2] = {};
 
-					worldNormals[i] = glm::mat3(glm::transpose(glm::inverse(scene.nodes[nodeIndex].world_matrix))) * glm::vec4(scene.normals[vertexIndex], 1.0);
+		for (uint32_t i = 0; i < 2; ++i)
+		{
+			attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
+			attachmentDescs[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachmentDescs[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 
-					texVertices[i] = scene.lightmapUVs[vertexIndex];
+			attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			attachmentDescs[i].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		}
 
-					if (texVertices[i].x < minX) {
-						minX = texVertices[i].x;
-					}
-					if (texVertices[i].x > maxX) {
-						maxX = texVertices[i].x;
-					}
-					if (texVertices[i].y < minY) {
-						minY = texVertices[i].y;
-					}
-					if (texVertices[i].y > maxY) {
-						maxY = texVertices[i].y;
-					}
-				}
+		attachmentDescs[0].format = engine._engineData.color32Format;
+		attachmentDescs[1].format = engine._engineData.color32Format;
 
-				for (int j = minY; j <= maxY; j++) {
-					for (int i = minX; i <= maxX; i++) {
-						glm::vec2 pixelMiddle = { i + 0.5f, j + 0.5f };
-						glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
-							texVertices[0], texVertices[1], texVertices[2]);
-						if (barycentric.x >= -0.00001 && barycentric.y >= -0.00001 && barycentric.z >= -0.00001) {
-							Receiver receiver = {};
-							receiver.position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
-							receiver.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
-							receiver.uv = glm::ivec2(i, j);
-							receiver.exists = true;
-							receiver.objectId = nodeIndex;
-							int receiverIndex = i + j * scene.lightmap_width;
-							if (!_receivers[receiverIndex].exists) {
-								_receivers[receiverIndex] = receiver;
-								receiverCounter++;
-							}
-							else {
-								_receivers[receiverIndex] = receiver;
-							}
-						}
-					}
-				}
-			}
+		VkAttachmentReference colorReferences[2] = {};
+		colorReferences[0] = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		colorReferences[1] = { 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+		VkSubpassDescription subpass = {};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.pColorAttachments = colorReferences;
+		subpass.colorAttachmentCount = static_cast<uint32_t>(2);
+		subpass.pDepthStencilAttachment = nullptr;
+
+		VkSubpassDependency dependencies[2] = {};
+
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.pAttachments = attachmentDescs;
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(2);
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+		renderPassInfo.dependencyCount = 2;
+		renderPassInfo.pDependencies = dependencies;
+
+		VK_CHECK(vkCreateRenderPass(engine._engineData.device, &renderPassInfo, nullptr, &gbufferRenderPass));
 	}
-	char* image = new char[scene.lightmap_height * scene.lightmap_width];
-	memset(image, 0, scene.lightmap_height * scene.lightmap_width);
-	for (int i = 0; i < scene.lightmap_height; i++) {
-		for (int j = 0; j < scene.lightmap_width; j++) {
-			if(_receivers[j + i * scene.lightmap_width].exists)
-			image[j + i * scene.lightmap_width] = 255;
+
+	//Images
+	AllocatedImage gbufferPosObjectIdImage;
+	AllocatedImage gbufferNormalImage;
+
+	AllocatedImage gbufferPosObjectIdImageCpu;
+	AllocatedImage gbufferNormalImageCpu;
+
+	VkImageView gbufferPosObjectIdImageView;
+	VkImageView gbufferNormalImageView;
+	VkFramebuffer gbufferFrameBuffer;
+	{
+		VkExtent3D extent3D = {
+			imageSize.width,
+			imageSize.height,
+			1
+		};
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engine._engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, extent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			vmaCreateImage(engine._engineData.allocator, &dimg_info, &dimg_allocinfo, &gbufferPosObjectIdImage._image, &gbufferPosObjectIdImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engine._engineData.color32Format, gbufferPosObjectIdImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engine._engineData.device, &imageViewInfo, nullptr, &gbufferPosObjectIdImageView));
+		}
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engine._engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, extent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			vmaCreateImage(engine._engineData.allocator, &dimg_info, &dimg_allocinfo, &gbufferNormalImage._image, &gbufferNormalImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engine._engineData.color32Format, gbufferNormalImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engine._engineData.device, &imageViewInfo, nullptr, &gbufferNormalImageView));
+		}
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engine._engineData.color32Format, VK_IMAGE_USAGE_TRANSFER_DST_BIT, extent3D);
+			dimg_info.tiling = VK_IMAGE_TILING_LINEAR;
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+			vmaCreateImage(engine._engineData.allocator, &dimg_info, &dimg_allocinfo, &gbufferPosObjectIdImageCpu._image, &gbufferPosObjectIdImageCpu._allocation, nullptr);
+		}
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engine._engineData.color32Format, VK_IMAGE_USAGE_TRANSFER_DST_BIT, extent3D);
+			dimg_info.tiling = VK_IMAGE_TILING_LINEAR;
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+			vmaCreateImage(engine._engineData.allocator, &dimg_info, &dimg_allocinfo, &gbufferNormalImageCpu._image, &gbufferNormalImageCpu._allocation, nullptr);
+		}
+
+		VkImageView attachments[2] = { gbufferPosObjectIdImageView, gbufferNormalImageView };
+
+		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(gbufferRenderPass, imageSize);
+		fb_info.pAttachments = attachments;
+		fb_info.attachmentCount = 2;
+		VK_CHECK(vkCreateFramebuffer(engine._engineData.device, &fb_info, nullptr, &gbufferFrameBuffer));
+	}
+	
+	//Pipeline
+	VkPipeline gbufferPipeline;
+	VkPipelineLayout gbufferPipelineLayout;
+	{
+		VkShaderModule gbufferVertShader;
+		if (!vkutils::load_shader_module(engine._engineData.device, "../../shaders/precalculate_receivers.vert.spv", &gbufferVertShader))
+		{
+			assert("G Buffer Vertex Shader Loading Issue");
+		}
+
+		VkShaderModule gbufferFragShader;
+		if (!vkutils::load_shader_module(engine._engineData.device, "../../shaders/precalculate_receivers.frag.spv", &gbufferFragShader))
+		{
+			assert("F Buffer Fragment Shader Loading Issue");
+		}
+
+		VkDescriptorSetLayout setLayouts[] = { engine._sceneDescriptors.globalSetLayout, engine._sceneDescriptors.objectSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
+		VK_CHECK(vkCreatePipelineLayout(engine._engineData.device, &pipeline_layout_info, nullptr, &gbufferPipelineLayout));
+
+		//build the stage-create-info for both vertex and fragment stages. This lets the pipeline know the shader modules per stage
+		PipelineBuilder pipelineBuilder;
+
+		//vertex input controls how to read vertices from vertex buffers. We aren't using it yet
+		pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
+
+		//input assembly is the configuration for drawing triangle lists, strips, or individual points.
+		//we are just going to draw triangle list
+		pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
+		//configure the rasterizer to draw filled triangles
+		pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
+
+		VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
+		conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+		conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+		conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
+
+		pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
+
+		//we don't use multisampling, so just run the default one
+		pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
+
+		//a single blend attachment with no blending and writing to RGBA
+
+		VkPipelineColorBlendAttachmentState blendAttachmentState[2] = {
+			vkinit::color_blend_attachment_state(),
+			vkinit::color_blend_attachment_state(),
+		};
+
+		pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(2, blendAttachmentState);
+
+		//build the mesh pipeline
+		VertexInputDescription vertexDescription = Vertex::get_vertex_description();
+		pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
+		pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
+
+		pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
+		pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
+
+		pipelineBuilder._shaderStages.push_back(
+			vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, gbufferVertShader));
+
+		pipelineBuilder._shaderStages.push_back(
+			vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, gbufferFragShader));
+
+		pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+		pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
+		pipelineBuilder._pipelineLayout = gbufferPipelineLayout;
+
+		//build the mesh triangle pipeline
+		gbufferPipeline = pipelineBuilder.build_pipeline(engine._engineData.device, gbufferRenderPass);
+
+		vkDestroyShaderModule(engine._engineData.device, gbufferVertShader, nullptr);
+		vkDestroyShaderModule(engine._engineData.device, gbufferFragShader, nullptr);
+	}
+
+	//Rendering
+	{
+		engine._camData.lightmapInputSize = { (float)scene.lightmap_width, (float)scene.lightmap_height };
+		vkutils::cpu_to_gpu(engine._engineData.allocator, engine._cameraBuffer, &engine._camData, sizeof(GPUCameraData));
+
+		void* objectData;
+		vmaMapMemory(engine._engineData.allocator, engine._objectBuffer._allocation, &objectData);
+		GPUObjectData* objectSSBO = (GPUObjectData*)objectData;
+
+		for (int i = 0; i < engine.gltf_scene.nodes.size(); i++)
+		{
+			auto& mesh = engine.gltf_scene.prim_meshes[engine.gltf_scene.nodes[i].prim_mesh];
+			objectSSBO[i].model = engine.gltf_scene.nodes[i].world_matrix;
+			objectSSBO[i].material_id = mesh.material_idx;
+		}
+		vmaUnmapMemory(engine._engineData.allocator, engine._objectBuffer._allocation);
+
+		vkutils::immediate_submit(&engine._engineData, [&](VkCommandBuffer cmd) {
+			VkClearValue clearValues[2];
+			clearValues[0].color = { { 0.0f, 0.0f, 0.0f, -1.0f } };
+			clearValues[1].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(gbufferRenderPass, imageSize, gbufferFrameBuffer);
+			rpInfo.clearValueCount = 2;
+			rpInfo.pClearValues = clearValues;
+
+			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			vkutils::cmd_viewport_scissor(cmd, imageSize);
+
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gbufferPipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gbufferPipelineLayout, 0, 1, &engine._sceneDescriptors.globalDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gbufferPipelineLayout, 1, 1, &engine._sceneDescriptors.objectDescriptor, 0, nullptr);
+
+			engine.draw_objects(cmd);
+
+			vkCmdEndRenderPass(cmd);
+		});
+	}
+
+	//Copy images
+	vkutils::immediate_submit(&engine._engineData, [&](VkCommandBuffer cmd) {
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.image = gbufferPosObjectIdImageCpu._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = 0;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+
+		// Issue the copy command
+		VkImageCopy imageCopyRegion{};
+		imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.srcSubresource.layerCount = 1;
+		imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.dstSubresource.layerCount = 1;
+		imageCopyRegion.extent.width = imageSize.width;
+		imageCopyRegion.extent.height = imageSize.height;
+		imageCopyRegion.extent.depth = 1;
+
+		vkCmdCopyImage(
+			cmd,
+			gbufferPosObjectIdImage._image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			gbufferPosObjectIdImageCpu._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&imageCopyRegion);
+
+		// Transition destination image to general layout, which is the required layout for mapping the image memory later on
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageMemoryBarrier.image = gbufferPosObjectIdImageCpu._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+	});
+
+	vkutils::immediate_submit(&engine._engineData, [&](VkCommandBuffer cmd) {
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.image = gbufferNormalImageCpu._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = 0;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+
+		// Issue the copy command
+		VkImageCopy imageCopyRegion{};
+		imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.srcSubresource.layerCount = 1;
+		imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopyRegion.dstSubresource.layerCount = 1;
+		imageCopyRegion.extent.width = imageSize.width;
+		imageCopyRegion.extent.height = imageSize.height;
+		imageCopyRegion.extent.depth = 1;
+
+		vkCmdCopyImage(
+			cmd,
+			gbufferNormalImage._image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			gbufferNormalImageCpu._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&imageCopyRegion);
+
+		// Transition destination image to general layout, which is the required layout for mapping the image memory later on
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {};
+			imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageMemoryBarrier.image = gbufferNormalImageCpu._image;
+			imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+			vkCmdPipelineBarrier(
+				cmd,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &imageMemoryBarrier);
+		}
+		});
+
+	float* posObjectId = new float[imageSize.width * imageSize.height * 4];
+	float* normal = new float[imageSize.width * imageSize.height * 4];
+
+	{
+		VkImageSubresource subResource{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+		VkSubresourceLayout subResourceLayout;
+		vkGetImageSubresourceLayout(engine._engineData.device, gbufferPosObjectIdImageCpu._image, &subResource, &subResourceLayout);
+
+		const char* data;
+		vmaMapMemory(engine._engineData.allocator, gbufferPosObjectIdImageCpu._allocation, (void**)&data);
+		data += subResourceLayout.offset;
+
+		memcpy(posObjectId, data, imageSize.width* imageSize.height * 4 * sizeof(float));
+
+		vmaUnmapMemory(engine._engineData.allocator, gbufferPosObjectIdImageCpu._allocation);
+	}
+
+	{
+		VkImageSubresource subResource{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+		VkSubresourceLayout subResourceLayout;
+		vkGetImageSubresourceLayout(engine._engineData.device, gbufferNormalImageCpu._image, &subResource, &subResourceLayout);
+	
+		const char* data;
+		vmaMapMemory(engine._engineData.allocator, gbufferNormalImageCpu._allocation, (void**)&data);
+		data += subResourceLayout.offset;
+	
+		memcpy(normal, data, imageSize.width * imageSize.height * 4 * sizeof(float));
+	
+		vmaUnmapMemory(engine._engineData.allocator, gbufferNormalImageCpu._allocation);
+	}
+	printf("----------\n");
+	for (int i = 0; i < lightmapResolution; i++) {
+		for (int j = 0; j < lightmapResolution; j++) {
+			int receiverId = j + i * lightmapResolution;
+			if (posObjectId[(receiverId) * 4 + 3] >= 0) {
+				_receivers[receiverId].exists = true;
+				_receivers[receiverId].uv = glm::ivec2(j, i);
+				_receivers[receiverId].position = { posObjectId[(receiverId) * 4 + 0], posObjectId[(receiverId) * 4 + 1], posObjectId[(receiverId) * 4 + 2] };
+				_receivers[receiverId].normal = { normal[(receiverId) * 4 + 0], normal[(receiverId) * 4 + 1], normal[(receiverId) * 4 + 2] };
+				_receivers[receiverId].objectId = posObjectId[(receiverId) * 4 + 3];
+			}
+		}
+	}
+
+	char* image = new char[lightmapResolution * lightmapResolution];
+	memset(image, 0, lightmapResolution* lightmapResolution);
+	for (int i = 0; i < lightmapResolution; i++) {
+		for (int j = 0; j < lightmapResolution; j++) {
+			if(posObjectId[(j + i * lightmapResolution) * 4 + 3] >= 0)
+			image[j + i * lightmapResolution] = 255;
 		}
 	}
 
 	FILE* ptr;
 	fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
-	fwrite(image, scene.lightmap_height * scene.lightmap_width, 1, ptr);
+	fwrite(image, lightmapResolution* lightmapResolution, 1, ptr);
 	fclose(ptr);
 	printf("Created receivers: %d!\n", receiverCounter);
 

@@ -74,6 +74,7 @@ void main()
     uint random_state = (gl_LaunchIDEXT.x * 1973 + 9277  * gl_LaunchIDEXT.y + receiverId * 26699) | 1;
 
     vec3 direction = normalize(receiverNormal + random_unit_vector(random_state));
+    //vec3 direction = normalize(hemiSpherePointCos(_u, _v, receiverNormal));
 
     uint  rayFlags = gl_RayFlagsOpaqueEXT;
     float tMin     = 0.0001;
@@ -85,7 +86,7 @@ void main()
                 0,              // sbtRecordOffset
                 0,              // sbtRecordStride
                 0,              // missIndex
-                receiverPos.xyz + receiverNormal * 0.1,     // ray origin
+                receiverPos.xyz + receiverNormal * 0.001,     // ray origin
                 tMin,           // ray min range
                 direction.xyz,  // ray direction
                 tMax,           // ray max range
@@ -106,7 +107,7 @@ void main()
         //    debugPrintfEXT("Probes: %d\n", probeIndex);
         //}
 
-        if(distance(receiverPos.xyz + receiverNormal * 0.1, hitLocation) > 0.1) {
+        if(distance(receiverPos.xyz + receiverNormal * 0.001, hitLocation) > 0.001) {
             int visibility = 0;
             vec4 probePos = probeLocations[probeIndex];
             vec3 probeDir = direction.xyz;

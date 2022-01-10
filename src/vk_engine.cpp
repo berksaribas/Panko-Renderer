@@ -121,24 +121,27 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = false;
+	bool loadPrecomputedData = true;
 
 	if (!loadPrecomputedData) {
 		precalculationInfo.voxelSize = 0.5;
 		precalculationInfo.voxelPadding = 2;
-		precalculationInfo.probeOverlaps = 20;
+		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 16000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 64;
+		precalculationInfo.clusterCoefficientCount = 128;
 		precalculationInfo.maxReceiversInCluster = 1024;
+		precalculationInfo.lightmapResolution = 320;
 
-		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
-		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
+		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
 	}
 	else {
 		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
 	}
+	precalculationInfo.lightmapResolution = 320;
+
 
 	//exit(0);
 
@@ -704,6 +707,7 @@ void VulkanEngine::init_vulkan()
 		.add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
+		.add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
 		.select();
 	
 	//printf(physicalDeviceSelectionResult.error().message().c_str());
@@ -1486,8 +1490,8 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	//std::string file_name = "../../assets/cornellBox.gltf";
-	std::string file_name = "../../assets/cornell2.gltf";
+	std::string file_name = "../../assets/cornellBox.gltf";
+	//std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
@@ -1549,9 +1553,9 @@ void VulkanEngine::init_scene()
 	
 	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
-	//packOptions.padding = 2;
-	packOptions.resolution = 256;
-	packOptions.bilinear = true;
+	packOptions.padding = 4;
+	//packOptions.resolution = 256;
+	//packOptions.bilinear = false;
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;

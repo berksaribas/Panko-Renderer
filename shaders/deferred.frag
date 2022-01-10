@@ -39,30 +39,25 @@ void main()
     }
 
     vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
-    vec3 emissive_color = materials[inMaterialId].emissive_color;
+    vec3 emissive_color = materials[inMaterialId].emissive_color * 0;
 
     float roughness = materials[inMaterialId].roughness_factor;
     float metallic = materials[inMaterialId].metallic_factor;
 
-    if(emissive_color.r > 0 || emissive_color.g > 0 || emissive_color.b > 0) {
-        albedo = vec3(1.0f, 1.0f, 1.0f);
+	if(materials[inMaterialId].texture > -1) {
+        albedo = pow(texture(textures[materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
     }
     else {
-	    if(materials[inMaterialId].texture > -1) {
-            albedo = pow(texture(textures[materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
-        }
-        else {
-          albedo = materials[inMaterialId].base_color.xyz;
-        }
+        albedo = materials[inMaterialId].base_color.xyz;
     }
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(inWorldPosition, 1.0);
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 
-    //if(inMaterialId == 5) {
-    //    roughness = 0;
-    //    metallic = 1;
-    //}
+    if(inMaterialId == 4) {
+        roughness = 0;
+        metallic = 1;
+    }
     //else {
     //}
     
@@ -74,11 +69,16 @@ void main()
         roughness = 1; //roughness 0 breaks some dilation stuff.
         metallic = 0;
     //}
+
+    if(inMaterialId == 8) {
+        roughness = 0;
+        metallic = 1;
+    }
     //metallic = 0;
 
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
     vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), texture(indirectLightMap, inLightmapCoord).xyz, texture(glossyReflections, InUv).xyz);
-    vec3 outColor = directLight + indirectLight;
+    vec3 outColor = emissive_color + directLight + indirectLight;
 
     outFragColor = vec4(outColor, 1.0f);
 }

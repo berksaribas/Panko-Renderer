@@ -3,17 +3,29 @@
 #include <random>
 #include <vk_utils.h>
 
-static float random(vec2 st)
-{
-	float value = sin(dot(st, vec2(12.9898, 78.233))) * 43758.5453123;
-	return value - floor(value);
+uint wang_hash(uint& seed) {
+	seed = (seed ^ 61) ^ (seed >> 16);
+	seed *= 9;
+	seed = seed ^ (seed >> 4);
+	seed *= 0x27d4eb2d;
+	seed = seed ^ (seed >> 15);
+	return seed;
 }
 
-static vec3 hemiSpherePointCos(float u, float v, vec3 normal)
+float random_float(uint& state)
 {
-	float a = 6.2831853 * v;
-	u = 2.0 * u - 1.0;
-	return normalize(normal + vec3(sqrt(1.0f - u * u) * vec2(cos(a), sin(a)), u));
+	return (wang_hash(state) & 0xFFFFFF) / 16777216.0f;
+}
+
+float random_float_between(uint& state, float min, float max) {
+	return min + (max - min) * random_float(state);
+}
+
+vec3 random_unit_vector(uint& state) {
+	float a = random_float_between(state, 0.0, 2.0 * 3.14159265358979323846264);
+	float z = random_float_between(state, -1.0, 1.0);
+	float r = sqrt(1.0 - z * z);
+	return vec3(r * cos(a), r * sin(a), z);
 }
 
 void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* precalculationInfo, PrecalculationLoadData* precalculationLoadData, PrecalculationResult* precalculationResult, VulkanCompute* vulkanCompute, VulkanRaytracing* vulkanRaytracing, GltfScene& scene, SceneDescriptors& sceneDescriptors, VkImageView lightmapImageView)
@@ -38,12 +50,12 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_config.pcaCoefficient = _precalculationInfo->clusterCoefficientCount;
 	_config.maxReceiversInCluster = _precalculationInfo->maxReceiversInCluster;
 
-	_giLightmapExtent.width = scene.lightmap_width;
-	_giLightmapExtent.height = scene.lightmap_height;
+	_giLightmapExtent.width = precalculationInfo->lightmapResolution;
+	_giLightmapExtent.height = precalculationInfo->lightmapResolution;
 
 	VkExtent3D lightmapImageExtent3D = {
-		scene.lightmap_width,
-		scene.lightmap_height,
+		_giLightmapExtent.width,
+		_giLightmapExtent.height,
 		1
 	};
 
@@ -378,10 +390,8 @@ void DiffuseIllumination::debug_draw_specific_receiver(VulkanDebugRenderer& debu
 	debugRenderer.draw_line(receiverPos, receiverPos + receiverNormal * 50.0f, { 0, 1, 0 });
 
 	for (int abc = 0; abc < specificReceiverRaySampleCount; abc++) {
-		float _u = random(vec2(specificReceiver, abc * 2));
-		float _v = random(vec2(specificReceiver, abc * 2 + 1));
-
-		vec3 direction = hemiSpherePointCos(_u, _v, receiverNormal);
+		uint random_state = (specificReceiver * 1973 + 9277 * abc + specificReceiver * 26699) | 1;
+		vec3 direction = normalize(receiverNormal + random_unit_vector(random_state));
 
 		debugRenderer.draw_line(receiverPos, receiverPos + direction * 100.0f, { 0, 1, 1 });
 	}
