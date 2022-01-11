@@ -1448,6 +1448,7 @@ Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& sc
 				_receivers[receiverId].position = { posObjectId[(receiverId) * 4 + 0], posObjectId[(receiverId) * 4 + 1], posObjectId[(receiverId) * 4 + 2] };
 				_receivers[receiverId].normal = { normal[(receiverId) * 4 + 0], normal[(receiverId) * 4 + 1], normal[(receiverId) * 4 + 2] };
 				_receivers[receiverId].objectId = posObjectId[(receiverId) * 4 + 3];
+				_receivers[receiverId].dPos = normal[(receiverId) * 4 + 3];
 			}
 		}
 	}
@@ -1767,6 +1768,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				dataReceiver[i].pos = aabbClusters[nodeIndex].receivers[i].position;
 				dataReceiver[i].normal = aabbClusters[nodeIndex].receivers[i].normal;
 				dataReceiver[i].objectId = aabbClusters[nodeIndex].receivers[i].objectId;
+				dataReceiver[i].dPos = aabbClusters[nodeIndex].receivers[i].dPos;
 			}
 			vmaUnmapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation);
 		}

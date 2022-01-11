@@ -11,6 +11,7 @@ struct Receiver {
 	glm::vec3 normal;
 	glm::ivec2 uv;
 	int objectId;
+	float dPos;
 	bool exists;
 };
 

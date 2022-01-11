@@ -108,11 +108,6 @@ public:
 	VkFramebuffer _lightmapFramebuffer;
 	VkDescriptorSet _lightmapTextureDescriptor;
 
-	AllocatedImage _dilatedLightmapColorImage;
-	VkImageView _dilatedLightmapColorImageView;
-	VkFramebuffer _dilatedLightmapFramebuffer;
-	VkDescriptorSet _dilatedLightmapTextureDescriptor;
-
 	VkPipeline _lightmapPipeline;
 	VkPipelineLayout _lightmapPipelineLayout;
 

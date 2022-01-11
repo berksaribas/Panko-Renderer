@@ -88,7 +88,7 @@ struct GPUReceiverData {
 	vec3 pos;
 	int objectId;
 	vec3 normal;
-	float pad1;
+	float dPos;
 };
 
 struct GPUReceiverRaycastResult {

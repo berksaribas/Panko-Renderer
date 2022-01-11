@@ -60,6 +60,8 @@ int renderMode = 0;
 int selectedPreset = -1;
 bool screenshot = false;
 
+bool useRealtimeRaycast = false;
+
 void VulkanEngine::init()
 {
 	OPTICK_START_CAPTURE();
@@ -130,7 +132,7 @@ void VulkanEngine::init()
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 16000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 128;
+		precalculationInfo.clusterCoefficientCount = 64;
 		precalculationInfo.maxReceiversInCluster = 1024;
 		precalculationInfo.lightmapResolution = 320;
 
@@ -329,7 +331,7 @@ void VulkanEngine::draw()
 
 		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
 		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
-		ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
+		ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
 		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 		ImGui::End();
 
@@ -457,33 +459,9 @@ void VulkanEngine::draw()
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &_sceneDescriptors.textureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &_sceneDescriptors.materialDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &diffuseIllumination._giIndirectLightTextureDescriptor, 0, nullptr);
 
 			draw_objects(cmd);
-
-			//finalize the render pass
-			vkCmdEndRenderPass(cmd);
-		}
-
-		// LIGHTMAP DILATION RENDERIN
-		{
-			VkClearValue clearValue;
-			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-
-			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_engineData.colorRenderPass, _lightmapExtent, _dilatedLightmapFramebuffer);
-
-			rpInfo.clearValueCount = 1;
-			VkClearValue clearValues[] = { clearValue };
-			rpInfo.pClearValues = clearValues;
-
-			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkutils::cmd_viewport_scissor(cmd, _lightmapExtent);
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipeline);
-			vkCmdPushConstants(cmd, _dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &_lightmapExtent);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _dilationPipelineLayout, 0, 1, &_lightmapTextureDescriptor, 0, nullptr);
-			vkCmdDraw(cmd, 3, 1, 0, 0);
 
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
@@ -496,7 +474,7 @@ void VulkanEngine::draw()
 				0, 0, nullptr, 0, nullptr, 0, nullptr);
 		}
 
-		diffuseIllumination.render(cmd, _dilationPipeline, _dilationPipelineLayout, _sceneDescriptors);
+		diffuseIllumination.render(cmd, _sceneDescriptors);
 
 		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
 
@@ -1087,33 +1065,6 @@ void VulkanEngine::init_framebuffers()
 		fb_info.attachmentCount = 1;
 		VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_lightmapFramebuffer));
 	}
-
-	// Create dilated lightmap framebuffer and its sampler
-	{
-		VkExtent3D lightmapImageExtent3D = {
-			_lightmapExtent.width,
-			_lightmapExtent.height,
-			1
-		};
-
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_dilatedLightmapColorImage._image, &_dilatedLightmapColorImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.color32Format, _dilatedLightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_dilatedLightmapColorImageView));
-		}
-
-		VkImageView attachments[1] = { _dilatedLightmapColorImageView };
-
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_engineData.colorRenderPass, _lightmapExtent);
-		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_dilatedLightmapFramebuffer));
-	}	
 }
 
 void VulkanEngine::init_commands()
@@ -1281,22 +1232,6 @@ void VulkanEngine::init_descriptors()
 		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
 	}
 
-	//Dilated lightmap texture descriptor
-	{
-		VkDescriptorImageInfo imageBufferInfo;
-		imageBufferInfo.sampler = _engineData.linearSampler;
-		imageBufferInfo.imageView = _dilatedLightmapColorImageView;
-		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.singleImageSetLayout, 1);
-
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_dilatedLightmapTextureDescriptor);
-
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _dilatedLightmapTextureDescriptor, &imageBufferInfo, 0, 1);
-
-		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
-	}
-
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalDescriptor, "GlobalDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalSetLayout, "GlobalDescriptorSetLayout");
 
@@ -1425,12 +1360,21 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 
 	pipelineBuilder._pipelineLayout = _lightmapPipelineLayout;
 
+
+	VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
+	conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+	conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+	conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
+	pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
+
 	//build the mesh triangle pipeline
 	_lightmapPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
 
 	/*
 	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
 	*/
+	pipelineBuilder._rasterizer.pNext = nullptr;
+
 	pipelineBuilder._shaderStages.clear();
 	pipelineBuilder._shaderStages.push_back(
 		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
@@ -1492,6 +1436,7 @@ void VulkanEngine::init_scene()
 
 	std::string file_name = "../../assets/cornellBox.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
+	//std::string file_name = "../../assets/cornell3.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";

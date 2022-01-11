@@ -79,6 +79,12 @@ void main()
     uint  rayFlags = gl_RayFlagsOpaqueEXT;
     float tMin     = 0.0001;
     float tMax     = 10000.0;
+    
+    vec3 raystartPos = receiverPos.xyz + receiverNormal * abs(receiverPos.xyz * 0.0000002);
+    
+    //trace tangential rays to detect backface hitting. Push texel center outside using both hit face normal and ray direction.
+
+
 
     traceRayEXT(topLevelAS,     // acceleration structure
                 rayFlags,       // rayFlags
@@ -86,7 +92,7 @@ void main()
                 0,              // sbtRecordOffset
                 0,              // sbtRecordStride
                 0,              // missIndex
-                receiverPos.xyz + receiverNormal * 0.001,     // ray origin
+                raystartPos,     // ray origin
                 tMin,           // ray min range
                 direction.xyz,  // ray direction
                 tMax,           // ray max range
@@ -107,7 +113,7 @@ void main()
         //    debugPrintfEXT("Probes: %d\n", probeIndex);
         //}
 
-        if(distance(receiverPos.xyz + receiverNormal * 0.001, hitLocation) > 0.001) {
+        if(distance(raystartPos, hitLocation) > 0.001) {
             int visibility = 0;
             vec4 probePos = probeLocations[probeIndex];
             vec3 probeDir = direction.xyz;

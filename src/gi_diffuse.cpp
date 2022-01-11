@@ -109,40 +109,6 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 			1, &imageMemoryBarrier);
 		});
 
-	{
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedGiIndirectLightImage._image, &_dilatedGiIndirectLightImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _dilatedGiIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedGiIndirectLightImageView));
-		}
-
-		VkImageView attachments[1] = { _dilatedGiIndirectLightImageView };
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_colorRenderPass, _giLightmapExtent);
-		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &_dilatedGiIndirectLightFramebuffer));
-
-		{
-			VkDescriptorImageInfo imageBufferInfo;
-			imageBufferInfo.sampler = engineData.linearSampler;
-			imageBufferInfo.imageView = _dilatedGiIndirectLightImageView;
-			imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-			VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &sceneDescriptors.singleImageSetLayout, 1);
-
-			vkAllocateDescriptorSets(_device, &allocInfo, &_dilatedGiIndirectLightTextureDescriptor);
-
-			VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _dilatedGiIndirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
-
-			vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
-		}
-	}
-
 	_configBuffer = vkutils::create_upload_buffer(&engineData, &_config, sizeof(GIConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	//GPUProbeRaycastResult buffer (GPU ONLY)
 	auto probeRaycastResultBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastResult, sizeof(GPUProbeRaycastResult) * _config.probeCount * _config.rayCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -160,7 +126,6 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_vulkanCompute->add_buffer_binding(_probeRelight, ComputeBufferType::STORAGE, probeRelightTempBuffer);
 	_vulkanCompute->add_buffer_binding(_probeRelight, ComputeBufferType::STORAGE, _probeRelightOutputBuffer);
 	_vulkanCompute->add_texture_binding(_probeRelight, ComputeBufferType::TEXTURE_SAMPLED, engineData.linearSampler, lightmapImageView);
-	_vulkanCompute->add_texture_binding(_probeRelight, ComputeBufferType::TEXTURE_SAMPLED, engineData.linearSampler, _dilatedGiIndirectLightImageView);
 
 	_vulkanCompute->add_descriptor_set_layout(_probeRelight, sceneDescriptors.objectSetLayout);
 	_vulkanCompute->add_descriptor_set_layout(_probeRelight, sceneDescriptors.materialSetLayout);
@@ -207,15 +172,9 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 
 	vkutils::setObjectName(engineData.device, _giIndirectLightImage._image, "DiffuseIndirectLightImage");
 	vkutils::setObjectName(engineData.device, _giIndirectLightImageView, "DiffuseIndirectLightImageView");
-
-	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightImage._image, "DilatedDiffuseIndirectLightImage");
-	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightImageView, "DilatedDiffuseIndirectLightImageView");
-
-	vkutils::setObjectName(engineData.device, _giIndirectLightTextureDescriptor, "DiffuseIndirectLightTextureDescriptor");
-	vkutils::setObjectName(engineData.device, _dilatedGiIndirectLightTextureDescriptor, "DilatedDiffuseIndirectLightTextureDescriptor");		
 }
 
-void DiffuseIllumination::render(VkCommandBuffer cmd, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout, SceneDescriptors& sceneDescriptors)
+void DiffuseIllumination::render(VkCommandBuffer cmd, SceneDescriptors& sceneDescriptors)
 {
 	//GI - Probe relight
 	{
@@ -295,30 +254,6 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, VkPipeline dilationPipelin
 			0, nullptr,
 			0, nullptr,
 			1, &imageMemoryBarrier);
-	}
-
-	// GI LIGHTMAP DILATION RENDERIN
-	{
-		VkClearValue clearValue;
-		clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-
-		VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_colorRenderPass, _giLightmapExtent, _dilatedGiIndirectLightFramebuffer);
-
-		rpInfo.clearValueCount = 1;
-		VkClearValue clearValues[] = { clearValue };
-		rpInfo.pClearValues = clearValues;
-
-		vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-		vkutils::cmd_viewport_scissor(cmd, _giLightmapExtent);
-
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipeline);
-		vkCmdPushConstants(cmd, dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &_giLightmapExtent);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipelineLayout, 0, 1, &_giIndirectLightTextureDescriptor, 0, nullptr);
-		vkCmdDraw(cmd, 3, 1, 0, 0);
-
-		//finalize the render pass
-		vkCmdEndRenderPass(cmd);
 	}
 }
 

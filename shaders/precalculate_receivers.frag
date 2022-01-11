@@ -13,4 +13,9 @@ void main()
 	gbufferPositionObjectId.xyz = inWorldPosition;
 	gbufferPositionObjectId.w = inObjectId;
 	gbufferNormal.xyz = normalize(inNormal);
+
+	vec3 dUV1 = max(abs(dFdx(inWorldPosition)), abs(dFdy(inWorldPosition)));
+	float dPos = max(max(dUV1.x, dUV1.y), dUV1.z);
+	dPos = dPos * sqrt(2.0);
+	gbufferNormal.w = dPos;
 }

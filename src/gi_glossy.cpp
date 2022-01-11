@@ -135,7 +135,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 {
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
 	
-	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer._gbufferDescriptorSet, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._dilatedGiIndirectLightTextureDescriptor };
+	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer._gbufferDescriptorSet, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._giIndirectLightTextureDescriptor };
 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
 		(uint32_t)descSets.size(), descSets.data(), 0, nullptr);

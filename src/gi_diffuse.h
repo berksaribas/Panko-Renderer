@@ -8,7 +8,7 @@
 class DiffuseIllumination {
 public:
 	void init(EngineData& engineData, PrecalculationInfo* precalculationInfo, PrecalculationLoadData* precalculationLoadData, PrecalculationResult* precalculationResult, VulkanCompute* vulkanCompute, VulkanRaytracing* vulkanRaytracing, GltfScene& scene, SceneDescriptors& sceneDescriptors, VkImageView lightmapImageView);
-	void render(VkCommandBuffer cmd, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout, SceneDescriptors& sceneDescriptors);
+	void render(VkCommandBuffer cmd, SceneDescriptors& sceneDescriptors);
 	void rebuild_shaders();
 
 	void debug_draw_probes(VulkanDebugRenderer& debugRenderer, bool showProbeRays, float sceneScale);
@@ -16,7 +16,7 @@ public:
 	void debug_draw_specific_receiver(VulkanDebugRenderer& debugRenderer, int specificCluster, int specificReceiver, int specificReceiverRaySampleCount, bool* enabledProbes, bool showSpecificProbeRays, float sceneScale);
 
 	void cleanup();
-	VkDescriptorSet _dilatedGiIndirectLightTextureDescriptor;
+	VkDescriptorSet _giIndirectLightTextureDescriptor;
 private:
 	VkDevice _device;
 	VmaAllocator _allocator;
@@ -37,11 +37,6 @@ private:
 
 	AllocatedImage _giIndirectLightImage;
 	VkImageView _giIndirectLightImageView;
-	VkDescriptorSet _giIndirectLightTextureDescriptor;
-
-	AllocatedImage _dilatedGiIndirectLightImage;
-	VkImageView _dilatedGiIndirectLightImageView;
-	VkFramebuffer _dilatedGiIndirectLightFramebuffer;
 
 	AllocatedBuffer _probeRelightOutputBuffer;
 	AllocatedBuffer _clusterProjectionOutputBuffer;
