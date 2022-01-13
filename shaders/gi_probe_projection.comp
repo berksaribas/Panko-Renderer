@@ -36,7 +36,7 @@ void main()
 		else {
 			//color = vec4(0.019);
 		}
-		
+		//color = vec4(1);
 		for(int i = 0; i < config.basisFunctionCount; i++) {
 			uint index = ray * config.basisFunctionCount + i;
 			tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;

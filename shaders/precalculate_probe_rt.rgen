@@ -84,7 +84,7 @@ void main()
     if(payload.objectId > -1 && dot(direction.xyz, payload.normal) >= 0) {
         //debugPrintfEXT("%f %f %f vs %f %f %f\n", direction.x, direction.y, direction.z, payload.normal.x, payload.normal.y, payload.normal.z);
         //debugPrintfEXT("%f %f %f vs %f %f %f\n", origin.x, origin.y, origin.z, payload.pos.x, payload.pos.y, payload.pos.z);
-        results[index].objectId = -1;
-        debugPrintfEXT("Yes.\n");
+        //results[index].objectId = -1;
+        //debugPrintfEXT("Yes.\n");
     }
 }

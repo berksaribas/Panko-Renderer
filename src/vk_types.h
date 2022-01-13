@@ -47,6 +47,7 @@ struct EngineData {
 
     VkSampler linearSampler;
     VkSampler nearestSampler;
+    VkSampler cubicSampler;
 
     VkFormat color32Format = VK_FORMAT_R32G32B32A32_SFLOAT;
     VkFormat color16Format = VK_FORMAT_R16G16B16A16_SFLOAT;

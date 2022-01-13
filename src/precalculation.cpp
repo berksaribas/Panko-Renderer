@@ -24,6 +24,7 @@
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
 
+#define TEXEL_SAMPLES 8
 
 void calcY(float* o, vec3 r, int order) {
 	float x = r.x, y = r.y, z = r.z;
@@ -282,7 +283,7 @@ void load_binary(std::string filename, void* destination, size_t size) {
 void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult, const char* loadProbes) {
 	printf("Scene center: %f x %f x %f\n", scene.m_dimensions.center.x, scene.m_dimensions.center.y, scene.m_dimensions.center.z);
 	printf("Scene dimensions: %f x %f x %f\n", scene.m_dimensions.size.x, scene.m_dimensions.size.y, scene.m_dimensions.size.z);
-	Receiver* receivers = generate_receivers(engine, scene, precalculationInfo.lightmapResolution);
+	Receiver* receivers = generate_receivers_cpu(engine, scene, precalculationInfo.lightmapResolution);
 	std::vector<glm::vec4> probes;
 
 	if (loadProbes == nullptr) {
@@ -306,7 +307,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 			}
 		}
 
-		float desiredSpacing = 4;
+		float desiredSpacing = 3.f;
 		int targetProbeCount = (scene.m_dimensions.size.x / desiredSpacing) * (scene.m_dimensions.size.y / desiredSpacing) * (scene.m_dimensions.size.z / desiredSpacing);
 		printf("Desired spacing: %d. Targeted amount of probes is %d. Current probes: %d\n", desiredSpacing, targetProbeCount, probes.size());
 
@@ -1028,6 +1029,148 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 #endif
 }
 
+Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene& scene, int lightmapResolution) {
+	OPTICK_EVENT();
+	printf("Generating receivers!\n");
+
+	int receiverCount = lightmapResolution * lightmapResolution;
+	Receiver* _receivers = new Receiver[receiverCount];
+	memset(_receivers, 0, sizeof(Receiver) * receiverCount);
+	int receiverCounter = 0;
+
+	for (int nodeIndex = 0; nodeIndex < scene.nodes.size(); nodeIndex++) {
+		auto& mesh = scene.prim_meshes[scene.nodes[nodeIndex].prim_mesh];
+		for (int triangle = 0; triangle < mesh.idx_count; triangle += 3) {
+			glm::vec3 worldVertices[3];
+			glm::vec3 worldNormals[3];
+			glm::vec2 texVertices[3];
+			int minX = lightmapResolution, minY = lightmapResolution;
+			int maxX = 0, maxY = 0;
+			for (int i = 0; i < 3; i++) {
+				int vertexIndex = mesh.vtx_offset + scene.indices[mesh.first_idx + triangle + i];
+
+				glm::vec4 vertex = scene.nodes[nodeIndex].world_matrix * glm::vec4(scene.positions[vertexIndex], 1.0);
+				worldVertices[i] = glm::vec3(vertex / vertex.w);
+
+
+				worldNormals[i] = glm::mat3(glm::transpose(glm::inverse(scene.nodes[nodeIndex].world_matrix))) * scene.normals[vertexIndex];
+
+				texVertices[i] = scene.lightmapUVs[vertexIndex] * glm::vec2(lightmapResolution / (float) scene.lightmap_width, lightmapResolution / (float) scene.lightmap_height);
+
+				if (texVertices[i].x < minX) {
+					minX = texVertices[i].x;
+				}
+				if (texVertices[i].x > maxX) {
+					maxX = texVertices[i].x;
+				}
+				if (texVertices[i].y < minY) {
+					minY = texVertices[i].y;
+				}
+				if (texVertices[i].y > maxY) {
+					maxY = texVertices[i].y;
+				}
+			}
+
+			for (int j = minY; j <= maxY; j++) {
+				for (int i = minX; i <= maxX; i++) {
+					int maxSample = TEXEL_SAMPLES;
+					int receiverIndex = i + j * lightmapResolution;
+					
+					if (_receivers[receiverIndex].exists && nodeIndex != _receivers[receiverIndex].objectId) {
+						continue;
+					}
+
+					for (int sample = 0; sample < maxSample * maxSample; sample++) {
+						glm::vec2 pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+						glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
+							texVertices[0], texVertices[1], texVertices[2]);
+						if (barycentric.x >= 0 && barycentric.y >= 0 && barycentric.z >= 0) {
+							if (!_receivers[receiverIndex].exists) {
+								_receivers[receiverIndex].exists = true;
+								_receivers[receiverIndex].objectId = nodeIndex;
+								_receivers[receiverIndex].uv = glm::ivec2(i, j);
+								receiverCounter++;
+							}
+
+							_receivers[receiverIndex].position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
+							_receivers[receiverIndex].normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
+							
+							_receivers[receiverIndex].poses.push_back(apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]));
+							_receivers[receiverIndex].norms.push_back(apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]));
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for (int i = 0; i < lightmapResolution; i++) {
+		for (int j = 0; j < lightmapResolution; j++) {
+			if (!_receivers[j + i * lightmapResolution].exists) {
+				if (j + 1 < lightmapResolution && _receivers[j + 1 + i * lightmapResolution].exists && !_receivers[j + 1 + i * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j + 1 + i * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (j - 1 >= 0 && _receivers[j - 1 + i * lightmapResolution].exists && !_receivers[j - 1 + i * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j - 1 + i * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (i + 1 < lightmapResolution && _receivers[j + (i + 1) * lightmapResolution].exists && !_receivers[j + (i + 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j + (i + 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (i - 1 >= 0 && _receivers[j + (i - 1) * lightmapResolution].exists && !_receivers[j + (i - 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j + (i - 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (j + 1 < lightmapResolution && i + 1 < lightmapResolution && _receivers[j + 1 + (i + 1) * lightmapResolution].exists && !_receivers[j + 1 + (i + 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j + 1 + (i + 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (j + 1 < lightmapResolution && i - 1 >= 0 && _receivers[j + 1 + (i - 1) * lightmapResolution].exists && !_receivers[j + 1 + (i - 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j + 1 + (i - 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (j - 1 >= 0 && i + 1 < lightmapResolution && _receivers[j - 1 + (i + 1) * lightmapResolution].exists && !_receivers[j - 1 + (i + 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j - 1 + (i + 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+				else if (j - 1 >= 0 && i - 1 >= 0 && _receivers[j - 1 + (i - 1) * lightmapResolution].exists && !_receivers[j - 1 + (i - 1) * lightmapResolution].processed) {
+					_receivers[j + i * lightmapResolution] = _receivers[j - 1 + (i - 1) * lightmapResolution];
+					_receivers[j + i * lightmapResolution].processed = true;
+					_receivers[j + i * lightmapResolution].uv = glm::ivec2(j, i);
+				}
+			}
+		}
+	}
+
+	char* image = new char[lightmapResolution * lightmapResolution];
+	memset(image, 0, lightmapResolution * lightmapResolution);
+	for (int i = 0; i < lightmapResolution; i++) {
+		for (int j = 0; j < lightmapResolution; j++) {
+			if (_receivers[j + i * lightmapResolution].exists) {
+				image[j + i * lightmapResolution] = 255;
+			}
+		}
+	}
+
+	FILE* ptr;
+	fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
+	fwrite(image, lightmapResolution * lightmapResolution, 1, ptr);
+	fclose(ptr);
+	printf("Created receivers: %d!\n", receiverCounter);
+
+	return _receivers;
+}
+
+
 Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& scene, int lightmapResolution)
 {
 	OPTICK_EVENT();
@@ -1667,7 +1810,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	AllocatedBuffer probeLocationsBuffer = vkutils::create_buffer(engine._engineData.allocator, sizeof(glm::vec4) * probes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &probeLocationsBuffer._descriptorBufferInfo, 3));
 
-	AllocatedBuffer receiverLocationsBuffer = vkutils::create_buffer(engine._engineData.allocator, sizeof(GPUReceiverData) * maxReceivers, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	AllocatedBuffer receiverLocationsBuffer = vkutils::create_buffer(engine._engineData.allocator, sizeof(GPUReceiverData) * maxReceivers * (TEXEL_SAMPLES * TEXEL_SAMPLES), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverLocationsBuffer._descriptorBufferInfo, 4));
 
 	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * rays * maxProbesPerCluster * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -1765,10 +1908,12 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaMapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation, &data);
 			GPUReceiverData* dataReceiver = (GPUReceiverData*)data;
 			for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i++) {
-				dataReceiver[i].pos = aabbClusters[nodeIndex].receivers[i].position;
-				dataReceiver[i].normal = aabbClusters[nodeIndex].receivers[i].normal;
-				dataReceiver[i].objectId = aabbClusters[nodeIndex].receivers[i].objectId;
-				dataReceiver[i].dPos = aabbClusters[nodeIndex].receivers[i].dPos;
+				for (int j = 0; j < aabbClusters[nodeIndex].receivers[i].poses.size(); j++) {
+					dataReceiver[i * (TEXEL_SAMPLES * TEXEL_SAMPLES) + j].pos = aabbClusters[nodeIndex].receivers[i].poses[j];
+					dataReceiver[i * (TEXEL_SAMPLES * TEXEL_SAMPLES) + j].normal = aabbClusters[nodeIndex].receivers[i].norms[j];
+					dataReceiver[i * (TEXEL_SAMPLES * TEXEL_SAMPLES) + j].objectId = aabbClusters[nodeIndex].receivers[i].objectId;
+					dataReceiver[i * (TEXEL_SAMPLES * TEXEL_SAMPLES) + j].dPos = aabbClusters[nodeIndex].receivers[i].poses.size();
+				}
 			}
 			vmaUnmapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation);
 		}

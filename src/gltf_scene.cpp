@@ -755,7 +755,7 @@ void GltfScene::compute_scene_dimensions() {
 		const auto& mesh = prim_meshes[node.prim_mesh];
 
 		Bbox bbox(mesh.pos_min, mesh.pos_max);
-		bbox.transform(node.world_matrix);
+		bbox = bbox.transform(node.world_matrix);
 		scnBbox.insert(bbox);
 	}
 

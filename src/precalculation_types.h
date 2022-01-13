@@ -13,6 +13,9 @@ struct Receiver {
 	int objectId;
 	float dPos;
 	bool exists;
+	bool processed;
+	std::vector<glm::vec3> poses;
+	std::vector<glm::vec3> norms;
 };
 
 struct AABB {

@@ -123,18 +123,20 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = true;
+	bool loadPrecomputedData = false;
+
+	int res = 512;
 
 	if (!loadPrecomputedData) {
-		precalculationInfo.voxelSize = 0.5;
+		precalculationInfo.voxelSize = 0.3;
 		precalculationInfo.voxelPadding = 2;
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 16000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 64;
+		precalculationInfo.clusterCoefficientCount = 128;
 		precalculationInfo.maxReceiversInCluster = 1024;
-		precalculationInfo.lightmapResolution = 320;
+		precalculationInfo.lightmapResolution = res;
 
 		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
 		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
@@ -142,7 +144,7 @@ void VulkanEngine::init()
 	else {
 		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
 	}
-	precalculationInfo.lightmapResolution = 320;
+	precalculationInfo.lightmapResolution = res;
 
 
 	//exit(0);
@@ -330,8 +332,8 @@ void VulkanEngine::draw()
 		ImGui::NewLine();
 
 		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
-		ImGui::Image(_lightmapTextureDescriptor, { (float)gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
-		ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float) gltf_scene.lightmap_width,  (float)gltf_scene.lightmap_height });
+		ImGui::Image(_lightmapTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
+		ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
 		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 		ImGui::End();
 
@@ -1030,14 +1032,21 @@ void VulkanEngine::init_framebuffers()
 	samplerInfo.maxLod = 1.0f;
 	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo, nullptr, &_engineData.linearSampler));
 
-
 	//Create a nearest sampler
 	VkSamplerCreateInfo samplerInfo2 = vkinit::sampler_create_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
-	samplerInfo.mipLodBias = 0.0f;
-	samplerInfo.maxAnisotropy = 1.0f;
-	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = 1.0f;
+	samplerInfo2.mipLodBias = 0.0f;
+	samplerInfo2.maxAnisotropy = 1.0f;
+	samplerInfo2.minLod = 0.0f;
+	samplerInfo2.maxLod = 1.0f;
 	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo2, nullptr, &_engineData.nearestSampler));
+
+	VkSamplerCreateInfo samplerInfo3 = vkinit::sampler_create_info(VK_FILTER_CUBIC_IMG, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	samplerInfo3.mipLodBias = 0.0f;
+	samplerInfo3.maxAnisotropy = 1.0f;
+	samplerInfo3.minLod = 0.0f;
+	samplerInfo3.maxLod = 1.0f;
+	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo3, nullptr, &_engineData.cubicSampler));
+	
 
 	// Create lightmap framebuffer and its sampler
 	{
@@ -1434,9 +1443,9 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	std::string file_name = "../../assets/cornellBox.gltf";
+	//std::string file_name = "../../assets/cornellBox.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
-	//std::string file_name = "../../assets/cornell3.gltf";
+	std::string file_name = "../../assets/cornell3.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
@@ -1459,6 +1468,8 @@ void VulkanEngine::init_scene()
 	gltf_scene.import_materials(tmodel);
 	gltf_scene.import_drawable_nodes(tmodel, GltfAttributes::Normal |
 		GltfAttributes::Texcoord_0);
+
+	printf("dimensions: %f %f %f\n", gltf_scene.m_dimensions.size.x, gltf_scene.m_dimensions.size.y, gltf_scene.m_dimensions.size.z);
 	
 	std::vector<GPUBasicMaterialData> materials;
 
@@ -1497,10 +1508,11 @@ void VulkanEngine::init_scene()
 	}
 	
 	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
+	//chartOptions.fixWinding = true;
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
-	packOptions.padding = 4;
-	//packOptions.resolution = 256;
-	//packOptions.bilinear = false;
+	packOptions.texelsPerUnit = 1.0f;
+	packOptions.bilinear = true;
+
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;
