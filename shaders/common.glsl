@@ -127,6 +127,12 @@ struct PrecalculateReceiverMatrixConfig {
 	int batchSize;
 };
 
+struct ReflectionPayload {
+	vec3 color;
+	float hitDistance;
+	vec3 normal;
+};
+
 #ifndef __cplusplus
 
 const float PHI = 1.61803398874989484820459;

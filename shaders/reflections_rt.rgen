@@ -12,10 +12,11 @@
 #include "common.glsl"
 #include "brdf.glsl"
 
-layout(location = 0) rayPayloadEXT vec4 payload;
+layout(location = 0) rayPayloadEXT ReflectionPayload payload;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout (set = 0, binding = 3, rgba32f) uniform image2D resultImage;
+layout (set = 0, binding = 4, rgba32f) uniform image2D resultNormalImage;
 
 layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -56,7 +57,7 @@ void main()
 
 	uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + cameraData.frameCount * 26699) | 1;
 
-	if(material >= 5 ) {
+	if(material >= 0 ) {
 		uint rayFlags = gl_RayFlagsOpaqueEXT;
 		uint cullMask = 0xff;
 		float tmin = 0.0001;
@@ -72,19 +73,20 @@ void main()
 
 				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
 
-				totalColor += payload;
+				totalColor += vec4(payload.color, payload.hitDistance);
 			}
 			totalColor /= sampleCount;
 			totalColor = mix(totalColor, imageLoad(resultImage, pixel), float(cameraData.frameCount) / float(cameraData.frameCount + 1));
 		}
 		else {
 			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
-			totalColor += payload;
-			totalColor.a = material + 0.000001 + totalColor.a / 10000.0;
+			totalColor += vec4(payload.color, 1.0);
+			imageStore(resultNormalImage, pixel, vec4(payload.normal, payload.hitDistance));
 		}
 		imageStore(resultImage, pixel, totalColor);
 	}
 	else {
 		imageStore(resultImage, pixel, vec4(0, 0, 0, -1));
+		imageStore(resultNormalImage, pixel, vec4(vec3(0), -1));
 	}
 }

@@ -68,8 +68,8 @@ void Deferred::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDes
 
 	if (!rebuild)
 	{
-		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 8);
+		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 9);
 		VK_CHECK(vkCreatePipelineLayout(engineData.device, &pipeline_layout_info, nullptr, &_deferredPipelineLayout));
 	}
 	else {
@@ -131,6 +131,7 @@ void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescript
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 5, 1, &diffuseIllumination._giIndirectLightTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 6, 1, &glossyIllumination._glossyReflectionsColorTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 7, 1, &brdfUtils._brdfLutTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 8, 1, &glossyIllumination._normalMipmapTextureDescriptor, 0, nullptr);
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 

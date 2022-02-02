@@ -14,6 +14,7 @@ public:
 	void cleanup();
 
 	VkDescriptorSet _glossyReflectionsColorTextureDescriptor;
+	VkDescriptorSet _normalMipmapTextureDescriptor;
 private:
 	void init_blur_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
 	VulkanRaytracing* _vulkanRaytracing;
@@ -35,13 +36,18 @@ private:
 	VkPipelineLayout _blurPipelineLayout;
 	VkPipeline _blurPipeline;
 
-	AllocatedImage _tempImage;
 
 	std::vector<VkImageView> _colorMipmapImageViews;
 	std::vector<VkFramebuffer> _colorMipmapFramebuffers;
 
+	AllocatedImage _tempImage;
 	std::vector<VkImageView> _tempMipmapImageViews;
 	std::vector<VkFramebuffer> _tempMipmapFramebuffers;
 	VkDescriptorSet _tempMipmapTextureDescriptor;
+
+	AllocatedImage _normalImage;
+	std::vector<VkImageView> _normalMipmapImageViews;
+	std::vector<VkFramebuffer> _normalMipmapFramebuffers;
+	VkImageView _normalImageView;
 
 };

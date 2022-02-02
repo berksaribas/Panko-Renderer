@@ -6,9 +6,11 @@
 
 #include "common.glsl"
 
-layout(location = 0) rayPayloadInEXT vec4 payload;
+layout(location = 0) rayPayloadInEXT ReflectionPayload payload;
 
 void main()
 {
-    payload = vec4(0, 0, 0, 100);
+    payload.color = vec3(0);
+    payload.hitDistance = 100;
+    payload.normal = vec3(0);
 }
