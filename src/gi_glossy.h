@@ -15,6 +15,7 @@ public:
 
 	VkDescriptorSet _glossyReflectionsColorTextureDescriptor;
 private:
+	void init_blur_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
 	VulkanRaytracing* _vulkanRaytracing;
 
 	VkExtent2D _imageSize;
@@ -29,4 +30,18 @@ private:
 	RaytracingPipeline rtPipeline;
 	VkDescriptorSetLayout rtDescriptorSetLayout;
 	VkDescriptorSet rtDescriptorSet;
+
+	//Blur
+	VkPipelineLayout _blurPipelineLayout;
+	VkPipeline _blurPipeline;
+
+	AllocatedImage _tempImage;
+
+	std::vector<VkImageView> _colorMipmapImageViews;
+	std::vector<VkFramebuffer> _colorMipmapFramebuffers;
+
+	std::vector<VkImageView> _tempMipmapImageViews;
+	std::vector<VkFramebuffer> _tempMipmapFramebuffers;
+	VkDescriptorSet _tempMipmapTextureDescriptor;
+
 };

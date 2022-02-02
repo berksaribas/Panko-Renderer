@@ -10,7 +10,7 @@ layout (local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { GPUProbeRaycastResult probeRaycasts[]; };
-layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
+layout(std140, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
 layout(std140, set = 0, binding = 3) buffer _TempBuffer { vec4 tempCalculation[]; };
 layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
 layout(set = 0, binding = 5) uniform sampler2D lightmap;
@@ -24,28 +24,6 @@ void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
 
-	if(gID < config.probeCount * config.rayCount) {
-
-		uint probe = gID / config.rayCount;
-		uint ray = gID % config.rayCount;
-
-		vec4 color = vec4(0, 0, 0, 1);
-		if(probeRaycasts[gID].objectId != -1) {
-			color.rgb = texture(lightmap, probeRaycasts[gID].lightmapUv / config.lightmapInputSize).rgb;
-		}
-		else {
-			//color = vec4(0.019);
-		}
-		//color = vec4(1);
-		for(int i = 0; i < config.basisFunctionCount; i++) {
-			uint index = ray * config.basisFunctionCount + i;
-			tempCalculation[probe * config.rayCount * config.basisFunctionCount + i * config.rayCount + ray] = probeBasis[index / 4][index % 4] * color;
-		}
-	}
-
-    memoryBarrier();
-    barrier();
-
 	if(gID < config.probeCount * config.basisFunctionCount) {
 		uint probe = gID / config.basisFunctionCount;
 		uint basis = gID % config.basisFunctionCount;
@@ -54,7 +32,17 @@ void main()
 		vec4 tempResult = vec4(0);
 
 		for(int j = 0; j < config.rayCount; j++) {
-			tempResult += tempCalculation[index + j];
+			uint specialIndex = j * config.basisFunctionCount + basis;
+
+			vec4 color = vec4(0, 0, 0, 1);
+			if(probeRaycasts[probe * config.rayCount + j].objectId != -1) {
+				color.rgb = texture(lightmap, probeRaycasts[probe * config.rayCount + j].lightmapUv / config.lightmapInputSize).rgb;
+			}
+			else {
+				//color = vec4(0.019);
+			}
+
+			tempResult += probeBasis[specialIndex / 4][specialIndex % 4] * color;
 		}
 
 		outColors[gID] = tempResult;

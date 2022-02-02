@@ -27,9 +27,11 @@
 #include <gi_shadow.h>
 #include <gi_gbuffer.h>
 #include <gi_deferred.h>
+#include <gi_brdf.h>
 
 const int MAX_TEXTURES = 80; //TODO: Replace this
 constexpr bool bUseValidationLayers = true;
+std::vector<GPUBasicMaterialData> materials;
 
 //Precalculation
 Precalculation precalculation;
@@ -43,6 +45,7 @@ DiffuseIllumination diffuseIllumination;
 Shadow shadow;
 Deferred deferred;
 GlossyIllumination glossyIllumination;
+BRDF brdfUtils;
 
 //Imgui
 bool enableGi = false;
@@ -101,6 +104,8 @@ void VulkanEngine::init()
 
 	shadow.init_buffers(_engineData);
 	init_descriptors();
+	brdfUtils.init_images(_engineData);
+	brdfUtils.init_descriptors(_engineData, _sceneDescriptors);
 	shadow.init_descriptors(_engineData, _sceneDescriptors);
 	gbuffer.init_descriptors(_engineData);
 	deferred.init_descriptors(_engineData, _sceneDescriptors);
@@ -123,7 +128,7 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = false;
+	bool loadPrecomputedData = true;
 
 	int res = 512;
 
@@ -134,12 +139,12 @@ void VulkanEngine::init()
 		precalculationInfo.raysPerProbe = 8000;
 		precalculationInfo.raysPerReceiver = 16000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 128;
+		precalculationInfo.clusterCoefficientCount = 64;
 		precalculationInfo.maxReceiversInCluster = 1024;
 		precalculationInfo.lightmapResolution = res;
 
-		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
-		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
+		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
 	}
 	else {
 		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
@@ -162,6 +167,9 @@ void VulkanEngine::init()
 	shadow._shadowMapData.VSMBias = 0.01;
 	_camData.lightPos = { 0.020, 2, 0.140, 0.0f };
 	_camData.lightColor = { 1.f, 1.f, 1.f, 1.0f };
+	_camData.indirectDiffuse = true;
+	_camData.indirectSpecular = true;
+	_camData.useStochasticSpecular = false;
 	camera.pos = { 0, 0, 7 };
 
 
@@ -193,6 +201,7 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
+	printf("\n\n\n\n\n");
 	OPTICK_EVENT();
 
 	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
@@ -215,6 +224,8 @@ void VulkanEngine::draw()
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
 	_camData.lightmapTargetSize = {_lightmapExtent.width, _lightmapExtent.height};
+
+	_camData.frameCount = _frameNumber;
 
 	glm::vec3 lightInvDir = glm::vec3(_camData.lightPos); 
 	float radius = gltf_scene.m_dimensions.max.x > gltf_scene.m_dimensions.max.y ? gltf_scene.m_dimensions.max.x : gltf_scene.m_dimensions.max.y;
@@ -263,7 +274,7 @@ void VulkanEngine::draw()
 	static char buffer[128];
 	{
 		//todo: imgui stuff
-		ImGui::Begin("Engine Config");
+		ImGui:ImGui::Begin("Engine Config");
 
 		sprintf_s(buffer, "Rebuild Shaders");
 		if(ImGui::Button(buffer)) {
@@ -294,6 +305,27 @@ void VulkanEngine::draw()
 	
 		sprintf_s(buffer, "Factor");
 		ImGui::DragFloat(buffer, &radius);
+
+		ImGui::NewLine();
+
+		sprintf_s(buffer, "Indirect Diffuse");
+		ImGui::Checkbox(buffer, (bool*) & _camData.indirectDiffuse);
+
+		sprintf_s(buffer, "Indirect Specular");
+		ImGui::Checkbox(buffer, (bool*)&_camData.indirectSpecular);
+
+		if (_camData.indirectSpecular) {
+			sprintf_s(buffer, "Use Stochastic Raytracing");
+			if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
+				_frameNumber = 0;
+			}
+			if (_camData.useStochasticSpecular) {
+				ImGui::Text("Currently using stochastic raytracing.");
+			}
+			else {
+				ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
+			}
+		}
 
 		ImGui::NewLine();
 
@@ -377,6 +409,23 @@ void VulkanEngine::draw()
 					}
 				}
 			}
+		}
+
+		bool materialsChanged = false;
+		for (int i = 0; i < materials.size(); i++) {
+			sprintf_s(buffer, "Material %d", i);
+			ImGui::LabelText(buffer, buffer);
+			sprintf_s(buffer, "Base color %d", i);
+			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
+			sprintf_s(buffer, "Roughness %d", i);
+			materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].roughness_factor, 0, 1);
+			sprintf_s(buffer, "Metallic %d", i);
+			materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].metallic_factor, 0, 1);
+		}
+
+		if (materialsChanged) {
+			vkutils::cpu_to_gpu(_engineData.allocator, material_buffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
+			_frameNumber = 0;
 		}
 		
 		ImGui::Render();
@@ -480,7 +529,7 @@ void VulkanEngine::draw()
 
 		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
 
-		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination);
+		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
 		
 		//POST PROCESSING + UI
 		{
@@ -570,6 +619,7 @@ void VulkanEngine::run()
 	//main loop
 	while (!bQuit)
 	{
+		bool moved = false;
 		OPTICK_FRAME("MainThread");
 
 		const Uint8* keys = SDL_GetKeyboardState(NULL);
@@ -588,6 +638,7 @@ void VulkanEngine::run()
 
 				camera.rotation.x += -0.05f * (float)motion.yrel;
 				camera.rotation.y += -0.05f * (float)motion.xrel;
+				moved = true;
 			}
 			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_LCTRL) {
 				onGui = !onGui;
@@ -609,18 +660,24 @@ void VulkanEngine::run()
 		if (keys[SDL_SCANCODE_W])
 		{
 			camera.pos += front * speed;
+			moved = true;
 		}
 		if (keys[SDL_SCANCODE_S])
 		{
 			camera.pos -= front * speed;
+			moved = true;
 		}
 		if (keys[SDL_SCANCODE_A]) {
 			camera.pos -= glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
+			moved = true;
 		}
 		if (keys[SDL_SCANCODE_D]) {
 			camera.pos += glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
+			moved = true;
 		}
-
+		if (moved) {
+			_frameNumber = 0;
+		}
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplSDL2_NewFrame(_window);
 
@@ -1471,8 +1528,6 @@ void VulkanEngine::init_scene()
 
 	printf("dimensions: %f %f %f\n", gltf_scene.m_dimensions.size.x, gltf_scene.m_dimensions.size.y, gltf_scene.m_dimensions.size.z);
 	
-	std::vector<GPUBasicMaterialData> materials;
-
 	for (int i = 0; i < gltf_scene.materials.size(); i++) {
 		GPUBasicMaterialData material = {};
 		material.base_color = gltf_scene.materials[i].base_color_factor;
@@ -1587,7 +1642,7 @@ void VulkanEngine::init_scene()
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	material_buffer = vkutils::create_upload_buffer(&_engineData, materials.data(), materials.size() * sizeof(GPUBasicMaterialData),
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 	// MATERIAL DESCRIPTOR
 	{

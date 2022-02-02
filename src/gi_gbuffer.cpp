@@ -144,6 +144,8 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 		fb_info.pAttachments = attachments;
 		fb_info.attachmentCount = 4;
 		VK_CHECK(vkCreateFramebuffer(engineData.device, &fb_info, nullptr, &_gbufferFrameBuffer));
+		
+		vkutils::setObjectName(engineData.device, _gbufferFrameBuffer, "GBufferFrameBuffer");
 	}
 }
 

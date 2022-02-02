@@ -97,7 +97,7 @@ public:
 	AllocatedBuffer _cameraBuffer, _objectBuffer;
 	SceneDescriptors _sceneDescriptors;
 
-	GPUCameraData _camData;
+	GPUCameraData _camData = {};
 	float _sceneScale = 0.3f;
 
 	/* LIGHTMAP VARIABLES */

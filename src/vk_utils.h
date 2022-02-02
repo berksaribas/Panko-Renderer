@@ -22,6 +22,7 @@ namespace vkutils {
 	void cpu_to_gpu(VmaAllocator allocator, AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 	void cpu_to_gpu_staging(VmaAllocator allocator, VkCommandBuffer commandBuffer, AllocatedBuffer& allocatedBuffer, void* data, size_t size);
 
+	void generate_mipmaps(VkCommandBuffer& cmd, VkImage image, int32_t width, int32_t height, uint32_t mipLevels);
 	bool load_image_from_memory(EngineData* engineData, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels);
 	bool load_shader_module(VkDevice device, const char* filePath, VkShaderModule* outShaderModule);
 	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);

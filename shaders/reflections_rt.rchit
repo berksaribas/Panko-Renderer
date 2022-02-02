@@ -14,7 +14,7 @@
 
 hitAttributeEXT vec2 attribs;
 
-layout(location = 0) rayPayloadInEXT vec3 payload;
+layout(location = 0) rayPayloadInEXT vec4 payload;
 
 layout(set = 0, binding = 1) uniform _SceneDesc { GPUSceneDesc sceneDesc; };
 layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo meshInfos[]; };
@@ -118,7 +118,7 @@ void main()
     metallic = 0;
 
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(worldNrm), normalize(gl_ObjectRayOriginEXT * 0.3  - worldPos.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
-    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(worldNrm), normalize(gl_ObjectRayOriginEXT * 0.3  - worldPos.xyz), texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, vec3(0));
+    vec3 indirectLight = calculate_indirect_lighting_nospecular(albedo, metallic, roughness, normalize(worldNrm), normalize(gl_ObjectRayOriginEXT * 0.3  - worldPos.xyz), texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, vec3(0));
     
-    payload = directLight + indirectLight;
+    payload = vec4(directLight + indirectLight, distance(gl_WorldRayOriginEXT * 0.3, worldPos));
 }

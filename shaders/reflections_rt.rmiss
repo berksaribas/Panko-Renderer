@@ -6,9 +6,9 @@
 
 #include "common.glsl"
 
-layout(location = 0) rayPayloadInEXT vec3 payload;
+layout(location = 0) rayPayloadInEXT vec4 payload;
 
 void main()
 {
-    payload = vec3(0);
+    payload = vec4(0, 0, 0, 100);
 }
