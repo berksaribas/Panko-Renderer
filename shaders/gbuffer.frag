@@ -10,12 +10,19 @@ layout(location = 0) out vec4 gbufferPositionMaterial;
 layout(location = 1) out vec4 gbufferNormal;
 layout(location = 2) out vec4 gbufferUV;
 
+float linearize_depth(float d,float zNear,float zFar)
+{
+    float z_n = 2.0 * d - 1.0;
+    return 2.0 * zNear * zFar / (zFar + zNear - z_n * (zFar - zNear));
+}
+
 void main()
 {
 	gbufferPositionMaterial.xyz = inWorldPosition;
 	gbufferPositionMaterial.w = inMaterialId;
 
 	gbufferNormal.xyz = normalize(inNormal);
+	gbufferNormal.w = linearize_depth(gl_FragCoord.z, 0.1f, 1000.0f);
 
 	gbufferUV.xy = inTexCoord;
 	gbufferUV.zw = inLightmapCoord;

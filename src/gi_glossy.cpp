@@ -494,7 +494,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipeline);
 			vkCmdPushConstants(cmd, _blurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &pushData);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 0, 1, &_glossyReflectionsColorTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 0, 1, &_tempMipmapTextureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 1, 1, &_normalMipmapTextureDescriptor, 0, nullptr);
 
 			vkCmdDraw(cmd, 3, 1, 0, 0);

@@ -52,10 +52,10 @@ void main()
 	vec3 pos = texelFetch(gbufferPositionMaterial, pixel, 0).xyz / 0.3;
 	int material = int(texelFetch(gbufferPositionMaterial, pixel, 0).w);
 	vec3 normal = texelFetch(gbufferNormal, pixel, 0).xyz;
+	float depth = texelFetch(gbufferNormal, pixel, 0).w;
 	vec3 view = normalize(cameraData.cameraPos.xyz / 0.3 - pos.xyz);
     vec3 direction = reflect(-view, normal);
 
-	uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + cameraData.frameCount * 26699) | 1;
 
 	if(material >= 0 ) {
 		uint rayFlags = gl_RayFlagsOpaqueEXT;
@@ -65,6 +65,8 @@ void main()
 
 		vec4 totalColor = vec4(0);
 		if(cameraData.useStochasticSpecular == 1) {
+			uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + cameraData.frameCount * 26699) | 1;
+
 			int sampleCount = 1;
 			for(int i = 0; i < sampleCount; i++) {
 				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, materials[material].roughness_factor);
@@ -79,9 +81,20 @@ void main()
 			totalColor = mix(totalColor, imageLoad(resultImage, pixel), float(cameraData.frameCount) / float(cameraData.frameCount + 1));
 		}
 		else {
-			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
-			totalColor += vec4(payload.color, 1.0);
-			imageStore(resultNormalImage, pixel, vec4(payload.normal, payload.hitDistance));
+			int sampleCount = 1;
+			uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + gl_LaunchIDEXT.y * 26699) | 1;
+
+			for(int i = 0; i < sampleCount; i++) {
+				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, clamp(materials[material].roughness_factor, 0, 0));
+				float pdf = Wh_pdf.w;
+				direction = reflect(-view, Wh_pdf.xyz);
+
+				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
+
+				totalColor += vec4(payload.color, payload.hitDistance);
+			}
+			//traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, reflect(-view, normal), tmax, 0);
+			imageStore(resultNormalImage, pixel, vec4(normal, depth));
 		}
 		imageStore(resultImage, pixel, totalColor);
 	}

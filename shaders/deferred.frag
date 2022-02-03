@@ -212,10 +212,20 @@ vec4 bilinear(vec2 uv, float mip, int material) {
     return mix( tA, tB, f.y );
 }
 
-float bilateralWeight(vec3 n1, vec3 n2, float d1, float d2) {
-	float epsilon = 1; //what this?
-	return max(0, pow(dot(n1,n2), 32)) * 1 / (epsilon + abs(d1 - d2));
+const float EPSILON = 0.001;
+
+float bilateralWeight(vec3 n1, vec3 n2, float d1, float d2, float hd1, float hd2 ) {
+	if(d1 < 0 && d2 < 0) return 0;
+	if(d1 < 0) return 1;
+
+	float normalWeight = max(0, pow(dot(n1,n2), 2)) > 0.5 ? 1 : 0;
+	float depthWeight = abs(d1-d2) > 0.5 ? 0 : 1;
+    
+    float hitDistanceWeight = 1 / (EPSILON + abs(hd1-hd2) / 100.0);
+
+	return normalWeight * depthWeight ;
 }
+
 
 // I probably have all the data needed, just need a better sampling method.
 //this first if statements works well, rest needs work.
@@ -242,15 +252,18 @@ vec4 customBilinear(vec2 uv, int mip, int material) {
     vec4 s7 = textureLod(glossyReflections, uv + vec2(0, texelSize.y), mip);
     vec4 s8 = textureLod(glossyReflections, uv + vec2(texelSize.x, texelSize.y), mip);
 
-    vec4 nc = textureLod(glossyNormal, uv, 0);
-    vec4 ns1 = textureLod(glossyNormal, uv + vec2(-texelSize.x, -texelSize.y), 0);
-    vec4 ns2 = textureLod(glossyNormal, uv + vec2(0, -texelSize.y), 0);
-    vec4 ns3 = textureLod(glossyNormal, uv + vec2(texelSize.x, -texelSize.y), 0);
-    vec4 ns4 = textureLod(glossyNormal, uv + vec2(-texelSize.x, 0), 0);
-    vec4 ns5 = textureLod(glossyNormal, uv + vec2(texelSize.x, 0), 0);
-    vec4 ns6 = textureLod(glossyNormal, uv + vec2(-texelSize.x, texelSize.y), 0);
-    vec4 ns7 = textureLod(glossyNormal, uv + vec2(0, texelSize.y), 0);
-    vec4 ns8 = textureLod(glossyNormal, uv + vec2(texelSize.x, texelSize.y), 0);
+    float defaultHitDistance = textureLod(glossyReflections, ogUv, 0).w;
+    vec4 defaultNormal = textureLod(glossyNormal, ogUv, 0);
+
+    vec4 nc = textureLod(glossyNormal, uv, mip);
+    vec4 ns1 = textureLod(glossyNormal, uv + vec2(-texelSize.x, -texelSize.y), mip);
+    vec4 ns2 = textureLod(glossyNormal, uv + vec2(0, -texelSize.y), mip);
+    vec4 ns3 = textureLod(glossyNormal, uv + vec2(texelSize.x, -texelSize.y), mip);
+    vec4 ns4 = textureLod(glossyNormal, uv + vec2(-texelSize.x, 0), mip);
+    vec4 ns5 = textureLod(glossyNormal, uv + vec2(texelSize.x, 0), mip);
+    vec4 ns6 = textureLod(glossyNormal, uv + vec2(-texelSize.x, texelSize.y), mip);
+    vec4 ns7 = textureLod(glossyNormal, uv + vec2(0, texelSize.y), mip);
+    vec4 ns8 = textureLod(glossyNormal, uv + vec2(texelSize.x, texelSize.y), mip);
 
     vec4 tl = vec4(0, 0, 0, -1);
     vec4 tr = vec4(0, 0, 0, -1);
@@ -272,20 +285,17 @@ vec4 customBilinear(vec2 uv, int mip, int material) {
     nbl = ns7;
     nbr = ns8;
 
-    float w1 = (1 - f.x) * (1 - f.y) * bilateralWeight(ntl.xyz, ntl.xyz, ntl.w, ntl.w);
-	float w2 = (f.x) * (1 - f.y) * bilateralWeight(ntl.xyz, ntr.xyz, ntl.w, ntr.w);
-	float w3 = (1 - f.x) * (f.y) * bilateralWeight(ntl.xyz, nbl.xyz, ntl.w, nbl.w);
-	float w4 = (f.x) * (f.y) * bilateralWeight(ntl.xyz, nbr.xyz, ntl.w, nbr.w);
+    float w1 = (1 - f.x) * (1 - f.y) * bilateralWeight(defaultNormal.xyz, ntl.xyz, defaultNormal.w, ntl.w, defaultHitDistance, tl.w);
+	float w2 = (f.x) * (1 - f.y) * bilateralWeight(defaultNormal.xyz, ntr.xyz, defaultNormal.w, ntr.w, defaultHitDistance, tr.w);
+	float w3 = (1 - f.x) * (f.y) * bilateralWeight(defaultNormal.xyz, nbl.xyz, defaultNormal.w, nbl.w, defaultHitDistance, bl.w);
+	float w4 = (f.x) * (f.y) * bilateralWeight(defaultNormal.xyz, nbr.xyz, defaultNormal.w, nbr.w, defaultHitDistance, br.w);
     
-    vec4 tA = mix( tl, tr, f.x );
-    vec4 tB = mix( bl, br, f.x );
-    return mix( tA, tB, f.y );
 
     if(w1+w2+w3+w4 > 0.00001) {
 		return (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
 	}
 	else {
-		return tl;
+		return vec4(0,0,0,1);
 	}
 }
 
@@ -320,13 +330,13 @@ void main()
 
     //reflections
     vec4 reflectionColor = vec4(0);
-
+    float tHit = 0;
     if(cameraData.useStochasticSpecular == 0)
     {
         float mipChannel = 0;
         vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
         
-        float tHit = vec4(textureLod(glossyNormal, InUv, 0).xyz, 1.0).w;
+        tHit = textureLod(glossyReflections, InUv, 0).w;
     	float coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness)) * 0.5f;
 	    float adjacentLength = tHit;
         float op_len = 2.0 * tan(coneAngle) * adjacentLength; // opposite side of iso triangle
@@ -348,14 +358,25 @@ void main()
 
         mipChannel = clamp(log2(distance(hitSS1.xy, hitSS2.xy)), 0.0f, 7);
 
-        vec4 lowerMip = customBilinear(InUv, int(mipChannel), inMaterialId);
-        vec4 higherMip = customBilinear(InUv, int(mipChannel) + 1, inMaterialId);
+        bool bicubic = false;
+        vec4 lowerMip = vec4(0);
+        vec4 higherMip = vec4(0);
+        if(bicubic) {
+            lowerMip = vec4(BicubicLagrangeTextureSample(InUv ,int(mipChannel)), 1.0);//customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel)), int(mipChannel), inMaterialId);
+            higherMip = vec4(BicubicLagrangeTextureSample(InUv ,int(mipChannel) + 1), 1.0);//customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel) + 1, inMaterialId);
+        }
+        else {
+            lowerMip = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel)), int(mipChannel), inMaterialId);
+            higherMip = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel) + 1, inMaterialId);
+        }
         reflectionColor = mix(lowerMip, higherMip, mipChannel - int(mipChannel));
+        //somewhat experimental
+        reflectionColor =  mix(reflectionColor, texture(indirectLightMap, inLightmapCoord), (pow(64, mipChannel / 7) - 1) / 63);
         reflectionColor =  mix(reflectionColor, texture(indirectLightMap, inLightmapCoord), (pow(16, roughness) - 1) / 15);
     }
     else {
         if(roughness > 0.05) {
-            reflectionColor = vec4(textureLod(glossyReflections, InUv, 2).xyz, 1.0);
+            reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
         }
         else {
             reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
@@ -379,5 +400,10 @@ void main()
     vec3 outColor = emissive_color + directLight + indirectLight / PI ;
 
     //outFragColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
-    outFragColor = vec4(outColor, 1.0f);
+    //outFragColor = vec4(textureLod(glossyNormal, InUv, 5).xyz, 1.0);
+    //outFragColor = reflectionColor;
+    //outFragColor = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(0)), int(5), inMaterialId);
+    outFragColor = vec4(outColor, 1.0);
 }
+
+// can i make the entire thing work with bicubic filters instead?

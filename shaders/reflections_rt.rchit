@@ -121,6 +121,6 @@ void main()
     vec3 indirectLight = calculate_indirect_lighting_nospecular(albedo, metallic, roughness, normalize(worldNrm), normalize(gl_ObjectRayOriginEXT * 0.3  - worldPos.xyz), texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, vec3(0));
         
     payload.color = directLight + indirectLight;
-    payload.hitDistance = distance(gl_WorldRayOriginEXT * 0.3, worldPos);
+    payload.hitDistance = (gl_RayTminEXT + gl_HitTEXT) * 0.3;
     payload.normal = normalize(worldNrm);
 }
