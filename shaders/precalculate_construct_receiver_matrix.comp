@@ -145,12 +145,12 @@ void main()
                                 * weights[weightIndex];
             }
 
-            if(totalWeight > 0.0001) {
+            if(totalWeight > 0.00001) {
                 validRays++;
                 uint resultIndex = clusterProbe + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount;
                 uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[clusterProbe];
                 float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
-                if(weight > 0.0001) {
+                if(weight > 0.00001) {
                     vec3 dir = normalize(results[resultIndex].dir);
                     float basis[64] = calcY(dir, 7);
                     for(int k = 0; k < config.basisFunctionCount; k++) {

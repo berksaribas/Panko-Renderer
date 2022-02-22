@@ -11,9 +11,9 @@ layout (local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 probeRelightColors[]; };
-layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 clusterProjectionMatrices[]; };
+layout(std430, set = 0, binding = 2) readonly buffer _InputBuffer2 { float clusterProjectionMatrices[]; };
 layout(std430, set = 0, binding = 3) readonly buffer _InputBuffer3 { ClusterReceiverInfo clusterReceiverInfos[]; };
-layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { ivec4 probes[]; };
+layout(std430, set = 0, binding = 4) readonly buffer _InputBuffer4 { int probes[]; };
 layout(set = 0, binding = 5) buffer _OutputBuffer { vec4 outColors[]; };
 
 const float PI  = 3.14159265358979323846264;
@@ -49,12 +49,12 @@ void main()
 
 		for(int i = 0; i < clusterProbeCount; i++) {
 			int probeIndex = clusterProbeOffset + i;
-			int currProbe = probes[probeIndex / 4][probeIndex % 4];
+			int currProbe = probes[probeIndex];
 			for(int k = 0; k < config.basisFunctionCount; k++) {
 				float w = window(floor(sqrt(float(k))), WINDOWING);
 				vec4 color = probeRelightColors[currProbe * config.basisFunctionCount + k];
 				uint index = config.pcaCoefficient * clusterProbeOffset * config.basisFunctionCount + currCoeff * config.basisFunctionCount * clusterProbeCount + i * config.basisFunctionCount + k;
-				outColors[gID] += color * clusterProjectionMatrices[index / 4][index % 4] * w;
+				outColors[gID] += color * clusterProjectionMatrices[index] * w; //this weight multiplication is expensive!
 			}
 		}
 	}

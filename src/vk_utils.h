@@ -26,7 +26,7 @@ namespace vkutils {
 	bool load_image_from_memory(EngineData* engineData, void* pixels, int width, int height, AllocatedImage& outImage, uint32_t& outMipLevels);
 	bool load_shader_module(VkDevice device, const char* filePath, VkShaderModule* outShaderModule);
 	void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
-	AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags = 0);
 	void immediate_submit(EngineData* engineData, std::function<void(VkCommandBuffer cmd)>&& function);
 
 	//debug (from nvpro_core)

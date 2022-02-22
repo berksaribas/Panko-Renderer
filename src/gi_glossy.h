@@ -3,6 +3,7 @@
 #include <gi_gbuffer.h>
 #include <gi_shadow.h>
 #include <gi_diffuse.h>
+#include <gi_brdf.h>
 
 class GlossyIllumination {
 public:
@@ -10,7 +11,7 @@ public:
 	void init_images(EngineData& engineData, VkExtent2D imageSize);
 	void init_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
 	void init_pipelines(EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, bool rebuild = false);
-	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination);
+	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, BRDF& brdfUtils);
 	void cleanup();
 
 	VkDescriptorSet _glossyReflectionsColorTextureDescriptor;

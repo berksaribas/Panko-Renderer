@@ -310,8 +310,8 @@ void GlossyIllumination::init_pipelines(EngineData& engineData, SceneDescriptors
 		_vulkanRaytracing->destroy_raytracing_pipeline(rtPipeline);
 	}
 	
-	VkDescriptorSetLayout setLayouts[] = { rtDescriptorSetLayout, sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 8);
+	VkDescriptorSetLayout setLayouts[] = { rtDescriptorSetLayout, sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 9);
 
 	_vulkanRaytracing->create_new_pipeline(rtPipeline, pipeline_layout_info,
 		"../../shaders/reflections_rt.rgen.spv",
@@ -324,7 +324,7 @@ void GlossyIllumination::init_pipelines(EngineData& engineData, SceneDescriptors
 	init_blur_pipeline(engineData, sceneDescriptors);
 }
 
-void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination)
+void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, BRDF& brdfUtils)
 {
 	{
 		VkImageMemoryBarrier imageMemoryBarrier = {};
@@ -372,7 +372,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
 	
-	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer._gbufferDescriptorSet, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._giIndirectLightTextureDescriptor };
+	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer._gbufferDescriptorSet, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor };
 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
 		(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
@@ -453,7 +453,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 			vkCmdEndRenderPass(cmd);
 		}
 
-		
+		/*
 		{
 			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(engineData.colorRenderPass, previousMipSize, _tempMipmapFramebuffers[i - 1]);
 
@@ -476,7 +476,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
-		}
+		}*/
 		
 
 		{
@@ -494,7 +494,7 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipeline);
 			vkCmdPushConstants(cmd, _blurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &pushData);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 0, 1, &_tempMipmapTextureDescriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 0, 1, &_glossyReflectionsColorTextureDescriptor, 0, nullptr);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 1, 1, &_normalMipmapTextureDescriptor, 0, nullptr);
 
 			vkCmdDraw(cmd, 3, 1, 0, 0);

@@ -20,7 +20,7 @@ public:
 private:
 	VkDescriptorSet _shadowMapDataDescriptor;
 
-	VkExtent2D _shadowMapExtent{ 4096 , 4096 };
+	VkExtent2D _shadowMapExtent{ 2048 , 2048 };
 
 	AllocatedImage _shadowMapDepthImage;
 	VkImageView _shadowMapDepthImageView;

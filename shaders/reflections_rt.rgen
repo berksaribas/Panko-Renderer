@@ -81,18 +81,8 @@ void main()
 			totalColor = mix(totalColor, imageLoad(resultImage, pixel), float(cameraData.frameCount) / float(cameraData.frameCount + 1));
 		}
 		else {
-			int sampleCount = 1;
-			uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + gl_LaunchIDEXT.y * 26699) | 1;
-
-			for(int i = 0; i < sampleCount; i++) {
-				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, clamp(materials[material].roughness_factor, 0, 0));
-				float pdf = Wh_pdf.w;
-				direction = reflect(-view, Wh_pdf.xyz);
-
-				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
-
-				totalColor += vec4(payload.color, payload.hitDistance);
-			}
+			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
+			totalColor = vec4(payload.color, payload.hitDistance);
 			//traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, reflect(-view, normal), tmax, 0);
 			imageStore(resultNormalImage, pixel, vec4(normal, depth));
 		}

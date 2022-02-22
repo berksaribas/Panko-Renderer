@@ -104,7 +104,7 @@ vec3 calculate_indirect_lighting_nospecular(vec3 albedo, float metallic, float r
     kD *= 1.0 - metallic;	  
     vec3 diffuse = diffuseIrradiance * albedo;
 
-    return kD * diffuse;
+    return kD * diffuse + glossyIrradiance;
 }
 
 //[Heitz18] – Eric Heitz, Sampling the GGX Distribution of Visible Normals, JCGT 2018

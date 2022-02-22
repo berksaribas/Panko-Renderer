@@ -1,0 +1,58 @@
+/*
+Need to trace 1000 rays per probe.
+I should be able to trace 1 bounce rays as well
+*/
+
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_debug_printf : enable
+
+#define RAYTRACING
+
+#include "common.glsl"
+#include "brdf.glsl"
+
+layout(location = 0) rayPayloadEXT ReflectionPayload payload;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(set = 0, binding = 1) uniform _SceneDesc { GPUSceneDesc sceneDesc; };
+layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo meshInfos[]; };
+layout(std140, set = 0, binding = 3) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
+layout(set = 0, binding = 4) buffer _ProbeRaycastResult { vec4 results[]; };
+
+const float SEED = PI;
+
+void main() {
+	vec4 origin = probeLocations[gl_LaunchIDEXT.y];
+    float dirY = 1 - (gl_LaunchIDEXT.x / float(gl_LaunchSizeEXT.x - 1)) * 2;
+    float radius = sqrt(1 - dirY * dirY);
+    float theta = PHI * PI * gl_LaunchIDEXT.x;
+    float dirX = cos(theta) * radius;
+    float dirZ = sin(theta) * radius;
+    vec3 direction = normalize(vec3(dirX, dirY, dirZ));
+
+    uint  rayFlags = gl_RayFlagsOpaqueEXT;
+    float tMin     = 0.0001;
+    float tMax     = 10000.0;
+
+    traceRayEXT(topLevelAS,     // acceleration structure
+                rayFlags,       // rayFlags
+                0xFF,           // cullMask
+                0,              // sbtRecordOffset
+                0,              // sbtRecordStride
+                0,              // missIndex
+                origin.xyz,     // ray origin
+                tMin,           // ray min range
+                direction.xyz,  // ray direction
+                tMax,           // ray max range
+                0               // payload (location = 0)
+    );
+    
+    uint index = gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y;
+    results[index] = vec4(payload.color, 1.0);
+}

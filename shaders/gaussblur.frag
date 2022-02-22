@@ -19,7 +19,7 @@ float bilateralWeight(vec3 n1, vec3 n2, float d1, float d2, float hd1, float hd2
 	if(d1 < 0 && d2 < 0) return 0;
 	if(d1 < 0) return 1;
 
-	float normalWeight = max(0, pow(dot(n1,n2), 2)) > 0.1 ? 1 : 0;
+	float normalWeight = max(0, pow(dot(n1,n2), 32));
 	float depthWeight = abs(d1-d2) > 0.5 ? 0 : 1;
 	float hitDistanceWeight = 1 / (EPSILON + abs(hd1-hd2) / 100.0);
 
@@ -30,7 +30,7 @@ float bilateralWeight2(vec3 n1, vec3 n2, float d1, float d2) {
 	if(d1 < 0 && d2 < 0) return 0;
 	if(d1 < 0) return 1;
 
-	float normalWeight = max(0, pow(dot(n1,n2), 2)) > 0.5 ? 1 : 0;
+	float normalWeight = max(0, pow(dot(n1,n2), 32));
 	float depthWeight = abs(d1-d2) > 0.5 ? 0 : 1;
 
 	return normalWeight * depthWeight;
@@ -43,8 +43,8 @@ vec4 bilateralBlur(vec2 uv, vec2 resolution) {
 	vec2 off3 = vec2(3) * direction.xy;
 
 	vec4 mainColor = textureLod(colorSource, uv, direction.z);
-	vec3 mainNormal = textureLod(normalSource, uv, direction.z).xyz;
-	float mainDepth = textureLod(normalSource, uv, direction.z).w;
+	vec3 mainNormal = textureLod(normalSource, uv, direction.z ).xyz;
+	float mainDepth = textureLod(normalSource, uv, direction.z ).w;
 
 	float totalWeight = 0;
 	{
@@ -117,32 +117,78 @@ vec4 bilateralBlur(vec2 uv, vec2 resolution) {
 	return blurred;
 }
 
+#define pow2(x) (x * x)
+const float pi = atan(1.0) * 4.0;
+const int samples = 16;
+const float sigma = float(samples) * 0.25;
+
+float gaussian(vec2 i) {
+    return 1.0 / (2.0 * pi * pow2(sigma)) * exp(-((pow2(i.x) + pow2(i.y)) / (2.0 * pow2(sigma))));
+}
+
+vec4 bilateral4x4(vec2 uv) {
+	vec4 col = vec4(0.0);
+    float accum = 0.0;
+    float weight;
+    vec2 offset;
+
+	vec2 sourceSize = textureSize(colorSource, int(direction.z));
+    vec2 texelSize = vec2(1.0) / sourceSize;
+
+	vec4 lowerNormalDepth = textureLod(normalSource, uv, direction.z + 1);
+
+    for (int x = -samples / 2; x < samples / 2; ++x) {
+        for (int y = -samples / 2; y < samples / 2; ++y) {
+            offset = vec2(x, y);
+			vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - offset * texelSize / 2, direction.z) ;
+            weight = gaussian(offset) * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
+            col += textureLod(colorSource, uv + offset * texelSize - offset * texelSize / 2, direction.z) * weight;
+            accum += weight;
+        }
+    }
+    if(accum > 0.0000001) {
+		return col / accum;
+	}
+	else {
+		return vec4(0); //todo figure this out
+	}
+}
+
 void main(void) {
 	if(direction.x == 1 ) {
 		outFragColor = bilateralBlur(InUv, textureSize(colorSource, int(direction.z)));
+		//outFragColor = textureLod(colorSource, InUv, direction.z);
 	}
 	else if(direction.y == 1) {
+		
+	
 		vec2 uv = InUv;
 		vec2 sourceSize = textureSize(colorSource, int(direction.z));
 		vec2 targetSize = textureSize(colorSource, int(direction.z) + 1);
 		vec2 texelSize = vec2(1.0) / targetSize;
 		vec2 f = fract( uv * targetSize );
 		uv += ( .5 - f ) * texelSize;
-	
+
+		outFragColor = bilateral4x4(uv);
+				
+		/*
 		vec4 tl = bilateralBlur(uv + vec2(-texelSize.x, -texelSize.y) / 4, sourceSize);
 		vec4 tr = bilateralBlur(uv + vec2(texelSize.x, -texelSize.y) / 4, sourceSize);
 		vec4 bl = bilateralBlur(uv + vec2(-texelSize.x, texelSize.y) / 4, sourceSize);
 		vec4 br = bilateralBlur(uv + vec2(texelSize.x, texelSize.y) / 4, sourceSize);
+
 
 		vec4 ntl = textureLod(normalSource, uv + vec2(-texelSize.x, -texelSize.y) / 4, direction.z);
 		vec4 ntr = textureLod(normalSource, uv + vec2(texelSize.x, -texelSize.y) / 4, direction.z);
 		vec4 nbl = textureLod(normalSource, uv + vec2(-texelSize.x, texelSize.y) / 4, direction.z);
 		vec4 nbr = textureLod(normalSource, uv + vec2(texelSize.x, texelSize.y) / 4, direction.z);
 
-		float w1 = 0.25 * bilateralWeight(ntl.xyz, ntl.xyz, ntl.w, ntl.w, tl.w, tl.w);
-		float w2 = 0.25 * bilateralWeight(ntl.xyz, ntr.xyz, ntl.w, ntr.w, tl.w, tr.w);
-		float w3 = 0.25 * bilateralWeight(ntl.xyz, nbl.xyz, ntl.w, nbl.w, tl.w, bl.w);
-		float w4 = 0.25 * bilateralWeight(ntl.xyz, nbr.xyz, ntl.w, nbr.w, tl.w, br.w);
+		vec4 nog = textureLod(normalSource, uv, direction.z + 1);
+
+		float w1 = 0.25 * bilateralWeight(nog.xyz, ntl.xyz, nog.w, ntl.w, tl.w, tl.w);
+		float w2 = 0.25 * bilateralWeight(nog.xyz, ntr.xyz, nog.w, ntr.w, tl.w, tr.w);
+		float w3 = 0.25 * bilateralWeight(nog.xyz, nbl.xyz, nog.w, nbl.w, tl.w, bl.w);
+		float w4 = 0.25 * bilateralWeight(nog.xyz, nbr.xyz, nog.w, nbr.w, tl.w, br.w);
 
 		if(w1+w2+w3+w4 > 0.00001) {
 			outFragColor = (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
@@ -150,6 +196,7 @@ void main(void) {
 		else {
 			outFragColor = tl;
 		}
+	*/
 	}
 	else {
 		vec2 uv = InUv;

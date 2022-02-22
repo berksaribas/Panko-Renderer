@@ -329,13 +329,13 @@ void vkutils::cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent)
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 }
 
-AllocatedBuffer vkutils::create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+AllocatedBuffer vkutils::create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags)
 {
 	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engineData->allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	vkutils::cpu_to_gpu(engineData->allocator, stagingBuffer, buffer_data, size);
 
-	AllocatedBuffer new_buffer = vkutils::create_buffer(engineData->allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage);
+	AllocatedBuffer new_buffer = vkutils::create_buffer(engineData->allocator, size, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, memoryUsage, allocationFlags);
 
 	vkutils::immediate_submit(engineData, [=](VkCommandBuffer cmd) {
 		VkBufferCopy copy;

@@ -9,10 +9,9 @@
 layout (local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
-layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { GPUProbeRaycastResult probeRaycasts[]; };
+layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 probeRaycasts[]; };
 layout(std140, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
 layout(std140, set = 0, binding = 3) buffer _OutputBuffer { vec4 outColors[]; };
-layout(set = 0, binding = 4) uniform sampler2D lightmap;
 
 void main()
 {
@@ -28,16 +27,7 @@ void main()
 
 		for(int j = 0; j < config.rayCount; j+=divider) {
 			uint specialIndex = j * config.basisFunctionCount + basis;
-
-			vec4 color = vec4(0, 0, 0, 1);
-			if(probeRaycasts[probe * config.rayCount + j].objectId != -1) {
-				color.rgb = texture(lightmap, probeRaycasts[probe * config.rayCount + j].lightmapUv / config.lightmapInputSize).rgb;
-			}
-			else {
-				//color = vec4(0.019);
-			}
-
-			tempResult += probeBasis[specialIndex / 4][specialIndex % 4] * color;
+			tempResult += probeBasis[specialIndex / 4][specialIndex % 4] * probeRaycasts[probe * config.rayCount + j];
 		}
 
 		outColors[gID] = tempResult * divider;

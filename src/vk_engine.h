@@ -100,16 +100,6 @@ public:
 	GPUCameraData _camData = {};
 	float _sceneScale = 0.3f;
 
-	/* LIGHTMAP VARIABLES */
-	VkExtent2D _lightmapExtent{ 2048 , 2048 };
-
-	AllocatedImage _lightmapColorImage;
-	VkImageView _lightmapColorImageView;
-	VkFramebuffer _lightmapFramebuffer;
-	VkDescriptorSet _lightmapTextureDescriptor;
-
-	VkPipeline _lightmapPipeline;
-	VkPipelineLayout _lightmapPipelineLayout;
 
 	/* Post processing pipelines */
 	VkPipeline _dilationPipeline;

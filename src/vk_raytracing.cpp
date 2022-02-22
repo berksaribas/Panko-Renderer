@@ -221,7 +221,7 @@ void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructure
 	vmaDestroyBuffer(_allocator, instancesBuffer._buffer, instancesBuffer._allocation);
 }
 
-void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo, const char* rgenPath, const char* missPath, const char* hitPath)
+void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo, const char* rgenPath, const char* missPath, const char* hitPath, int recursionDepth, VkSpecializationInfo* rgenSpecialization, VkSpecializationInfo* missSpecialization, VkSpecializationInfo* hitSpecialization)
 {
 	enum StageIndices
 	{
@@ -237,14 +237,17 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 	stage.pName = "main";  // All the same entry point
 	// Raygen
 	stage.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+	stage.pSpecializationInfo = rgenSpecialization;
 	stages[eRaygen] = stage;
 	vkutils::load_shader_module(_device, rgenPath, &stages[eRaygen].module);
 	// Miss
 	stage.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+	stage.pSpecializationInfo = missSpecialization;
 	stages[eMiss] = stage;
 	vkutils::load_shader_module(_device, missPath, &stages[eMiss].module);
 	// Hit Group - Closest Hit
 	stage.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+	stage.pSpecializationInfo = hitSpecialization;
 	stages[eClosestHit] = stage;
 	vkutils::load_shader_module(_device, hitPath, &stages[eClosestHit].module);
 
@@ -281,7 +284,7 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 	// one miss shader group, and one hit group.
 	rayPipelineInfo.groupCount = static_cast<uint32_t>(raytracingPipeline.shaderGroups.size());
 	rayPipelineInfo.pGroups = raytracingPipeline.shaderGroups.data();
-	rayPipelineInfo.maxPipelineRayRecursionDepth = 1;  // Ray depth
+	rayPipelineInfo.maxPipelineRayRecursionDepth = recursionDepth;  // Ray depth
 	rayPipelineInfo.layout = raytracingPipeline.pipelineLayout;
 
 	vkCreateRayTracingPipelinesKHR(_device, {}, {}, 1, & rayPipelineInfo, nullptr, &raytracingPipeline.pipeline);

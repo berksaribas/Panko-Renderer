@@ -136,8 +136,8 @@ void VulkanEngine::init()
 		precalculationInfo.voxelSize = 0.3;
 		precalculationInfo.voxelPadding = 2;
 		precalculationInfo.probeOverlaps = 10;
-		precalculationInfo.raysPerProbe = 8000;
-		precalculationInfo.raysPerReceiver = 16000;
+		precalculationInfo.raysPerProbe = 1000;
+		precalculationInfo.raysPerReceiver = 8000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
 		precalculationInfo.clusterCoefficientCount = 64;
 		precalculationInfo.maxReceiversInCluster = 1024;
@@ -151,11 +151,12 @@ void VulkanEngine::init()
 	}
 	precalculationInfo.lightmapResolution = res;
 
-
 	//exit(0);
 
-	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors, _lightmapColorImageView);
-	
+	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors);
+	diffuseIllumination.build_rt_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
+	diffuseIllumination.build_realtime_proberaycast_pipeline(_engineData, _sceneDescriptors);
+
 	glossyIllumination.init(_vulkanRaytracing);
 	glossyIllumination.init_images(_engineData, _windowExtent);
 	glossyIllumination.init_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
@@ -223,7 +224,7 @@ void VulkanEngine::draw()
 	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
-	_camData.lightmapTargetSize = {_lightmapExtent.width, _lightmapExtent.height};
+	_camData.lightmapTargetSize = {diffuseIllumination._lightmapExtent.width, diffuseIllumination._lightmapExtent.height};
 
 	_camData.frameCount = _frameNumber;
 
@@ -278,7 +279,7 @@ void VulkanEngine::draw()
 
 		sprintf_s(buffer, "Rebuild Shaders");
 		if(ImGui::Button(buffer)) {
-			diffuseIllumination.rebuild_shaders();
+			diffuseIllumination.rebuild_shaders(_engineData, _sceneDescriptors);
 			init_pipelines(true);
 			shadow.init_pipelines(_engineData, _sceneDescriptors, true);
 			gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
@@ -310,6 +311,9 @@ void VulkanEngine::draw()
 
 		sprintf_s(buffer, "Indirect Diffuse");
 		ImGui::Checkbox(buffer, (bool*) & _camData.indirectDiffuse);
+
+		sprintf_s(buffer, "Use realtime probe raycasting");
+		ImGui::Checkbox(buffer, (bool*)&useRealtimeRaycast);
 
 		sprintf_s(buffer, "Indirect Specular");
 		ImGui::Checkbox(buffer, (bool*)&_camData.indirectSpecular);
@@ -364,7 +368,6 @@ void VulkanEngine::draw()
 		ImGui::NewLine();
 
 		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
-		ImGui::Image(_lightmapTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
 		ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
 		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 		ImGui::End();
@@ -488,35 +491,6 @@ void VulkanEngine::draw()
 		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
-		
-		// LIGHTMAP RENDERING
-		{
-			VkClearValue clearValue;
-			clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-
-			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_engineData.colorRenderPass, _lightmapExtent, _lightmapFramebuffer);
-
-			rpInfo.clearValueCount = 1;
-			VkClearValue clearValues[] = { clearValue };
-			rpInfo.pClearValues = clearValues;
-
-			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkutils::cmd_viewport_scissor(cmd, _lightmapExtent);
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 0, 1, &_sceneDescriptors.globalDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 1, 1, &_sceneDescriptors.objectDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 2, 1, &_sceneDescriptors.textureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 3, 1, &_sceneDescriptors.materialDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightmapPipelineLayout, 5, 1, &diffuseIllumination._giIndirectLightTextureDescriptor, 0, nullptr);
-
-			draw_objects(cmd);
-
-			//finalize the render pass
-			vkCmdEndRenderPass(cmd);
-		}
 
 		{
 			// i need an image barrier here?
@@ -525,9 +499,11 @@ void VulkanEngine::draw()
 				0, 0, nullptr, 0, nullptr, 0, nullptr);
 		}
 
-		diffuseIllumination.render(cmd, _sceneDescriptors);
+		diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
+			draw_objects(cmd);
+		}, useRealtimeRaycast);
 
-		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination);
+		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, brdfUtils);
 
 		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
 		
@@ -1103,34 +1079,6 @@ void VulkanEngine::init_framebuffers()
 	samplerInfo3.minLod = 0.0f;
 	samplerInfo3.maxLod = 1.0f;
 	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo3, nullptr, &_engineData.cubicSampler));
-	
-
-	// Create lightmap framebuffer and its sampler
-	{
-		VkExtent3D lightmapImageExtent3D = {
-			_lightmapExtent.width,
-			_lightmapExtent.height,
-			1
-		};
-
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_lightmapColorImage._image, &_lightmapColorImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_engineData.color32Format, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_engineData.device, &imageViewInfo, nullptr, &_lightmapColorImageView));
-		}
-
-		VkImageView attachments[1] = { _lightmapColorImageView };
-
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_engineData.colorRenderPass, _lightmapExtent);
-		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_lightmapFramebuffer));
-	}
 }
 
 void VulkanEngine::init_commands()
@@ -1282,22 +1230,6 @@ void VulkanEngine::init_descriptors()
 		vkUpdateDescriptorSets(_engineData.device, 3, setWrites, 0, nullptr);
 	}
 
-	//Lightmap texture descriptor
-	{
-		VkDescriptorImageInfo imageBufferInfo;
-		imageBufferInfo.sampler = _engineData.linearSampler;
-		imageBufferInfo.imageView = _lightmapColorImageView;
-		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.singleImageSetLayout, 1);
-
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_lightmapTextureDescriptor);
-
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _lightmapTextureDescriptor, &imageBufferInfo, 0, 1);
-
-		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
-	}
-
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalDescriptor, "GlobalDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalSetLayout, "GlobalDescriptorSetLayout");
 
@@ -1314,18 +1246,6 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_pipelines(bool rebuild) {
 	OPTICK_EVENT();
-
-	VkShaderModule lightmapVertShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/lightmap.vert.spv", &lightmapVertShader))
-	{
-		assert("Lightmap Vertex Shader Loading Issue");
-	}
-
-	VkShaderModule lightmapFragShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/lightmap.frag.spv", &lightmapFragShader))
-	{
-		assert("Lightmap Vertex Shader Loading Issue");
-	}
 
 	VkShaderModule fullscreenVertShader;
 	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/fullscreen.vert.spv", &fullscreenVertShader))
@@ -1346,14 +1266,6 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	}
 
 	if (!rebuild) {
-
-		//LIGHTMAP PIPELINE LAYOUT INFO
-		{
-			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.globalSetLayout, _sceneDescriptors.objectSetLayout, _sceneDescriptors.textureSetLayout, _sceneDescriptors.materialSetLayout, _sceneDescriptors.singleImageSetLayout, _sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
-			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
-		}
-
 		//DILATION PIPELINE LAYOUT INFO
 		{
 			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
@@ -1373,13 +1285,11 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
 		}
 
-		vkutils::setObjectName(_engineData.device, _lightmapPipelineLayout, "LightmapPipelineLayout");
 		vkutils::setObjectName(_engineData.device, _dilationPipelineLayout, "DilationPipelineLayout");
 		vkutils::setObjectName(_engineData.device, _gammaPipelineLayout, "GammaPipelineLayout");
 
 	}
 	else {
-		vkDestroyPipeline(_engineData.device, _lightmapPipeline, nullptr);
 		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
 		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
 	}
@@ -1414,27 +1324,13 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
 	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
 
-	//add the other shaders
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, lightmapVertShader));
-
-	//make sure that triangleFragShader is holding the compiled colored_triangle.frag
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, lightmapFragShader));
-
 	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
-
-	pipelineBuilder._pipelineLayout = _lightmapPipelineLayout;
-
 
 	VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
 	conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
 	conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
 	conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
 	pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
-
-	//build the mesh triangle pipeline
-	_lightmapPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
 
 	/*
 	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
@@ -1471,23 +1367,14 @@ void VulkanEngine::init_pipelines(bool rebuild) {
 
 	_gammaPipeline = pipelineBuilder.build_pipeline(_engineData.device, _renderPass);
 
-	vkutils::setObjectName(_engineData.device, _lightmapPipeline, "LightmapPipeline");
 	vkutils::setObjectName(_engineData.device, _dilationPipeline, "DilationPipeline");
 	vkutils::setObjectName(_engineData.device, _gammaPipeline, "GammaPipeline");
-
-
-	//destroy all shader modules, outside of the queue
-	vkDestroyShaderModule(_engineData.device, lightmapVertShader, nullptr);
-	vkDestroyShaderModule(_engineData.device, lightmapFragShader, nullptr);
 
 	vkDestroyShaderModule(_engineData.device, fullscreenVertShader, nullptr);
 	vkDestroyShaderModule(_engineData.device, dilationFragShader, nullptr);
 	vkDestroyShaderModule(_engineData.device, gammaFragShader, nullptr);
 
 	_mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(_engineData.device, _lightmapPipeline, nullptr);
-		vkDestroyPipelineLayout(_engineData.device, _lightmapPipelineLayout, nullptr);
-
 		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
 		vkDestroyPipelineLayout(_engineData.device, _dilationPipelineLayout, nullptr);
 
@@ -1503,6 +1390,7 @@ void VulkanEngine::init_scene()
 	//std::string file_name = "../../assets/cornellBox.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
 	std::string file_name = "../../assets/cornell3.gltf";
+	//std::string file_name = "../../assets/cornell4.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
