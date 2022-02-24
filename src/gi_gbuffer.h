@@ -20,14 +20,16 @@ private:
 
 	VkExtent2D _imageSize;
 
-	AllocatedImage _gbufferPosMaterialImage;
-	AllocatedImage _gbufferNormalImage;
-	AllocatedImage _gbufferUvImage;
+	AllocatedImage _gbufferAlbedoMetallicImage;
+	AllocatedImage _gbufferNormalMotionImage;
+	AllocatedImage _gbufferRoughnessDepthCurvatureMaterialImage;
+	AllocatedImage _gbufferUVImage;
 	AllocatedImage _gbufferDepthImage;
 
-	VkImageView _gbufferPosMaterialImageView;
-	VkImageView _gbufferNormalImageView;
-	VkImageView _gbufferUvImageView;
+	VkImageView _gbufferAlbedoMetallicImageView;
+	VkImageView _gbufferNormalMotionImageView;
+	VkImageView _gbufferRoughnessDepthCurvatureMaterialImageView;
+	VkImageView _gbufferUVImageView;
 	VkImageView _gbufferDepthImageView;
 
 	VkPipeline _gbufferPipeline;

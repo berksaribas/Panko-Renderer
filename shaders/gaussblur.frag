@@ -117,35 +117,45 @@ vec4 bilateralBlur(vec2 uv, vec2 resolution) {
 	return blurred;
 }
 
-#define pow2(x) (x * x)
-const float pi = atan(1.0) * 4.0;
-const int samples = 16;
-const float sigma = float(samples) * 0.25;
-
-float gaussian(vec2 i) {
-    return 1.0 / (2.0 * pi * pow2(sigma)) * exp(-((pow2(i.x) + pow2(i.y)) / (2.0 * pow2(sigma))));
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * 3.14159265359 * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
 }
 
 vec4 bilateral4x4(vec2 uv) {
 	vec4 col = vec4(0.0);
     float accum = 0.0;
     float weight;
-    vec2 offset;
 
 	vec2 sourceSize = textureSize(colorSource, int(direction.z));
     vec2 texelSize = vec2(1.0) / sourceSize;
 
 	vec4 lowerNormalDepth = textureLod(normalSource, uv, direction.z + 1);
 
-    for (int x = -samples / 2; x < samples / 2; ++x) {
-        for (int y = -samples / 2; y < samples / 2; ++y) {
-            offset = vec2(x, y);
-			vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - offset * texelSize / 2, direction.z) ;
-            weight = gaussian(offset) * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
-            col += textureLod(colorSource, uv + offset * texelSize - offset * texelSize / 2, direction.z) * weight;
+    float deviation = 1;
+	const float c_halfSamplesX = 2.;
+	const float c_halfSamplesY = 2.;
+
+    for (float iy = -c_halfSamplesY; iy <= c_halfSamplesY; iy++)
+    {
+        for (float ix = -c_halfSamplesX; ix <= c_halfSamplesX; ix++)
+        {
+			if(ix == 0 || iy == 0) continue;
+
+            float fx = gaussian_weight(ix - sign(ix) / 2, deviation);
+            float fy = gaussian_weight(iy - sign(iy) / 2, deviation);
+
+            vec2 offset = vec2(ix, iy);
+
+            vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) ;
+            weight = fx *fy * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
+            col += textureLod(colorSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) * weight;
             accum += weight;
         }
     }
+
     if(accum > 0.0000001) {
 		return col / accum;
 	}
@@ -163,40 +173,12 @@ void main(void) {
 		
 	
 		vec2 uv = InUv;
-		vec2 sourceSize = textureSize(colorSource, int(direction.z));
 		vec2 targetSize = textureSize(colorSource, int(direction.z) + 1);
 		vec2 texelSize = vec2(1.0) / targetSize;
 		vec2 f = fract( uv * targetSize );
 		uv += ( .5 - f ) * texelSize;
 
 		outFragColor = bilateral4x4(uv);
-				
-		/*
-		vec4 tl = bilateralBlur(uv + vec2(-texelSize.x, -texelSize.y) / 4, sourceSize);
-		vec4 tr = bilateralBlur(uv + vec2(texelSize.x, -texelSize.y) / 4, sourceSize);
-		vec4 bl = bilateralBlur(uv + vec2(-texelSize.x, texelSize.y) / 4, sourceSize);
-		vec4 br = bilateralBlur(uv + vec2(texelSize.x, texelSize.y) / 4, sourceSize);
-
-
-		vec4 ntl = textureLod(normalSource, uv + vec2(-texelSize.x, -texelSize.y) / 4, direction.z);
-		vec4 ntr = textureLod(normalSource, uv + vec2(texelSize.x, -texelSize.y) / 4, direction.z);
-		vec4 nbl = textureLod(normalSource, uv + vec2(-texelSize.x, texelSize.y) / 4, direction.z);
-		vec4 nbr = textureLod(normalSource, uv + vec2(texelSize.x, texelSize.y) / 4, direction.z);
-
-		vec4 nog = textureLod(normalSource, uv, direction.z + 1);
-
-		float w1 = 0.25 * bilateralWeight(nog.xyz, ntl.xyz, nog.w, ntl.w, tl.w, tl.w);
-		float w2 = 0.25 * bilateralWeight(nog.xyz, ntr.xyz, nog.w, ntr.w, tl.w, tr.w);
-		float w3 = 0.25 * bilateralWeight(nog.xyz, nbl.xyz, nog.w, nbl.w, tl.w, bl.w);
-		float w4 = 0.25 * bilateralWeight(nog.xyz, nbr.xyz, nog.w, nbr.w, tl.w, br.w);
-
-		if(w1+w2+w3+w4 > 0.00001) {
-			outFragColor = (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
-		}
-		else {
-			outFragColor = tl;
-		}
-	*/
 	}
 	else {
 		vec2 uv = InUv;
@@ -221,37 +203,7 @@ void main(void) {
 				totalColor += (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
 				count++;
 			}
-		}/*
-		{
-			float w1 = 0.25 * bilateralWeight(tr.xyz, tl.xyz, tr.w, tl.w);
-			float w2 = 0.25 * bilateralWeight(tr.xyz, tr.xyz, tr.w, tr.w);
-			float w3 = 0.25 * bilateralWeight(tr.xyz, bl.xyz, tr.w, bl.w);
-			float w4 = 0.25 * bilateralWeight(tr.xyz, br.xyz, tr.w, br.w);
-			if(w1+w2+w3+w4 > 0.00001) {
-				totalColor += (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
-				count++;
-			}
 		}
-		{
-			float w1 = 0.25 * bilateralWeight(bl.xyz, tl.xyz, bl.w, tl.w);
-			float w2 = 0.25 * bilateralWeight(bl.xyz, tr.xyz, bl.w, tr.w);
-			float w3 = 0.25 * bilateralWeight(bl.xyz, bl.xyz, bl.w, bl.w);
-			float w4 = 0.25 * bilateralWeight(bl.xyz, br.xyz, bl.w, br.w);
-			if(w1+w2+w3+w4 > 0.00001) {
-				totalColor += (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
-				count++;
-			}
-		}
-		{
-			float w1 = 0.25 * bilateralWeight(br.xyz, tl.xyz, br.w, tl.w);
-			float w2 = 0.25 * bilateralWeight(br.xyz, tr.xyz, br.w, tr.w);
-			float w3 = 0.25 * bilateralWeight(br.xyz, bl.xyz, br.w, bl.w);
-			float w4 = 0.25 * bilateralWeight(br.xyz, br.xyz, br.w, br.w);
-			if(w1+w2+w3+w4 > 0.00001) {
-				totalColor += (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
-				count++;
-			}
-		}*/
 		
 		if(count > 0) {
 			outFragColor = totalColor / count;

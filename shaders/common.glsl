@@ -31,9 +31,9 @@ struct GPUBasicMaterialData {
 };
 
 struct GPUCameraData {
-	mat4 view;
-	mat4 proj;
 	mat4 viewproj;
+	mat4 viewprojInverse;
+	mat4 prevViewproj;
 	vec4 cameraPos;
 	vec4 lightPos;
 	vec4 lightColor;
@@ -161,6 +161,32 @@ vec3 fromLinear(vec3 linearRGB)
     vec3 lower = linearRGB * vec3(12.92);
 	//mat3(0.4124,0.3576,0.1805,0.2126,0.7152,0.0722,0.0193,0.1192,0.9505)*
     return mix(higher, lower, cutoff);
+}
+
+
+vec3 world_position_from_depth(vec2 tex_coords, float ndc_depth, mat4 view_proj_inverse)
+{
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    vec2 screen_pos = tex_coords * 2.0 - 1.0;
+
+    // // Create NDC position.
+    vec4 ndc_pos = vec4(screen_pos, ndc_depth, 1.0);
+
+    // Transform back into world position.
+    vec4 world_pos = view_proj_inverse * ndc_pos;
+
+    // Undo projection.
+    world_pos = world_pos / world_pos.w;
+
+    return world_pos.xyz;
+}
+
+vec3 octohedral_to_direction(vec2 e)
+{
+    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - vec2(1.0));
+    return normalize(v);
 }
 
 #endif

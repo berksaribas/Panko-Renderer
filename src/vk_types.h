@@ -51,6 +51,7 @@ struct EngineData {
 
     VkFormat color32Format = VK_FORMAT_R32G32B32A32_SFLOAT;
     VkFormat color16Format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    VkFormat color8Format = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depth32Format = VK_FORMAT_D32_SFLOAT;
 };
 

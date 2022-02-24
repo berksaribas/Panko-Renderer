@@ -9,11 +9,12 @@ layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec2 vTexCoord;
 layout (location = 3) in vec2 vLightmapCoord;
 
-layout (location = 0) out vec3 outWorldPosition;
-layout (location = 1) flat out int outMaterialId;
-layout (location = 2) out vec3 outNormal;
-layout (location = 3) out vec2 outTexCoord;
-layout (location = 4) out vec2 outLightmapCoord;
+layout (location = 0) out vec4 outPosition;
+layout (location = 1) out vec4 outPrevPosition;
+layout (location = 2) flat out int outMaterialId;
+layout (location = 3) out vec3 outNormal;
+layout (location = 4) out vec2 outTexCoord;
+layout (location = 5) out vec2 outLightmapCoord;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -29,7 +30,9 @@ void main()
 
 	gl_Position = cameraData.viewproj * modelPos;
 
-	outWorldPosition = modelPos.xyz;
+	outPosition = gl_Position;
+	outPrevPosition = cameraData.prevViewproj * modelPos;
+
 	outMaterialId = objectBuffer.objects[gl_BaseInstance].material_id;
 	outNormal = mat3(transpose(inverse(modelMatrix))) * vNormal;
 	outTexCoord = vTexCoord;

@@ -20,9 +20,11 @@ layout (set = 0, binding = 4, rgba32f) uniform image2D resultNormalImage;
 
 layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
-layout(set = 3, binding = 0) uniform sampler2D gbufferPositionMaterial;
-layout(set = 3, binding = 1) uniform sampler2D gbufferNormal;
-layout(set = 3, binding = 2) uniform sampler2D gbufferUV;
+layout(set = 3, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
+layout(set = 3, binding = 1) uniform sampler2D gbufferNormalMotion;
+layout(set = 3, binding = 2) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 3, binding = 3) uniform sampler2D gbufferUV;
+layout(set = 3, binding = 4) uniform sampler2D gbufferDepth;
 
 layout(std140, set = 5, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
 
@@ -47,15 +49,21 @@ float random_float_between(inout uint state, float min, float max) {
 
 void main()
 {
+	const ivec2 size = textureSize(gbufferAlbedoMetallic, 0);
 	ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+	const vec2 pixelCenter = vec2(pixel) + vec2(0.5);
+    const vec2 texCoord = pixelCenter / vec2(size);
 
-	vec3 pos = texelFetch(gbufferPositionMaterial, pixel, 0).xyz / 0.3;
-	int material = int(texelFetch(gbufferPositionMaterial, pixel, 0).w);
-	vec3 normal = texelFetch(gbufferNormal, pixel, 0).xyz;
-	float depth = texelFetch(gbufferNormal, pixel, 0).w;
-	vec3 view = normalize(cameraData.cameraPos.xyz / 0.3 - pos.xyz);
+	float depth = texelFetch(gbufferDepth, pixel, 0).r;
+	vec3 worldPos = world_position_from_depth(texCoord, depth, cameraData.viewprojInverse) / 0.3;
+	float metallic = texelFetch(gbufferAlbedoMetallic, pixel, 0).w;
+	float roughness = texelFetch(gbufferRoughnessDepthCurvatureMaterial, pixel, 0).r;
+	int material = int(texelFetch(gbufferRoughnessDepthCurvatureMaterial, pixel, 0).w);
+	float linearDepth = texelFetch(gbufferRoughnessDepthCurvatureMaterial, pixel, 0).g;
+	vec3 normal = octohedral_to_direction(texelFetch(gbufferNormalMotion, pixel, 0).rg);
+
+	vec3 view = normalize(cameraData.cameraPos.xyz / 0.3 - worldPos.xyz);
     vec3 direction = reflect(-view, normal);
-
 
 	if(material >= 0 ) {
 		uint rayFlags = gl_RayFlagsOpaqueEXT;
@@ -69,11 +77,11 @@ void main()
 
 			int sampleCount = 1;
 			for(int i = 0; i < sampleCount; i++) {
-				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, materials[material].roughness_factor);
+				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, roughness);
 				float pdf = Wh_pdf.w;
 				direction = reflect(-view, Wh_pdf.xyz);
 
-				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
+				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, direction, tmax, 0);
 
 				totalColor += vec4(payload.color, payload.hitDistance);
 			}
@@ -81,10 +89,10 @@ void main()
 			totalColor = mix(totalColor, imageLoad(resultImage, pixel), float(cameraData.frameCount) / float(cameraData.frameCount + 1));
 		}
 		else {
-			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, direction, tmax, 0);
+			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, direction, tmax, 0);
 			totalColor = vec4(payload.color, payload.hitDistance);
-			//traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + normal * 0.1, tmin, reflect(-view, normal), tmax, 0);
-			imageStore(resultNormalImage, pixel, vec4(normal, depth));
+			//traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, reflect(-view, normal), tmax, 0);
+			imageStore(resultNormalImage, pixel, vec4(normal, linearDepth));
 		}
 		imageStore(resultImage, pixel, totalColor);
 	}

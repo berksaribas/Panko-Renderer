@@ -15,9 +15,11 @@ layout (location = 0) out vec4 outFragColor;
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 layout(set = 0, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMapData; };
 
-layout(set = 1, binding = 0) uniform sampler2D gbufferPositionMaterial;
-layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
-layout(set = 1, binding = 2) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormalMotion;
+layout(set = 1, binding = 2) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 1, binding = 3) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 4) uniform sampler2D gbufferDepth;
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(std140, set = 3, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
@@ -73,9 +75,9 @@ float bilateralWeight(vec3 n1, vec3 n2, float d1, float d2, float hd1, float hd2
 	float normalWeight = max(0, pow(dot(n1,n2), 32));
 	float depthWeight = abs(d1-d2) > 0.5 ? 0 : 1;
     
-    float hitDistanceWeight = 1 / (EPSILON + abs(hd1-hd2) / 100.0);
+    //float hitDistanceWeight = 1 / (EPSILON + abs(hd1-hd2) / 100.0);
 
-	return normalWeight * depthWeight  ;
+	return normalWeight * depthWeight ;
 }
 
 
@@ -151,42 +153,53 @@ vec4 customBilinear(vec2 uv, int mip, int material) {
 	}
 }
 
-#define pow2(x) (x * x)
-const float pi = atan(1.0) * 4.0;
-const int samples = 16;
-const float sigma = float(samples) * 0.25;
-
-float gaussian(vec2 i) {
-    return 1.0 / (2.0 * pi * pow2(sigma)) * exp(-((pow2(i.x) + pow2(i.y)) / (2.0 * pow2(sigma))));
+float gaussian_weight(float offset, float deviation)
+{
+    float weight = 1.0 / sqrt(2.0 * 3.14159265359 * deviation * deviation);
+    weight *= exp(-(offset * offset) / (2.0 * deviation * deviation));
+    return weight;
 }
 
 vec4 bilateral4x4(vec2 uv, int mip) {
 	vec4 col = vec4(0.0);
     float accum = 0.0;
     float weight;
-    vec2 offset;
 
 	vec2 sourceSize = textureSize(glossyReflections, mip);
     vec2 texelSize = vec2(1.0) / sourceSize;
 
-    vec2 ogUv = uv;
-    vec2 f = fract( uv * texelSize );
-    //uv += ( .5 - f ) * texelSize;
+	vec4 lowerNormalDepth = textureLod(glossyNormal, uv, 0);
 
-	vec4 lowerNormalDepth = textureLod(glossyNormal, ogUv, 0);
-	float ogHitDistance = textureLod(glossyReflections, ogUv, 0).w;
+    float deviation = 1;
+	const float c_halfSamplesX = 2.;
+	const float c_halfSamplesY = 2.;
 
-    for (int x = -samples / 2; x < samples / 2; ++x) {
-        for (int y = -samples / 2; y < samples / 2; ++y) {
-            offset = vec2(x, y);
-			vec4 normalDepth = bilinear(glossyNormal, uv + offset * texelSize, mip) ;
-            float hitDistance = bilinear(glossyReflections, uv + offset * texelSize, mip).w;
+    for (float iy = -c_halfSamplesY; iy <= c_halfSamplesY; iy++)
+    {
+        for (float ix = -c_halfSamplesX; ix <= c_halfSamplesX; ix++)
+        {          
+            vec2 offset = vec2(ix, iy);
+            
+            vec2 newuv = uv + offset * texelSize;
+            vec2 f = fract( newuv * sourceSize );
+            newuv += ( .5 - f ) * texelSize;
 
-            weight = gaussian(offset) * bilateralWeight(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w, ogHitDistance, hitDistance);
-            col += bilinear(glossyReflections, uv + offset * texelSize, mip) * weight;
+            vec2 dist = newuv - uv;
+
+            float fx = gaussian_weight(dist.x / texelSize.x, deviation);
+            float fy = gaussian_weight(dist.y / texelSize.y, deviation);
+
+			vec4 normalDepth = textureLod(glossyNormal, newuv, mip);
+            weight = fx *fy * bilateralWeight(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w, 0, 0);
+            col += textureLod(glossyReflections, newuv, mip) * weight;
             accum += weight;
         }
     }
+
+    //return textureLod(glossyNormal, uv, 6) * 0.5 + vec4(0.5);
+    //return textureLod(glossyReflections, uv, 6);
+
+    //return textureLod(glossyReflections, uv, mip);
     if(accum > 0.0000001) {
 		return col / accum;
 	}
@@ -197,29 +210,31 @@ vec4 bilateral4x4(vec2 uv, int mip) {
 
 void main()
 {
-    vec3 inWorldPosition = texture(gbufferPositionMaterial, InUv).xyz;
-    int inMaterialId = int(texture(gbufferPositionMaterial, InUv).a);
-    vec3 inNormal = texture(gbufferNormal, InUv).xyz;
-    vec3 inWorldPosition2 = texture(gbufferPositionMaterial, InUv + vec2(1.0) / textureSize(gbufferPositionMaterial,0)).xyz;
-    vec2 inTexCoord = texture(gbufferUV, InUv).xy;
-    vec2 inLightmapCoord = texture(gbufferUV, InUv).zw;
+    vec4 gb1 = texture(gbufferAlbedoMetallic, InUv);
+    vec4 gb2 = texture(gbufferNormalMotion, InUv);
+    vec4 gb3 = texture(gbufferRoughnessDepthCurvatureMaterial, InUv);
+    vec4 gb4 = texture(gbufferUV, InUv);
+
+    vec3 inWorldPosition = world_position_from_depth(InUv, texture(gbufferDepth, InUv).r, cameraData.viewprojInverse);
+    vec3 inWorldPosition2 = world_position_from_depth(InUv + vec2(1.0) / textureSize(gbufferDepth, 0), texture(gbufferDepth, InUv).r, cameraData.viewprojInverse);
+    vec3 inNormal = octohedral_to_direction(gb2.rg);
+    int inMaterialId = int(gb3.a);
+    vec3 albedo = gb1.rgb;
+    float roughness = gb3.r;
+    float metallic = gb1.a;
+    
+    vec2 inTexCoord = gb4.xy;
+    vec2 inLightmapCoord = gb4.zw;
 
     if(inMaterialId < 0) {
         discard;
     }
 
-    vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
+    if(materials[inMaterialId].texture > -1) {
+        albedo = pow(albedo, vec3(2.2));
+    }
+
     vec3 emissive_color = materials[inMaterialId].emissive_color * 0;
-
-    float roughness = materials[inMaterialId].roughness_factor;
-    float metallic = materials[inMaterialId].metallic_factor;
-
-	if(materials[inMaterialId].texture > -1) {
-        albedo = pow(texture(textures[materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
-    }
-    else {
-        albedo = materials[inMaterialId].base_color.xyz;
-    }
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(inWorldPosition, 1.0);
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
@@ -232,7 +247,7 @@ void main()
         if(roughness < 0.05) {
             reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).rgb, 1.0);
         }
-        else if(roughness < 0.75) {
+        else if(roughness < 11) {
             float mipChannel = 0;
             vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
         
@@ -267,24 +282,19 @@ void main()
                 higherMip = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel) + 1, inMaterialId);
             }
             else {
-                lowerMip = bilateral4x4(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel));
-                higherMip = bilateral4x4(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel) + 1);
+                lowerMip = bilateral4x4(InUv, int(mipChannel));
+                higherMip = bilateral4x4(InUv, int(mipChannel) + 1);
             }
             reflectionColor = mix(lowerMip, higherMip, mipChannel - int(mipChannel));
-            reflectionColor =  mix(reflectionColor, texture(indirectLightMap, inLightmapCoord), (pow(64, mipChannel / 7) - 1) / 63);
-            reflectionColor =  mix(reflectionColor, texture(indirectLightMap, inLightmapCoord), (pow(16, roughness) - 1) / 15);
+            reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb / (mix(albedo, vec3(1), roughness)), 1) , (pow(64, mipChannel / 7) - 1) / 63);
+            reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb / (mix(albedo, vec3(1), roughness)), 1) , (pow(16, roughness) - 1) / 15);
         }
         else {
-            reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0);
+            reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb , 1.0);
         }
     }
     else {
-        if(roughness > 0.05) {
             reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
-        }
-        else {
-            reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
-        }
     }
     
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
@@ -297,7 +307,8 @@ void main()
     vec3 outColor = emissive_color + directLight + indirectLight  ;
 
     //outFragColor = vec4(textureLod(glossyNormal, InUv, 2).xyz, 1.0);
-    //outFragColor = reflectionColor;
+    outFragColor = reflectionColor;
+    //outFragColor = vec4(diffuseLight, 1);
     //outFragColor = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(0)), int(5), inMaterialId);
     outFragColor = vec4(outColor, 1.0);
 }

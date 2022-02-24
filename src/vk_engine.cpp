@@ -30,7 +30,7 @@
 #include <gi_brdf.h>
 
 const int MAX_TEXTURES = 80; //TODO: Replace this
-constexpr bool bUseValidationLayers = true;
+constexpr bool bUseValidationLayers = false;
 std::vector<GPUBasicMaterialData> materials;
 
 //Precalculation
@@ -205,6 +205,18 @@ void VulkanEngine::draw()
 	printf("\n\n\n\n\n");
 	OPTICK_EVENT();
 
+	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
+	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
+	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
+
+	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
+	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
+
+	//request image from the swapchain
+	uint32_t swapchainImageIndex;
+	VK_CHECK(vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex));
+
+
 	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
 	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
 	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
@@ -218,9 +230,9 @@ void VulkanEngine::draw()
 	projection[1][1] *= -1;
 
 	//fill a GPU camera data struct
-	_camData.proj = projection;
-	_camData.view = view;
+	_camData.prevViewproj = _camData.viewproj;
 	_camData.viewproj = projection * view;
+	_camData.viewprojInverse = glm::inverse(_camData.viewproj);
 	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
@@ -464,16 +476,6 @@ void VulkanEngine::draw()
 	}
 	vmaUnmapMemory(_engineData.allocator, _objectBuffer._allocation);
 
-	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
-	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
-	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
-
-	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
-	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
-
-	//request image from the swapchain
-	uint32_t swapchainImageIndex;
-	VK_CHECK(vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex));
 
 	//naming it cmd for shorter writing
 	VkCommandBuffer cmd = _mainCommandBuffer;
@@ -491,13 +493,6 @@ void VulkanEngine::draw()
 		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
-
-		{
-			// i need an image barrier here?
-			//probably i dont since that's done via subpass dependencies
-			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0, 0, nullptr, 0, nullptr, 0, nullptr);
-		}
 
 		diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);

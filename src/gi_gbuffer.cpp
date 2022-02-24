@@ -12,16 +12,16 @@
 
 void GBuffer::init_render_pass(EngineData& engineData)
 {
-	VkAttachmentDescription attachmentDescs[4] = {};
+	VkAttachmentDescription attachmentDescs[5] = {};
 
-	for (uint32_t i = 0; i < 4; ++i)
+	for (uint32_t i = 0; i < 5; ++i)
 	{
 		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
 		attachmentDescs[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachmentDescs[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		if (i == 3)
+		if (i == 4)
 		{
 			attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			attachmentDescs[i].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -33,24 +33,26 @@ void GBuffer::init_render_pass(EngineData& engineData)
 		}
 	}
 
-	attachmentDescs[0].format = engineData.color16Format;
+	attachmentDescs[0].format = engineData.color8Format;
 	attachmentDescs[1].format = engineData.color16Format;
 	attachmentDescs[2].format = engineData.color16Format;
-	attachmentDescs[3].format = engineData.depth32Format;
+	attachmentDescs[3].format = engineData.color16Format;
+	attachmentDescs[4].format = engineData.depth32Format;
 
-	VkAttachmentReference colorReferences[3] = {};
+	VkAttachmentReference colorReferences[4] = {};
 	colorReferences[0] = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 	colorReferences[1] = { 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 	colorReferences[2] = { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	colorReferences[3] = { 3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
 	VkAttachmentReference depthReference = {};
-	depthReference.attachment = 3;
+	depthReference.attachment = 4;
 	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.pColorAttachments = colorReferences;
-	subpass.colorAttachmentCount = static_cast<uint32_t>(3);
+	subpass.colorAttachmentCount = static_cast<uint32_t>(4);
 	subpass.pDepthStencilAttachment = &depthReference;
 
 	VkSubpassDependency dependencies[2] = {};
@@ -74,7 +76,7 @@ void GBuffer::init_render_pass(EngineData& engineData)
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassInfo.pAttachments = attachmentDescs;
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(4);
+	renderPassInfo.attachmentCount = 5;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 	renderPassInfo.dependencyCount = 2;
@@ -95,14 +97,14 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 		};
 
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color16Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color8Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferPosMaterialImage._image, &_gbufferPosMaterialImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferAlbedoMetallicImage._image, &_gbufferAlbedoMetallicImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferPosMaterialImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferPosMaterialImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color8Format, _gbufferAlbedoMetallicImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferAlbedoMetallicImageView));
 		}
 
 		{
@@ -110,10 +112,10 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferNormalImage._image, &_gbufferNormalImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferNormalMotionImage._image, &_gbufferNormalMotionImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferNormalImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferNormalImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferNormalMotionImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferNormalMotionImageView));
 		}
 
 		{
@@ -121,10 +123,21 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferUvImage._image, &_gbufferUvImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferRoughnessDepthCurvatureMaterialImage._image, &_gbufferRoughnessDepthCurvatureMaterialImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferUvImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferUvImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferRoughnessDepthCurvatureMaterialImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferRoughnessDepthCurvatureMaterialImageView));
+		}
+
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color16Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferUVImage._image, &_gbufferUVImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferUVImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferUVImageView));
 		}
 
 		{
@@ -138,11 +151,11 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferDepthImageView));
 		}
 
-		VkImageView attachments[4] = { _gbufferPosMaterialImageView, _gbufferNormalImageView, _gbufferUvImageView, _gbufferDepthImageView };
+		VkImageView attachments[5] = { _gbufferAlbedoMetallicImageView, _gbufferNormalMotionImageView, _gbufferRoughnessDepthCurvatureMaterialImageView, _gbufferUVImageView, _gbufferDepthImageView };
 
 		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_gbufferRenderPass, imageSize);
 		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 4;
+		fb_info.attachmentCount = 5;
 		VK_CHECK(vkCreateFramebuffer(engineData.device, &fb_info, nullptr, &_gbufferFrameBuffer));
 		
 		vkutils::setObjectName(engineData.device, _gbufferFrameBuffer, "GBufferFrameBuffer");
@@ -151,31 +164,37 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 
 void GBuffer::init_descriptors(EngineData& engineData)
 {
-	VkDescriptorSetLayoutBinding bindings[3] = {
+	VkDescriptorSetLayoutBinding bindings[5] = {
 		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0),
 		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 1),
-		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 2)
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 2),
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 3),
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 4)
 	};
 	
-	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 3);
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 5);
 	vkCreateDescriptorSetLayout(engineData.device, &setinfo, nullptr, &_gbufferDescriptorSetLayout);
 
 	//Shadow map texture descriptor
 	{
-		VkDescriptorImageInfo posMaterialBufferInfo = { engineData.nearestSampler, _gbufferPosMaterialImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo normalBufferInfo = { engineData.nearestSampler, _gbufferNormalImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo uvBufferInfo = { engineData.nearestSampler, _gbufferUvImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo albedoMetallicBufferInfo = { engineData.nearestSampler, _gbufferAlbedoMetallicImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo normalMotionBufferInfo = { engineData.nearestSampler, _gbufferNormalMotionImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo roughnessDepthCurvatureMaterialBufferInfo = { engineData.nearestSampler, _gbufferRoughnessDepthCurvatureMaterialImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo uvBufferInfo = { engineData.nearestSampler, _gbufferUVImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo depthBufferInfo = { engineData.nearestSampler, _gbufferDepthImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
 		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(engineData.descriptorPool, &_gbufferDescriptorSetLayout, 1);
 		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_gbufferDescriptorSet);
 
-		VkWriteDescriptorSet textures[3] = {
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &posMaterialBufferInfo, 0, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &normalBufferInfo, 1, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &uvBufferInfo, 2, 1),
+		VkWriteDescriptorSet textures[5] = {
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &albedoMetallicBufferInfo, 0, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &normalMotionBufferInfo, 1, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &roughnessDepthCurvatureMaterialBufferInfo, 2, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &uvBufferInfo, 3, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &depthBufferInfo, 4, 1),
 		};
 
-		vkUpdateDescriptorSets(engineData.device, 3, textures, 0, nullptr);
+		vkUpdateDescriptorSets(engineData.device, 5, textures, 0, nullptr);
 	}
 }
 
@@ -195,8 +214,8 @@ void GBuffer::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDesc
 
 	if (!rebuild)
 	{
-		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout };
-		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 2);
+		VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout };
+		VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 4);
 		VK_CHECK(vkCreatePipelineLayout(engineData.device, &pipeline_layout_info, nullptr, &_gbufferPipelineLayout));
 	}
 	else {
@@ -221,13 +240,14 @@ void GBuffer::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDesc
 
 	//a single blend attachment with no blending and writing to RGBA
 
-	VkPipelineColorBlendAttachmentState blendAttachmentState[3] = {
+	VkPipelineColorBlendAttachmentState blendAttachmentState[4] = {
+		vkinit::color_blend_attachment_state(),
 		vkinit::color_blend_attachment_state(),
 		vkinit::color_blend_attachment_state(),
 		vkinit::color_blend_attachment_state()
 	};
 
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(3, blendAttachmentState);
+	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(4, blendAttachmentState);
 
 	//build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
@@ -257,14 +277,15 @@ void GBuffer::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDesc
 
 void GBuffer::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, std::function<void(VkCommandBuffer cmd)>&& function)
 {
-	VkClearValue clearValues[4];
-	clearValues[0].color = { { 0.0f, 0.0f, 0.0f, -1.0f } };
+	VkClearValue clearValues[5];
+	clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 	clearValues[1].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-	clearValues[2].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
-	clearValues[3].depthStencil = { 1.0f, 0 };
+	clearValues[2].color = { { 0.0f, 0.0f, 0.0f, -1.0f } };
+	clearValues[3].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+	clearValues[4].depthStencil = { 1.0f, 0 };
 
 	VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_gbufferRenderPass, _imageSize, _gbufferFrameBuffer);
-	rpInfo.clearValueCount = 4;
+	rpInfo.clearValueCount = 5;
 	rpInfo.pClearValues = clearValues;
 
 	vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -274,6 +295,8 @@ void GBuffer::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescripto
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gbufferPipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gbufferPipelineLayout, 0, 1, &sceneDescriptors.globalDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gbufferPipelineLayout, 1, 1, &sceneDescriptors.objectDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gbufferPipelineLayout, 2, 1, &sceneDescriptors.textureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gbufferPipelineLayout, 3, 1, &sceneDescriptors.materialDescriptor, 0, nullptr);
 
 	function(cmd);
 
@@ -289,14 +312,16 @@ void GBuffer::cleanup(EngineData& engineData)
 
 	vkDestroyFramebuffer(engineData.device, _gbufferFrameBuffer, nullptr);
 
-	vkDestroyImageView(engineData.device, _gbufferPosMaterialImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferNormalImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferUvImageView, nullptr);
+	vkDestroyImageView(engineData.device, _gbufferAlbedoMetallicImageView, nullptr);
+	vkDestroyImageView(engineData.device, _gbufferNormalMotionImageView, nullptr);
+	vkDestroyImageView(engineData.device, _gbufferRoughnessDepthCurvatureMaterialImageView, nullptr);
+	vkDestroyImageView(engineData.device, _gbufferUVImageView, nullptr);
 	vkDestroyImageView(engineData.device, _gbufferDepthImageView, nullptr);
 
-	vmaDestroyImage(engineData.allocator, _gbufferPosMaterialImage._image, _gbufferPosMaterialImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferNormalImage._image, _gbufferNormalImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferUvImage._image, _gbufferUvImage._allocation);
+	vmaDestroyImage(engineData.allocator, _gbufferAlbedoMetallicImage._image, _gbufferAlbedoMetallicImage._allocation);
+	vmaDestroyImage(engineData.allocator, _gbufferNormalMotionImage._image, _gbufferNormalMotionImage._allocation);
+	vmaDestroyImage(engineData.allocator, _gbufferRoughnessDepthCurvatureMaterialImage._image, _gbufferRoughnessDepthCurvatureMaterialImage._allocation);
+	vmaDestroyImage(engineData.allocator, _gbufferUVImage._image, _gbufferUVImage._allocation);
 	vmaDestroyImage(engineData.allocator, _gbufferDepthImage._image, _gbufferDepthImage._allocation);
 
 	vkDestroyRenderPass(engineData.device, _gbufferRenderPass, nullptr);
