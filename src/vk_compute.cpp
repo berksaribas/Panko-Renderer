@@ -123,13 +123,22 @@ void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool des
 	}
 
 	std::vector<VkDescriptorSetLayout> setLayouts;
-	setLayouts.push_back(computeInstance.descriptorSetLayout);
+
+	if (computeInstance.bindings.size() > 0) {
+		setLayouts.push_back(computeInstance.descriptorSetLayout);
+	}
 
 	for (int i = 0; i < computeInstance.extraDescriptorSetLayouts.size(); i++) {
 		setLayouts.push_back(computeInstance.extraDescriptorSetLayouts[i]);
 	}
 
 	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts.data(), setLayouts.size());
+	
+	if (computeInstance.pushConstantRangeCount > 0) {
+		pipeline_layout_info.pushConstantRangeCount = computeInstance.pushConstantRangeCount;
+		pipeline_layout_info.pPushConstantRanges = computeInstance.pushConstantRange;
+	}
+	
 	VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &computeInstance.pipelineLayout));
 
 	VkPipelineShaderStageCreateInfo stage =

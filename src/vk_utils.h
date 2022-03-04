@@ -29,6 +29,8 @@ namespace vkutils {
 	AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags = 0);
 	void immediate_submit(EngineData* engineData, std::function<void(VkCommandBuffer cmd)>&& function);
 
+	void image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange imageSubresourceRange, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
 	//debug (from nvpro_core)
 	void setObjectName(VkDevice device, const uint64_t object, const std::string& name, VkObjectType t);
 

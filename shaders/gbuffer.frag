@@ -46,7 +46,7 @@ vec2 compute_motion_vector(vec4 prev_pos, vec4 current_pos)
     return (prev - current);
 }
 
-float compute_curvature(float depth)
+float compute_curvature()
 {
     vec3 dx = dFdx(inNormal);
     vec3 dy = dFdy(inNormal);
@@ -74,9 +74,10 @@ void main()
     }
 
     gbufferAlbedoMetallic = vec4(albedo, metallic);
-    gbufferNormalMotion = vec4(direction_to_octohedral(inNormal), compute_motion_vector(inPosition, inOldPosition));
+    gbufferNormalMotion = vec4(direction_to_octohedral(inNormal), compute_motion_vector(inOldPosition, inPosition));
     float linearDepth = gl_FragCoord.z / gl_FragCoord.w;
-    float curvature = compute_curvature(linearDepth);
-    gbufferRoughnessDepthCurvatureMaterial = vec4(roughness, linearize_depth(gl_FragCoord.z, 0.1f, 1000.0f), curvature, inMaterialId);
+    float curvature = compute_curvature();
+    //gbufferRoughnessDepthCurvatureMaterial = vec4(roughness, linearize_depth(gl_FragCoord.z, 0.1f, 1000.0f), curvature, inMaterialId);
+    gbufferRoughnessDepthCurvatureMaterial = vec4(roughness, gl_FragCoord.z / gl_FragCoord.w, curvature, inMaterialId);
     gbufferUV = vec4(inTexCoord, inLightmapCoord);
 }

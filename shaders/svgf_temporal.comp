@@ -1,0 +1,334 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_vulkan_glsl : enable
+
+#include "svgf_edge_functions.glsl"
+#include "common.glsl"
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+
+// Current Reprojection Write DS
+
+layout(set = 1, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormalMotion;
+layout(set = 1, binding = 2) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 1, binding = 3) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 4) uniform sampler2D gbufferDepth;
+
+layout(set = 2, binding = 0) uniform sampler2D prev_gbufferAlbedoMetallic;
+layout(set = 2, binding = 1) uniform sampler2D prev_gbufferNormalMotion;
+layout(set = 2, binding = 2) uniform sampler2D prev_gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 2, binding = 3) uniform sampler2D prev_gbufferUV;
+layout(set = 2, binding = 4) uniform sampler2D prev_gbufferDepth;
+
+// Input DS
+layout(set = 3, binding = 0) uniform sampler2D raytracingResult;
+
+// Prev Output
+layout(set = 4, binding = 0) uniform sampler2D historyOutput;
+layout(set = 4, binding = 1) uniform sampler2D historyMoments;
+
+layout(set = 5, binding = 0, rgba16f) uniform writeonly image2D currOutput;
+layout(set = 5, binding = 1, rgba16f) uniform writeonly image2D currMoments;
+
+#define NORMAL_DISTANCE 0.1f
+#define PLANE_DISTANCE 5.0f
+
+#define ALPHA 0.01f
+#define MOMENTS_ALPHA 0.2f
+
+
+float luminance(vec3 c) {
+    return c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
+}
+
+vec3 demodulate(vec3 x, vec3 albedo)
+{
+    return x / max(albedo, vec3(0.001, 0.001, 0.001));
+}
+
+bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
+{
+    vec3  to_current    = current_pos - history_pos;
+    float dist_to_plane = abs(dot(to_current, current_normal));
+
+    return dist_to_plane > PLANE_DISTANCE;
+}
+
+// ------------------------------------------------------------------------
+
+bool out_of_frame_disocclusion_check(ivec2 coord, ivec2 image_dim)
+{
+    // check whether reprojected pixel is inside of the screen
+    if (any(lessThan(coord, ivec2(0, 0))) || any(greaterThan(coord, image_dim - ivec2(1, 1))))
+        return true;
+    else
+        return false;
+}
+
+// ------------------------------------------------------------------------
+
+bool mesh_id_disocclusion_check(float mesh_id, float mesh_id_prev)
+{
+    if (mesh_id == mesh_id_prev)
+        return false;
+    else
+        return true;
+}
+
+// ------------------------------------------------------------------------
+
+bool normals_disocclusion_check(vec3 current_normal, vec3 history_normal)
+{
+    if (pow(abs(dot(current_normal, history_normal)), 2) > NORMAL_DISTANCE)
+        return false;
+    else
+        return true;
+}
+
+// ------------------------------------------------------------------------
+
+bool is_reprojection_valid(ivec2 coord, vec3 current_pos, vec3 history_pos, vec3 current_normal, vec3 history_normal, float current_mesh_id, float history_mesh_id, ivec2 image_dim)
+{
+    // check if the history sample is within the frame
+    if (out_of_frame_disocclusion_check(coord, image_dim)) return false;
+
+    // check if the history belongs to the same surface
+    if (mesh_id_disocclusion_check(current_mesh_id, history_mesh_id)) return false;
+
+    // check if history sample is on the same plane
+    if (plane_distance_disocclusion_check(current_pos, history_pos, current_normal)) return false;
+
+    // check normals for compatibility
+    if (normals_disocclusion_check(current_normal, history_normal)) return false;
+
+    return true;
+}
+
+//
+vec2 surface_point_reprojection(ivec2 coord, vec2 motion_vector, ivec2 size)
+{
+    return vec2(coord) + motion_vector.xy * vec2(size);
+}
+
+// ------------------------------------------------------------------
+
+vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj)
+{
+    const vec2 tex_coord  = current_coord / vec2(size);
+    vec3       ray_origin = world_position_from_depth(tex_coord, depth, view_proj_inverse);
+
+    vec3 camera_ray = ray_origin - cam_pos.xyz;
+
+    float camera_ray_length     = length(camera_ray);
+    float reflection_ray_length = ray_length;
+
+    camera_ray = normalize(camera_ray);
+
+    vec3 parallax_hit_point = cam_pos.xyz + camera_ray * (camera_ray_length + reflection_ray_length);
+
+    vec4 reprojected_parallax_hit_point = prev_view_proj * vec4(parallax_hit_point, 1.0f);
+
+    reprojected_parallax_hit_point.xy /= reprojected_parallax_hit_point.w;
+
+    return (reprojected_parallax_hit_point.xy * 0.5f + 0.5f) * vec2(size);
+}
+
+// ------------------------------------------------------------------------
+
+vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj)
+{
+    const vec2 surface_history_coord = surface_point_reprojection(current_coord, motion, size);
+
+    vec2 history_coord = surface_history_coord;
+
+    if (ray_length > 0.0f && curvature == 0.0f)
+        history_coord = virtual_point_reprojection(current_coord, size, depth, ray_length, cam_pos, view_proj_inverse, prev_view_proj);
+
+    return history_coord;
+}
+
+bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float historyLength, float rayLength)
+{
+    const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    const vec2 imageDim = textureSize(raytracingResult, 0);
+
+    const vec2 pixelCenter = ipos + vec2(0.5f);
+    const vec2 texCoord = pixelCenter / vec2(imageDim);
+
+    vec4 gb1 = texelFetch(gbufferAlbedoMetallic, ipos, 0);
+    vec4 gb2 = texelFetch(gbufferNormalMotion, ipos, 0);
+    vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
+
+    float depth = texelFetch(gbufferDepth, ipos, 0).r;
+    const vec2 motion = gb2.zw;
+
+    const vec3 current_normal = octohedral_to_direction(gb2.xy);
+    const float current_mesh_id = gb3.w;
+    const vec3 current_pos = world_position_from_depth(texCoord, depth, cameraData.viewprojInverse);
+
+    // +0.5 to account for texel center offset
+    const float curvature = gb3.b;
+    const vec2 texPrevCoord = texCoord + motion.xy;
+    const vec2 reprojected_coord = compute_history_coord(ipos, 
+                                                            ivec2(imageDim), 
+                                                            depth, 
+                                                            motion, 
+                                                            curvature, 
+                                                            rayLength, 
+                                                            cameraData.cameraPos.xyz, 
+                                                            cameraData.viewprojInverse, 
+                                                            cameraData.prevViewproj);   
+    const ivec2 iposPrev = ivec2(reprojected_coord);                                                      
+    const vec2  posPrev = reprojected_coord;                                                                                                         
+
+
+    prevIndirect = vec4(0,0,0,0);
+    prevMoments  = vec2(0,0);
+
+    bool v[4];
+    ivec2 offset[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+    
+
+    // check for all 4 taps of the bilinear filter for validity
+	bool valid = false;
+    for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+    { 
+        ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
+        vec4 prev_gb1 = texelFetch(prev_gbufferAlbedoMetallic, loc, 0);
+        vec4 prev_gb2 = texelFetch(prev_gbufferNormalMotion, loc, 0);
+        vec4 prev_gb3 = texelFetch(prev_gbufferRoughnessDepthCurvatureMaterial, loc, 0);
+
+        float history_depth = texelFetch(prev_gbufferDepth, loc, 0).r;
+        const vec2 motion = prev_gb2.zw;
+
+        const vec3 history_normal = octohedral_to_direction(prev_gb2.xy);
+        const float history_mesh_id = prev_gb3.w;
+        const vec3 history_pos = world_position_from_depth(texPrevCoord, history_depth, cameraData.viewprojInverse);
+
+        v[sampleIdx] = is_reprojection_valid(iposPrev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, ivec2(imageDim));
+
+        valid = valid || v[sampleIdx];
+    }    
+
+    if (valid) 
+    {
+        float sumw = 0;
+        float x = fract(posPrev.x);
+        float y = fract(posPrev.y);
+
+        // bilinear weights
+        float w[4] = { (1 - x) * (1 - y), 
+                            x  * (1 - y), 
+                       (1 - x) *      y,
+                            x  *      y };
+
+        prevIndirect = vec4(0,0,0,0);
+        prevMoments  = vec2(0,0);
+
+        // perform the actual bilinear interpolation
+        for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+        {
+            ivec2 loc = ivec2(posPrev) + offset[sampleIdx];            
+            if (v[sampleIdx])
+            {
+                prevIndirect += w[sampleIdx] * texelFetch(historyOutput, loc, 0);
+                prevMoments  += w[sampleIdx] * texelFetch(historyMoments, loc, 0).xy;
+                sumw         += w[sampleIdx];
+            }
+        }
+
+		// redistribute weights in case not all taps were used
+		valid = (sumw >= 0.01);
+		prevIndirect = valid ? prevIndirect / sumw : vec4(0, 0, 0, 0);
+		prevMoments  = valid ? prevMoments / sumw  : vec2(0, 0);
+    }
+    if(!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+    {
+        float cnt = 0.0;
+
+        // this code performs a binary descision for each tap of the cross-bilateral filter
+        const int radius = 1;
+        for (int yy = -radius; yy <= radius; yy++)
+        {
+            for (int xx = -radius; xx <= radius; xx++)
+            {
+                ivec2 p = iposPrev + ivec2(xx, yy);
+                vec4 prev_gb1 = texelFetch(prev_gbufferAlbedoMetallic, p, 0);
+                vec4 prev_gb2 = texelFetch(prev_gbufferNormalMotion, p, 0);
+                vec4 prev_gb3 = texelFetch(prev_gbufferRoughnessDepthCurvatureMaterial, p, 0);
+
+                float history_depth = texelFetch(prev_gbufferDepth, p, 0).r;
+                const vec2 motion = prev_gb2.zw;
+
+                const vec3 history_normal = octohedral_to_direction(prev_gb2.xy);
+                const float history_mesh_id = prev_gb3.z;
+                const vec3 history_pos = world_position_from_depth(texPrevCoord, history_depth, cameraData.viewprojInverse);
+
+                if ( is_reprojection_valid(iposPrev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, ivec2(imageDim)))
+                {
+                    prevIndirect += texelFetch(historyOutput, p, 0);
+					prevMoments += texelFetch(historyMoments, p, 0).xy;
+                    cnt += 1.0;
+                }
+            }
+        }
+        if (cnt > 0)
+        {
+            valid = true;
+            prevIndirect /= cnt;
+            prevMoments  /= cnt;
+        }
+
+    }
+
+    if (valid)
+    {
+        historyLength = texelFetch(historyMoments, iposPrev, 0).b;
+    }
+    else
+    {
+        prevIndirect = vec4(0,0,0,0);
+        prevMoments = vec2(0,0);
+        historyLength = 0;
+    }
+
+    return valid;
+}
+
+void main()
+{
+    const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    vec4 indirect_raylength = texelFetch(raytracingResult, ipos, 0).rgba;
+    vec3 indirect = indirect_raylength.rgb;
+    float rayLength = indirect_raylength.a;
+    float historyLength;
+    vec4 prevIndirect;
+    vec2 prevMoments;
+	bool success = loadPrevData(prevIndirect, prevMoments, historyLength, rayLength);
+	historyLength = min( 32.0f, success ? historyLength + 1.0f : 1.0f );
+
+    // this adjusts the alpha for the case where insufficient history is available.
+    // It boosts the temporal accumulation to give the samples equal weights in
+    // the beginning.
+    float alpha        = success ? max(ALPHA,        1.0 / historyLength) : 1.0;
+    float alphaMoments = success ? max(MOMENTS_ALPHA, 1.0 / historyLength) : 1.0;
+
+    // compute first two moments of luminance
+    vec2 moments;
+    moments.r = luminance(indirect);
+    moments.g = moments.r * moments.r;
+
+    // temporal integration of the moments
+    moments = mix(prevMoments, moments, alphaMoments);
+
+    float variance = max(0.0f, moments.g - moments.r * moments.r);
+
+    // temporal integration of radiance
+    vec4 accumulated_color = mix(prevIndirect, vec4(indirect, 0), alpha);
+    
+    imageStore(currMoments, ivec2(gl_GlobalInvocationID.xy), vec4(moments, historyLength, 0.0f));
+    imageStore(currOutput, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_color.xyz, variance));
+}

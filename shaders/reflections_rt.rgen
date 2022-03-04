@@ -15,8 +15,8 @@
 layout(location = 0) rayPayloadEXT ReflectionPayload payload;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout (set = 0, binding = 3, rgba32f) uniform image2D resultImage;
-layout (set = 0, binding = 4, rgba32f) uniform image2D resultNormalImage;
+layout (set = 0, binding = 3, rgba16f) uniform image2D resultImage;
+layout (set = 0, binding = 4, rgba16f) uniform image2D resultNormalImage;
 
 layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -28,23 +28,37 @@ layout(set = 3, binding = 4) uniform sampler2D gbufferDepth;
 
 layout(std140, set = 5, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
 
+layout(set = 9, binding = 0) uniform sampler2D sobolSequence;
+layout(set = 9, binding = 1) uniform sampler2D scramblingRankingTile;
 
-uint wang_hash(inout uint seed) {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed *= 9;
-    seed = seed ^ (seed >> 4);
-    seed *= 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed;
-}
-
-float random_float(inout uint state)
+//  Distributing Monte Carlo Errors as a Blue Noise in Screen Space by Permuting Pixel Seeds Between Frames 
+//  https://belcour.github.io/blog/research/publication/2019/06/18/animation-bluenoise.html
+float sample_blue_noise(ivec2 coord, int sample_index, int sample_dimension, sampler2D sobol_sequence_tex, sampler2D scrambling_ranking_tex)
 {
-    return (wang_hash(state) & 0xFFFFFF) / 16777216.0f;
+	// wrap arguments
+	coord.x = coord.x % 128;
+	coord.y = coord.y % 128;
+	sample_index = sample_index % 256;
+	sample_dimension = sample_dimension % 4;
+
+	// xor index based on optimized ranking
+	int ranked_sample_index = sample_index ^ int(clamp(texelFetch(scrambling_ranking_tex, ivec2(coord.x, coord.y), 0).b * 256.0f, 0.0f, 255.0f));
+	
+    // fetch value in sequence
+	int value = int(clamp(texelFetch(sobol_sequence_tex, ivec2(ranked_sample_index, 0), 0)[sample_dimension] * 256.0f, 0.0f, 255.0f));
+	
+    // If the dimension is optimized, xor sequence value based on optimized scrambling
+	value = value ^ int(clamp(texelFetch(scrambling_ranking_tex, ivec2(coord.x, coord.y), 0)[sample_dimension % 2] * 256.0f, 0.0f, 255.0f));
+	
+    // convert to float and return
+	float v = (0.5f + value) / 256.0f;
+	return v;
 }
 
-float random_float_between(inout uint state, float min, float max) {
-    return min + (max - min) * random_float(state);
+vec2 next_sample(ivec2 coord)
+{
+    return vec2(sample_blue_noise(coord, int(cameraData.frameCount), 0, sobolSequence, scramblingRankingTile),
+                sample_blue_noise(coord, int(cameraData.frameCount), 1, sobolSequence, scramblingRankingTile));
 }
 
 void main()
@@ -72,21 +86,16 @@ void main()
 		float tmax = 100000.0;
 
 		vec4 totalColor = vec4(0);
-		if(cameraData.useStochasticSpecular == 1) {
-			uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + cameraData.frameCount * 26699) | 1;
-
-			int sampleCount = 1;
-			for(int i = 0; i < sampleCount; i++) {
-				vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), normal, roughness);
+		if(cameraData.useStochasticSpecular == 1) {			
+			{
+				vec4 Wh_pdf = importance_sample_ggx(next_sample(pixel), normal, roughness);
 				float pdf = Wh_pdf.w;
 				direction = reflect(-view, Wh_pdf.xyz);
 
 				traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, direction, tmax, 0);
 
-				totalColor += vec4(payload.color, payload.hitDistance);
+				totalColor = vec4(payload.color, payload.hitDistance);
 			}
-			totalColor /= sampleCount;
-			totalColor = mix(totalColor, imageLoad(resultImage, pixel), float(cameraData.frameCount) / float(cameraData.frameCount + 1));
 		}
 		else {
 			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, direction, tmax, 0);

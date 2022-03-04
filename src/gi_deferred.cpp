@@ -123,13 +123,53 @@ void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescript
 	vkutils::cmd_viewport_scissor(cmd, _imageSize);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipeline);
+
+	VkDescriptorSet gbufferCurrentDescriptor = gbuffer.getGbufferCurrentDescriptorSet();
+
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 0, 1, &sceneDescriptors.globalDescriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 1, 1, &gbuffer._gbufferDescriptorSet, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 1, 1, &gbufferCurrentDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 2, 1, &sceneDescriptors.textureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 3, 1, &sceneDescriptors.materialDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 5, 1, &diffuseIllumination._giIndirectLightTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 6, 1, &glossyIllumination._glossyReflectionsColorTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 7, 1, &brdfUtils._brdfLutTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 8, 1, &glossyIllumination._normalMipmapTextureDescriptor, 0, nullptr);
+
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	//finalize the render pass
+	vkCmdEndRenderPass(cmd);
+}
+
+void Deferred::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination, BRDF& brdfUtils, GlossyDenoise& glossyDenoise)
+{
+	VkClearValue clearValue;
+	clearValue.color = { { 0, 0, 0, 0 } };
+
+	VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(engineData.colorRenderPass, _imageSize, _deferredFramebuffer);
+
+	rpInfo.clearValueCount = 1;
+	VkClearValue clearValues[] = { clearValue };
+	rpInfo.pClearValues = clearValues;
+
+	vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	vkutils::cmd_viewport_scissor(cmd, _imageSize);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipeline);
+
+	VkDescriptorSet gbufferCurrentDescriptor = gbuffer.getGbufferCurrentDescriptorSet();
+
+	auto denoisedGlossy = glossyDenoise.getDenoisedDescriptor();
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 0, 1, &sceneDescriptors.globalDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 1, 1, &gbufferCurrentDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 2, 1, &sceneDescriptors.textureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 3, 1, &sceneDescriptors.materialDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 4, 1, &shadow._shadowMapTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 5, 1, &diffuseIllumination._giIndirectLightTextureDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 6, 1, &denoisedGlossy, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 7, 1, &brdfUtils._brdfLutTextureDescriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _deferredPipelineLayout, 8, 1, &glossyIllumination._normalMipmapTextureDescriptor, 0, nullptr);
 

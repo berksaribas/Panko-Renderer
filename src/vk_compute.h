@@ -31,6 +31,9 @@ struct ComputeInstance {
 	VkDescriptorSet descriptorSet;
 
 	std::vector<ComputeBinding> bindings;
+
+	VkPushConstantRange* pushConstantRange;
+	int pushConstantRangeCount = 0;
 };
 
 class VulkanCompute {

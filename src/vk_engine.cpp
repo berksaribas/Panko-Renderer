@@ -28,6 +28,7 @@
 #include <gi_gbuffer.h>
 #include <gi_deferred.h>
 #include <gi_brdf.h>
+#include <gi_glossy_svgf.h>
 
 const int MAX_TEXTURES = 80; //TODO: Replace this
 constexpr bool bUseValidationLayers = false;
@@ -46,6 +47,7 @@ Shadow shadow;
 Deferred deferred;
 GlossyIllumination glossyIllumination;
 BRDF brdfUtils;
+GlossyDenoise glossyDenoise;
 
 //Imgui
 bool enableGi = false;
@@ -160,8 +162,13 @@ void VulkanEngine::init()
 	glossyIllumination.init(_vulkanRaytracing);
 	glossyIllumination.init_images(_engineData, _windowExtent);
 	glossyIllumination.init_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
-	glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
+	glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils);
 
+	glossyDenoise.init(&_vulkanCompute);
+	glossyDenoise.init_images(_engineData, _windowExtent);
+	glossyDenoise.init_descriptors(_engineData, _sceneDescriptors);
+	glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
+	
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
 	shadow._shadowMapData.LightBleedingReduction = 0.999f;
@@ -296,7 +303,9 @@ void VulkanEngine::draw()
 			shadow.init_pipelines(_engineData, _sceneDescriptors, true);
 			gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
 			deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
-			glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
+			glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils, true);
+			glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
+
 		}
 
 		ImGui::NewLine();
@@ -333,10 +342,10 @@ void VulkanEngine::draw()
 		if (_camData.indirectSpecular) {
 			sprintf_s(buffer, "Use Stochastic Raytracing");
 			if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
-				_frameNumber = 0;
+				///_frameNumber = 0;
 			}
 			if (_camData.useStochasticSpecular) {
-				ImGui::Text("Currently using stochastic raytracing.");
+				ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
 			}
 			else {
 				ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
@@ -440,7 +449,7 @@ void VulkanEngine::draw()
 
 		if (materialsChanged) {
 			vkutils::cpu_to_gpu(_engineData.allocator, material_buffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
-			_frameNumber = 0;
+			///_frameNumber = 0;
 		}
 		
 		ImGui::Render();
@@ -500,7 +509,13 @@ void VulkanEngine::draw()
 
 		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, brdfUtils);
 
-		deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
+		if (_camData.useStochasticSpecular) {
+			glossyDenoise.render(cmd, _engineData, _sceneDescriptors, gbuffer, glossyIllumination);
+			deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise);
+		}
+		else {
+			deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
+		}
 		
 		//POST PROCESSING + UI
 		{
@@ -647,7 +662,7 @@ void VulkanEngine::run()
 			moved = true;
 		}
 		if (moved) {
-			_frameNumber = 0;
+			///_frameNumber = 0;
 		}
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplSDL2_NewFrame(_window);

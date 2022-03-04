@@ -25,36 +25,21 @@ void GlossyIllumination::init_images(EngineData& engineData, VkExtent2D imageSiz
 
 	// COLOR IMAGE
 	{
-		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
+		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color16Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
 		VmaAllocationCreateInfo dimg_allocinfo = {};
 		dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 		dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_glossyReflectionsColorImage._image, &_glossyReflectionsColorImage._allocation, nullptr);
 
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _glossyReflectionsColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
+		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _glossyReflectionsColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
 		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_glossyReflectionsColorImageView));
 	}
 
 	vkutils::immediate_submit(&engineData, [&](VkCommandBuffer cmd) {
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.image = _glossyReflectionsColorImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = 0;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
+		vkutils::image_barrier(cmd, _glossyReflectionsColorImage._image,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+			{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+			0, VK_ACCESS_SHADER_WRITE_BIT);
 	});
 
 	_colorMipmapImageViews = std::vector<VkImageView>(mipmapLevels);
@@ -62,7 +47,7 @@ void GlossyIllumination::init_images(EngineData& engineData, VkExtent2D imageSiz
 
 	for (int i = 0; i < mipmapLevels; i++) {
 		//create image views and their framebuffers.
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _glossyReflectionsColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _glossyReflectionsColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 		imageViewInfo.subresourceRange.baseMipLevel = i;
 		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_colorMipmapImageViews[i]));
 
@@ -74,44 +59,30 @@ void GlossyIllumination::init_images(EngineData& engineData, VkExtent2D imageSiz
 
 	// NORMAL IMAGE
 	{
-		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
+		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color16Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
 		VmaAllocationCreateInfo dimg_allocinfo = {};
 		dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 		dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_normalImage._image, &_normalImage._allocation, nullptr);
 		
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _normalImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
+		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _normalImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
 		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_normalImageView));
 
 	}
 
 	vkutils::immediate_submit(&engineData, [&](VkCommandBuffer cmd) {
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.image = _normalImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = 0;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		vkutils::image_barrier(cmd, _normalImage._image,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+			{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+			0, VK_ACCESS_SHADER_WRITE_BIT);
+	});
 
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-		});
 	_normalMipmapImageViews = std::vector<VkImageView>(mipmapLevels);
 	_normalMipmapFramebuffers = std::vector<VkFramebuffer>(mipmapLevels);
 
 	for (int i = 0; i < mipmapLevels; i++) {
 		//create image views and their framebuffers.
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _normalImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _normalImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
 		imageViewInfo.subresourceRange.baseMipLevel = i;
 		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_normalMipmapImageViews[i]));
 
@@ -127,14 +98,14 @@ void GlossyIllumination::init_images(EngineData& engineData, VkExtent2D imageSiz
 		_tempMipmapFramebuffers = std::vector<VkFramebuffer>(mipmapLevels);
 
 
-		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
+		VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color16Format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, extent3D, mipmapLevels);
 		VmaAllocationCreateInfo dimg_allocinfo = {};
 		dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 		dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_tempImage._image, &_tempImage._allocation, nullptr);
 
 		for (int i = 0; i < mipmapLevels; i++) {
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _tempImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _tempImage._image, VK_IMAGE_ASPECT_COLOR_BIT, mipmapLevels);
 			imageViewInfo.subresourceRange.baseMipLevel = i;
 			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_tempMipmapImageViews[i]));
 
@@ -304,14 +275,14 @@ void GlossyIllumination::init_blur_pipeline(EngineData& engineData, SceneDescrip
 	_blurPipeline = pipelineBuilder.build_pipeline(engineData.device, engineData.colorRenderPass);
 }
 
-void GlossyIllumination::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, bool rebuild)
+void GlossyIllumination::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, BRDF& brdfUtils, bool rebuild)
 {
 	if (rebuild) {
 		_vulkanRaytracing->destroy_raytracing_pipeline(rtPipeline);
 	}
 	
-	VkDescriptorSetLayout setLayouts[] = { rtDescriptorSetLayout, sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 9);
+	VkDescriptorSetLayout setLayouts[] = { rtDescriptorSetLayout, sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, gbuffer._gbufferDescriptorSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, brdfUtils._blueNoiseDescriptorSetLayout  };
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 10);
 
 	_vulkanRaytracing->create_new_pipeline(rtPipeline, pipeline_layout_info,
 		"../../shaders/reflections_rt.rgen.spv",
@@ -326,102 +297,35 @@ void GlossyIllumination::init_pipelines(EngineData& engineData, SceneDescriptors
 
 void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, BRDF& brdfUtils)
 {
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		// We won't be changing the layout of the image
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.image = _glossyReflectionsColorImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-	}
+	vkutils::image_barrier(cmd, _glossyReflectionsColorImage._image,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+		{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		// We won't be changing the layout of the image
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.image = _normalImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-	}
+	vkutils::image_barrier(cmd, _normalImage._image,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+		{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
 	
-	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer._gbufferDescriptorSet, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor };
+	std::vector<VkDescriptorSet> descSets{ rtDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, gbuffer.getGbufferCurrentDescriptorSet(), sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, diffuseIllumination._giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor, brdfUtils._blueNoiseDescriptor};
 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
 		(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 
 	vkCmdTraceRaysKHR(cmd, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, _imageSize.width, _imageSize.height, 1);
 
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		// We won't be changing the layout of the image
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageMemoryBarrier.image = _glossyReflectionsColorImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-	}
+	vkutils::image_barrier(cmd, _glossyReflectionsColorImage._image,
+		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		// We won't be changing the layout of the image
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageMemoryBarrier.image = _normalImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-	}
+	vkutils::image_barrier(cmd, _normalImage._image,
+		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+
 
 	//Do gaussian blur on each mip chain. Each mip will sample from the previous mip. I'll need a temp image as well
 	for (int i = 1; i < mipmapLevels; i++) {
@@ -452,32 +356,6 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 			//finalize the render pass
 			vkCmdEndRenderPass(cmd);
 		}
-
-		/*
-		{
-			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(engineData.colorRenderPass, previousMipSize, _tempMipmapFramebuffers[i - 1]);
-
-			rpInfo.clearValueCount = 1;
-			VkClearValue clearValues[] = { clearValue };
-			rpInfo.pClearValues = clearValues;
-
-			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkutils::cmd_viewport_scissor(cmd, previousMipSize);
-
-			glm::vec3 pushData = { 1, 0, i - 1 };
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipeline);
-			vkCmdPushConstants(cmd, _blurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &pushData);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 0, 1, &_glossyReflectionsColorTextureDescriptor, 0, nullptr);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _blurPipelineLayout, 1, 1, &_normalMipmapTextureDescriptor, 0, nullptr);
-
-			vkCmdDraw(cmd, 3, 1, 0, 0);
-
-			//finalize the render pass
-			vkCmdEndRenderPass(cmd);
-		}*/
-		
 
 		{
 			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(engineData.colorRenderPass, mipSize, _colorMipmapFramebuffers[i]);

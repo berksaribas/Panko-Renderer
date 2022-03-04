@@ -88,23 +88,22 @@ void GBuffer::init_render_pass(EngineData& engineData)
 void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 {
 	_imageSize = imageSize;
-
+	VkExtent3D extent3D = {
+				_imageSize.width,
+				_imageSize.height,
+				1
+			};
+	for(int i = 0; i < 2; i++)
 	{
-		VkExtent3D extent3D = {
-			_imageSize.width,
-			_imageSize.height,
-			1
-		};
-
 		{
 			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color8Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferAlbedoMetallicImage._image, &_gbufferAlbedoMetallicImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferdata[i]._gbufferAlbedoMetallicImage._image, &_gbufferdata[i]._gbufferAlbedoMetallicImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color8Format, _gbufferAlbedoMetallicImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferAlbedoMetallicImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color8Format, _gbufferdata[i]._gbufferAlbedoMetallicImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferdata[i]._gbufferAlbedoMetallicImageView));
 		}
 
 		{
@@ -112,10 +111,10 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferNormalMotionImage._image, &_gbufferNormalMotionImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferdata[i]._gbufferNormalMotionImage._image, &_gbufferdata[i]._gbufferNormalMotionImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferNormalMotionImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferNormalMotionImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferdata[i]._gbufferNormalMotionImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferdata[i]._gbufferNormalMotionImageView));
 		}
 
 		{
@@ -123,10 +122,10 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferRoughnessDepthCurvatureMaterialImage._image, &_gbufferRoughnessDepthCurvatureMaterialImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImage._image, &_gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferRoughnessDepthCurvatureMaterialImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferRoughnessDepthCurvatureMaterialImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImageView));
 		}
 
 		{
@@ -134,10 +133,10 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferUVImage._image, &_gbufferUVImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferdata[i]._gbufferUVImage._image, &_gbufferdata[i]._gbufferUVImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferUVImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferUVImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color16Format, _gbufferdata[i]._gbufferUVImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferdata[i]._gbufferUVImageView));
 		}
 
 		{
@@ -145,20 +144,20 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			VmaAllocationCreateInfo dimg_allocinfo = {};
 			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferDepthImage._image, &_gbufferDepthImage._allocation, nullptr);
+			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_gbufferdata[i]._gbufferDepthImage._image, &_gbufferdata[i]._gbufferDepthImage._allocation, nullptr);
 
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.depth32Format, _gbufferDepthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferDepthImageView));
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.depth32Format, _gbufferdata[i]._gbufferDepthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
+			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_gbufferdata[i]._gbufferDepthImageView));
 		}
 
-		VkImageView attachments[5] = { _gbufferAlbedoMetallicImageView, _gbufferNormalMotionImageView, _gbufferRoughnessDepthCurvatureMaterialImageView, _gbufferUVImageView, _gbufferDepthImageView };
+		VkImageView attachments[5] = { _gbufferdata[i]._gbufferAlbedoMetallicImageView, _gbufferdata[i]._gbufferNormalMotionImageView, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImageView, _gbufferdata[i]._gbufferUVImageView, _gbufferdata[i]._gbufferDepthImageView };
 
 		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_gbufferRenderPass, imageSize);
 		fb_info.pAttachments = attachments;
 		fb_info.attachmentCount = 5;
-		VK_CHECK(vkCreateFramebuffer(engineData.device, &fb_info, nullptr, &_gbufferFrameBuffer));
+		VK_CHECK(vkCreateFramebuffer(engineData.device, &fb_info, nullptr, &_gbufferdata[i]._gbufferFrameBuffer));
 		
-		vkutils::setObjectName(engineData.device, _gbufferFrameBuffer, "GBufferFrameBuffer");
+		vkutils::setObjectName(engineData.device, _gbufferdata[i]._gbufferFrameBuffer, "GBufferFrameBuffer");
 	}
 }
 
@@ -175,23 +174,23 @@ void GBuffer::init_descriptors(EngineData& engineData)
 	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 5);
 	vkCreateDescriptorSetLayout(engineData.device, &setinfo, nullptr, &_gbufferDescriptorSetLayout);
 
-	//Shadow map texture descriptor
+	for(int i = 0; i < 2; i++)
 	{
-		VkDescriptorImageInfo albedoMetallicBufferInfo = { engineData.nearestSampler, _gbufferAlbedoMetallicImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo normalMotionBufferInfo = { engineData.nearestSampler, _gbufferNormalMotionImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo roughnessDepthCurvatureMaterialBufferInfo = { engineData.nearestSampler, _gbufferRoughnessDepthCurvatureMaterialImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo uvBufferInfo = { engineData.nearestSampler, _gbufferUVImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo depthBufferInfo = { engineData.nearestSampler, _gbufferDepthImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo albedoMetallicBufferInfo = { engineData.nearestSampler, _gbufferdata[i]._gbufferAlbedoMetallicImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo normalMotionBufferInfo = { engineData.nearestSampler, _gbufferdata[i]._gbufferNormalMotionImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo roughnessDepthCurvatureMaterialBufferInfo = { engineData.nearestSampler, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo uvBufferInfo = { engineData.nearestSampler, _gbufferdata[i]._gbufferUVImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo depthBufferInfo = { engineData.nearestSampler, _gbufferdata[i]._gbufferDepthImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
 		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(engineData.descriptorPool, &_gbufferDescriptorSetLayout, 1);
-		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_gbufferDescriptorSet);
+		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_gbufferdata[i]._gbufferDescriptorSet);
 
 		VkWriteDescriptorSet textures[5] = {
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &albedoMetallicBufferInfo, 0, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &normalMotionBufferInfo, 1, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &roughnessDepthCurvatureMaterialBufferInfo, 2, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &uvBufferInfo, 3, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferDescriptorSet, &depthBufferInfo, 4, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferdata[i]._gbufferDescriptorSet, &albedoMetallicBufferInfo, 0, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferdata[i]._gbufferDescriptorSet, &normalMotionBufferInfo, 1, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferdata[i]._gbufferDescriptorSet, &roughnessDepthCurvatureMaterialBufferInfo, 2, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferdata[i]._gbufferDescriptorSet, &uvBufferInfo, 3, 1),
+			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _gbufferdata[i]._gbufferDescriptorSet, &depthBufferInfo, 4, 1),
 		};
 
 		vkUpdateDescriptorSets(engineData.device, 5, textures, 0, nullptr);
@@ -277,6 +276,8 @@ void GBuffer::init_pipelines(EngineData& engineData, SceneDescriptors& sceneDesc
 
 void GBuffer::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, std::function<void(VkCommandBuffer cmd)>&& function)
 {
+	_currFrame++;
+
 	VkClearValue clearValues[5];
 	clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 	clearValues[1].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
@@ -284,7 +285,7 @@ void GBuffer::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescripto
 	clearValues[3].color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 	clearValues[4].depthStencil = { 1.0f, 0 };
 
-	VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_gbufferRenderPass, _imageSize, _gbufferFrameBuffer);
+	VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_gbufferRenderPass, _imageSize, _gbufferdata[_currFrame % 2]._gbufferFrameBuffer);
 	rpInfo.clearValueCount = 5;
 	rpInfo.pClearValues = clearValues;
 
@@ -310,19 +311,32 @@ void GBuffer::cleanup(EngineData& engineData)
 
 	vkDestroyDescriptorSetLayout(engineData.device, _gbufferDescriptorSetLayout, nullptr);
 
-	vkDestroyFramebuffer(engineData.device, _gbufferFrameBuffer, nullptr);
 
-	vkDestroyImageView(engineData.device, _gbufferAlbedoMetallicImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferNormalMotionImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferRoughnessDepthCurvatureMaterialImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferUVImageView, nullptr);
-	vkDestroyImageView(engineData.device, _gbufferDepthImageView, nullptr);
+	for (int i = 0; i < 2; i++) {
+		vkDestroyFramebuffer(engineData.device, _gbufferdata[i]._gbufferFrameBuffer, nullptr);
 
-	vmaDestroyImage(engineData.allocator, _gbufferAlbedoMetallicImage._image, _gbufferAlbedoMetallicImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferNormalMotionImage._image, _gbufferNormalMotionImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferRoughnessDepthCurvatureMaterialImage._image, _gbufferRoughnessDepthCurvatureMaterialImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferUVImage._image, _gbufferUVImage._allocation);
-	vmaDestroyImage(engineData.allocator, _gbufferDepthImage._image, _gbufferDepthImage._allocation);
+		vkDestroyImageView(engineData.device, _gbufferdata[i]._gbufferAlbedoMetallicImageView, nullptr);
+		vkDestroyImageView(engineData.device, _gbufferdata[i]._gbufferNormalMotionImageView, nullptr);
+		vkDestroyImageView(engineData.device, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImageView, nullptr);
+		vkDestroyImageView(engineData.device, _gbufferdata[i]._gbufferUVImageView, nullptr);
+		vkDestroyImageView(engineData.device, _gbufferdata[i]._gbufferDepthImageView, nullptr);
 
+		vmaDestroyImage(engineData.allocator, _gbufferdata[i]._gbufferAlbedoMetallicImage._image, _gbufferdata[i]._gbufferAlbedoMetallicImage._allocation);
+		vmaDestroyImage(engineData.allocator, _gbufferdata[i]._gbufferNormalMotionImage._image, _gbufferdata[i]._gbufferNormalMotionImage._allocation);
+		vmaDestroyImage(engineData.allocator, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImage._image, _gbufferdata[i]._gbufferRoughnessDepthCurvatureMaterialImage._allocation);
+		vmaDestroyImage(engineData.allocator, _gbufferdata[i]._gbufferUVImage._image, _gbufferdata[i]._gbufferUVImage._allocation);
+		vmaDestroyImage(engineData.allocator, _gbufferdata[i]._gbufferDepthImage._image, _gbufferdata[i]._gbufferDepthImage._allocation);
+	}
+	
 	vkDestroyRenderPass(engineData.device, _gbufferRenderPass, nullptr);
+}
+
+VkDescriptorSet GBuffer::getGbufferCurrentDescriptorSet()
+{
+	return _gbufferdata[_currFrame % 2]._gbufferDescriptorSet;
+}
+
+VkDescriptorSet GBuffer::getGbufferPreviousFrameDescriptorSet()
+{
+	return _gbufferdata[(_currFrame - 1) % 2]._gbufferDescriptorSet;
 }
