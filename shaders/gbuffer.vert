@@ -8,6 +8,7 @@ layout (location = 0) in vec3 vPosition;
 layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec2 vTexCoord;
 layout (location = 3) in vec2 vLightmapCoord;
+layout (location = 4) in vec4 vTangent;
 
 layout (location = 0) out vec4 outPosition;
 layout (location = 1) out vec4 outPrevPosition;
@@ -15,6 +16,8 @@ layout (location = 2) flat out int outMaterialId;
 layout (location = 3) out vec3 outNormal;
 layout (location = 4) out vec2 outTexCoord;
 layout (location = 5) out vec2 outLightmapCoord;
+layout (location = 6) out vec3 outTangent;
+layout (location = 7) out vec3 outBitangent;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -34,7 +37,10 @@ void main()
 	outPrevPosition = cameraData.prevViewproj * modelPos;
 
 	outMaterialId = objectBuffer.objects[gl_BaseInstance].material_id;
-	outNormal = mat3(transpose(inverse(modelMatrix))) * vNormal;
+
+	outNormal = mat3(modelMatrix) * vNormal;
+	outTangent = mat3(modelMatrix) * vTangent.xyz;
+	outBitangent = mat3(modelMatrix) * (cross(vNormal, vTangent.xyz) * vTangent.w).xyz;
 	outTexCoord = vTexCoord;
 	outLightmapCoord = vLightmapCoord / cameraData.lightmapInputSize;
 }

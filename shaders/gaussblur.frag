@@ -31,7 +31,9 @@ float bilateralWeight2(vec3 n1, vec3 n2, float d1, float d2) {
 	if(d1 < 0) return 1;
 
 	float normalWeight = max(0, pow(dot(n1,n2), 32));
-	float depthWeight = abs(d1-d2) > 0.5 ? 0 : 1;
+	float depthWeight = exp(-abs(d1 - d2) / 1);
+    
+    //float hitDistanceWeight = 1 / (EPSILON + abs(hd1-hd2) / 100.0);
 
 	return normalWeight * depthWeight;
 }
@@ -193,25 +195,56 @@ void main(void) {
 		vec4 br = textureLod(colorSource, uv + vec2(texelSize.x, texelSize.y) / 4, direction.z);
 
 		vec4 totalColor = vec4(0);
-		int count = 0;
+
+		float weights[4] = {0, 0, 0, 0};
+		float allWeights[4][4];
 		{
-			float w1 = 0.25 * bilateralWeight2(tl.xyz, tl.xyz, tl.w, tl.w);
-			float w2 = 0.25 * bilateralWeight2(tl.xyz, tr.xyz, tl.w, tr.w);
-			float w3 = 0.25 * bilateralWeight2(tl.xyz, bl.xyz, tl.w, bl.w);
-			float w4 = 0.25 * bilateralWeight2(tl.xyz, br.xyz, tl.w, br.w);
-			if(w1+w2+w3+w4 > 0.00001) {
-				totalColor += (w1 * tl + w2 * tr + w3 * bl + w4 * br) / (w1+w2+w3+w4);
-				count++;
+			allWeights[0][0] = 0.25 * bilateralWeight2(tl.xyz, tl.xyz, tl.w, tl.w);
+			allWeights[0][1] = 0.25 * bilateralWeight2(tl.xyz, tr.xyz, tl.w, tr.w);
+			allWeights[0][2] = 0.25 * bilateralWeight2(tl.xyz, bl.xyz, tl.w, bl.w);
+			allWeights[0][3] = 0.25 * bilateralWeight2(tl.xyz, br.xyz, tl.w, br.w);
+
+			weights[0] = allWeights[0][0] + allWeights[0][1]+ allWeights[0][2] + allWeights[0][3];
+		}
+		{
+			allWeights[1][0] = 0.25 * bilateralWeight2(tr.xyz, tl.xyz, tr.w, tl.w);
+			allWeights[1][1] = 0.25 * bilateralWeight2(tr.xyz, tr.xyz, tr.w, tr.w);
+			allWeights[1][2] = 0.25 * bilateralWeight2(tr.xyz, bl.xyz, tr.w, bl.w);
+			allWeights[1][3] = 0.25 * bilateralWeight2(tr.xyz, br.xyz, tr.w, br.w);
+			weights[1] = allWeights[1][0] + allWeights[1][1]+ allWeights[1][2] + allWeights[1][3];
+		}
+		{
+			allWeights[2][0] = 0.25 * bilateralWeight2(bl.xyz, tl.xyz, bl.w, tl.w);
+			allWeights[2][1] = 0.25 * bilateralWeight2(bl.xyz, tr.xyz, bl.w, tr.w);
+			allWeights[2][2] = 0.25 * bilateralWeight2(bl.xyz, bl.xyz, bl.w, bl.w);
+			allWeights[2][3] = 0.25 * bilateralWeight2(bl.xyz, br.xyz, bl.w, br.w);
+			weights[2] = allWeights[2][0] + allWeights[2][1]+ allWeights[2][2] + allWeights[2][3];
+		}
+		{
+			allWeights[3][0] = 0.25 * bilateralWeight2(br.xyz, tl.xyz, br.w, tl.w);
+			allWeights[3][1] = 0.25 * bilateralWeight2(br.xyz, tr.xyz, br.w, tr.w);
+			allWeights[3][2] = 0.25 * bilateralWeight2(br.xyz, bl.xyz, br.w, bl.w);
+			allWeights[3][3] = 0.25 * bilateralWeight2(br.xyz, br.xyz, br.w, br.w);
+			weights[3] = allWeights[3][0] + allWeights[3][1]+ allWeights[3][2] + allWeights[3][3];
+		}
+
+		int selected = -1;
+		float weight = 0;
+		for(int i = 0; i < 4; i++) {
+			if(weight < weights[i]) {
+				selected = i;
+				weight = weights[i];
 			}
 		}
-		
-		if(count > 0) {
-			outFragColor = totalColor / count;
+
+		if(weight > 0) {
+			totalColor = tl*allWeights[selected][0] + tr*allWeights[selected][1]+ bl*allWeights[selected][2] + br*allWeights[selected][3];
+			outFragColor = totalColor / weight;
 		}
 		else {
 			outFragColor = tl;
 		}
-
+		
 		//outFragColor =( tl + tr+ bl + br) / 4.0;
 	}
 

@@ -5,7 +5,7 @@
 #include "svgf_edge_functions.glsl"
 #include "common.glsl"
 
-layout (local_size_x = 16, local_size_y = 16) in;
+layout (local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
@@ -56,6 +56,7 @@ float computeVarianceCenter(ivec2 ipos, sampler2D sIndirect)
 float luminance(vec3 c) {
     return c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
 }
+
 
 void main()
 {

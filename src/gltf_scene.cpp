@@ -663,14 +663,20 @@ void GltfScene::process_mesh(const tinygltf::Model& tmodel,
 					const auto& n = normals[result_mesh.vtx_offset + a];
 
 					// Gram-Schmidt orthogonalize
-					glm::vec3 tangent =
-						glm::normalize(t - (glm::dot(n, t) * n));
+					glm::vec3 otangent = glm::normalize(t - (glm::dot(n, t) * n));
+
+					// In case the tangent is invalid
+					if (otangent == glm::vec3(0, 0, 0))
+					{
+						if (abs(n.x) > abs(n.y))
+							otangent = glm::vec3(n.z, 0, -n.x) / sqrt(n.x * n.x + n.z * n.z);
+						else
+							otangent = glm::vec3(0, -n.z, n.y) / sqrt(n.y * n.y + n.z * n.z);
+					}
 
 					// Calculate handedness
-					float handedness =
-						(glm::dot(glm::cross(n, t), b) < 0.0F) ? -1.0F : 1.0F;
-					tangents.emplace_back(tangent.x, tangent.y, tangent.z,
-						handedness);
+					float handedness = (glm::dot(glm::cross(n, t), b) < 0.0F) ? -1.0F : 1.0F;
+					tangents.emplace_back(otangent.x, otangent.y, otangent.z, handedness);
 				}
 			}
 		}

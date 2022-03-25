@@ -1,4 +1,5 @@
-#pragma once
+#ifndef GEOMETRY_H
+#define GEOMETRY_H
 
 #include <cmath>
 #include <glm/glm.hpp>
@@ -248,3 +249,36 @@ inline float edge_function(const glm::vec2& a, const glm::vec2& b, const glm::ve
 {
 	return (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0]);
 }
+
+//Christer Ericson's Real-Time Collision Detection 
+glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
+	//glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+	//float d00 = glm::dot(v0, v0);
+	//float d01 = glm::dot(v0, v1);
+	//float d11 = glm::dot(v1, v1);
+	//float d20 = glm::dot(v2, v0);
+	//float d21 = glm::dot(v2, v1);
+	//float denom = d00 * d11 - d01 * d01;
+	//
+	//float v = (d11 * d20 - d01 * d21) / denom;
+	//float w = (d00 * d21 - d01 * d20) / denom;
+	//float u = 1.0f - v - w;
+	//return { u, v, w };
+
+	glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+	float den = v0.x * v1.y - v1.x * v0.y;
+	float v = (v2.x * v1.y - v1.x * v2.y) / den;
+	float w = (v0.x * v2.y - v2.x * v0.y) / den;
+	float u = 1.0f - v - w;
+	return { u, v, w };
+}
+
+glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c) {
+	return {
+		barycentricCoordinates.x * a.x + barycentricCoordinates.y * b.x + barycentricCoordinates.z * c.x,
+		barycentricCoordinates.x * a.y + barycentricCoordinates.y * b.y + barycentricCoordinates.z * c.y,
+		barycentricCoordinates.x * a.z + barycentricCoordinates.y * b.z + barycentricCoordinates.z * c.z
+	};
+}
+
+#endif

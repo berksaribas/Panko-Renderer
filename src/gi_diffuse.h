@@ -11,9 +11,15 @@ class DiffuseIllumination {
 public:
 	void init(EngineData& engineData, PrecalculationInfo* precalculationInfo, PrecalculationLoadData* precalculationLoadData, PrecalculationResult* precalculationResult, VulkanCompute* vulkanCompute, VulkanRaytracing* vulkanRaytracing, GltfScene& scene, SceneDescriptors& sceneDescriptors);
 	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast);
+	void render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils);
+	
 	void build_lightmap_pipeline(EngineData& engineData);
-	void build_rt_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
+	void build_proberaycast_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
 	void build_realtime_proberaycast_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
+
+	void build_groundtruth_gi_raycast_descriptors(EngineData& engineData, GltfScene& scene, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
+	void build_groundtruth_gi_raycast_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
+
 	void rebuild_shaders(EngineData& engineData, SceneDescriptors& sceneDescriptors);
 
 	void debug_draw_probes(VulkanDebugRenderer& debugRenderer, bool showProbeRays, float sceneScale);
@@ -66,4 +72,11 @@ private:
 	VkDescriptorSet _probeRTDescriptorSet;
 	AllocatedBuffer _probeLocationsBuffer;
 	AllocatedBuffer _probeRaycastResultBuffer;
+
+	//Raytracing for ground truth
+	RaytracingPipeline _gtDiffuseRTPipeline;
+	VkDescriptorSetLayout _gtDiffuseRTDescriptorSetLayout;
+	VkDescriptorSet _gtDiffuseRTDescriptorSet;
+	AllocatedBuffer _receiverBuffer;
+	int _gpuReceiverCount;
 };

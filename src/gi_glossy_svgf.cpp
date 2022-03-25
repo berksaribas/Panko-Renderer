@@ -179,6 +179,7 @@ void GlossyDenoise::init_pipelines(EngineData& engineData, SceneDescriptors& sce
 	_vulkanCompute->add_descriptor_set_layout(_atrousFilter, gbuffer._gbufferDescriptorSetLayout); //gbuffer current
 	_vulkanCompute->add_descriptor_set_layout(_atrousFilter, sceneDescriptors.singleImageSetLayout); //raytracing result
 	_vulkanCompute->add_descriptor_set_layout(_atrousFilter, _temporalStorageDescriptorSetLayout); //raytracing result
+	_vulkanCompute->add_descriptor_set_layout(_atrousFilter, sceneDescriptors.singleImageSetLayout); //raytracing result
 	VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_COMPUTE_BIT , 0, sizeof(int) };
 	_atrousFilter.pushConstantRangeCount = 1;
 	_atrousFilter.pushConstantRange = &pushConstantRanges;
@@ -202,7 +203,7 @@ void GlossyDenoise::render(VkCommandBuffer cmd, EngineData& engineData, SceneDes
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _temporalFilter.pipelineLayout, 4, 1, &_temporalData[(_currFrame -1) % 2].temporalSampleDescriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _temporalFilter.pipelineLayout, 5, 1, &_temporalData[(_currFrame) % 2].temporalStorageDescriptor, 0, nullptr);
 
-		vkCmdDispatch(cmd, static_cast<uint32_t>(ceil(float(_imageSize.width) / float(16))), static_cast<uint32_t>(ceil(float(_imageSize.height) / float(16))), 1);
+		vkCmdDispatch(cmd, static_cast<uint32_t>(ceil(float(_imageSize.width) / float(8))), static_cast<uint32_t>(ceil(float(_imageSize.height) / float(8))), 1);
 	}
 
 	vkutils::image_barrier(cmd, _temporalData[(_currFrame) % 2].colorImage._image,
@@ -253,10 +254,13 @@ void GlossyDenoise::render(VkCommandBuffer cmd, EngineData& engineData, SceneDes
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipelineLayout, 1, 1, &gbufferCurrent, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipelineLayout, 2, 1, &_atrousData[(i) % 2].atrousSampleDescriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipelineLayout, 3, 1, &_atrousData[(i + 1) % 2].atrousStorageDescriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipelineLayout, 4, 1, &glossyIllumination._glossyReflectionsColorTextureDescriptor, 0, nullptr);
 
+		//https://twitter.com/NateMorrical/status/1180302300549500928
+		//https://ieeexplore.ieee.org/document/6221770
 		int stepsize = 1u << i;
 		vkCmdPushConstants(cmd, _atrousFilter.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(int), &stepsize);
-		vkCmdDispatch(cmd, static_cast<uint32_t>(ceil(float(_imageSize.width) / float(16))), static_cast<uint32_t>(ceil(float(_imageSize.height) / float(16))), 1);
+		vkCmdDispatch(cmd, static_cast<uint32_t>(ceil(float(_imageSize.width) / float(8))), static_cast<uint32_t>(ceil(float(_imageSize.height) / float(8))), 1);
 	}
 
 	vkutils::image_barrier(cmd, _atrousData[0].pingImage._image,

@@ -1,5 +1,9 @@
 const float PI  = 3.14159265358979323846264;
 
+float luminance(vec3 c) {
+    return c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
+}
+
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a      = roughness*roughness;
@@ -70,13 +74,16 @@ vec3 calculate_direct_lighting(vec3 albedo, float metallic, float roughness, vec
     vec3 specular     = numerator / denominator;  
             
     // add to outgoing radiance Lo
-    float NdotL = max(dot(normal, lightDir), 0.0);                
-    Lo += (kD * albedo + specular) * radiance * NdotL; //does it make sense to divide the albedo by PI?
+    float NdotL = max(dot(normal, lightDir), 0.0);   
+    
+    vec3 c_diffuse = mix(albedo * (vec3(1.0f) - F0), vec3(0.0f), metallic);
+
+    Lo += (kD * albedo / PI + specular) * radiance * NdotL; //does it make sense to divide the albedo by PI?
   
     return Lo;
 }
 
-vec3 calculate_indirect_lighting(vec3 albedo, float metallic, float roughness, vec3 normal, vec3 view, vec3 diffuseIrradiance, vec3 glossyIrradiance, sampler2D brdfLUT) {
+vec3 calculate_indirect_lighting(vec3 albedo, float metallic, float roughness, vec3 normal, vec3 view, vec3 diffuseIrradiance, vec3 glossyIrradiance, sampler2D brdfLUT, vec3 directLight) {
     
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, albedo, metallic);
@@ -85,12 +92,15 @@ vec3 calculate_indirect_lighting(vec3 albedo, float metallic, float roughness, v
     vec3 kS = F;
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;	  
+
     vec3 diffuse = diffuseIrradiance * albedo;
 
     vec2 envBRDF  = texture(brdfLUT, vec2(max(dot(normal, view), 0.0), roughness)).rg;
     //vec3 specular = roughness < 0.75 ? (glossyIrradiance * (F * envBRDF.x + envBRDF.y)) : (diffuseIrradiance * (F * envBRDF.x + envBRDF.y));
     vec3 specular = glossyIrradiance * (F * envBRDF.x + envBRDF.y);
-    return kD * diffuse + specular;
+    
+    
+    return kD * diffuse + specular ;
 }
 
 vec3 calculate_indirect_lighting_nospecular(vec3 albedo, float metallic, float roughness, vec3 normal, vec3 view, vec3 diffuseIrradiance, vec3 glossyIrradiance) {

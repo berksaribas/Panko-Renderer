@@ -118,19 +118,23 @@ void main()
     float roughness = materials[inMaterialId].roughness_factor;
     float metallic = materials[inMaterialId].metallic_factor;
 
-    if(emissive_color.r > 0 || emissive_color.g > 0 || emissive_color.b > 0) {
-        albedo = vec3(1.0f, 1.0f, 1.0f);
+	if(materials[inMaterialId].texture > -1) {
+        albedo = materials[inMaterialId].base_color.xyz * pow(texture(textures[materials[inMaterialId].texture], uv).xyz, vec3(2.2));
     }
     else {
-	    if(materials[inMaterialId].texture > -1) {
-            albedo = pow(texture(textures[materials[inMaterialId].texture], uv).xyz, vec3(2.2));
-        }
-        else {
-          albedo = materials[inMaterialId].base_color.xyz;
-        }
+        albedo = materials[inMaterialId].base_color.xyz;
     }
+
+    if(materials[inMaterialId].metallic_roughness_texture > -1) {
+        vec4 values = texture(textures[materials[inMaterialId].metallic_roughness_texture], uv);
+        roughness *= values.g;
+        metallic *= values.b;
+    }
+
+
     reflectionColor = texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz;
     
+    /*
     if(MAX_RECURSION > 0 && gl_RayTminEXT > 0.00005 ) {
         uint rayFlags = gl_RayFlagsOpaqueEXT;
 		uint cullMask = 0xff;
@@ -145,15 +149,21 @@ void main()
 		vec3 direction = reflect(-view, Wh_pdf.xyz);
     
         traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + worldNrm * 0.1, tmin, direction, tmax, 1);
-    }
+    }*/
+    
+    //metallic = 0.5;
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(worldPos.xyz, 1.0);
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(worldNrm), -gl_WorldRayDirectionEXT, normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
-    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(worldNrm), -gl_WorldRayDirectionEXT, texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, reflectionColor, brdfLut);
+    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(worldNrm), -gl_WorldRayDirectionEXT, texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, brdfLut, directLight);
 
-    payload.color = directLight + indirectLight;
+    //vec3 N = normalize(worldNrm);
+    //vec3 L = normalize(cameraData.lightPos.xyz);
+    //payload.color = emissive_color + clamp(dot(N, L), 0.0, 1.0) * cameraData.lightColor.xyz * albedo * shadow + indirectLight;
+
+    payload.color = emissive_color + directLight + indirectLight;
     reflectionColor = payload.color;
     payload.hitDistance = (gl_RayTminEXT + gl_HitTEXT) * 0.3;
     payload.normal = normalize(worldNrm);

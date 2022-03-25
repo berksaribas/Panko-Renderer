@@ -29,6 +29,13 @@
 #include <gi_deferred.h>
 #include <gi_brdf.h>
 #include <gi_glossy_svgf.h>
+#include <vk_timer.h>
+
+#include <ctime>
+
+#define FILE_HELPER_IMPL
+#include <file_helper.h>
+#include <filesystem>
 
 const int MAX_TEXTURES = 80; //TODO: Replace this
 constexpr bool bUseValidationLayers = false;
@@ -49,6 +56,8 @@ GlossyIllumination glossyIllumination;
 BRDF brdfUtils;
 GlossyDenoise glossyDenoise;
 
+VulkanTimer vkTimer;
+
 //Imgui
 bool enableGi = false;
 bool showProbes = false;
@@ -63,9 +72,16 @@ bool probesEnabled[300];
 int renderMode = 0;
 
 int selectedPreset = -1;
+char customName[128];
 bool screenshot = false;
 
 bool useRealtimeRaycast = false;
+bool enableDenoise = true;
+bool enableGroundTruthDiffuse = false;
+
+bool showFileList = false;
+std::vector<std::string> load_files;
+int selected_file = 0;
 
 void VulkanEngine::init()
 {
@@ -122,6 +138,25 @@ void VulkanEngine::init()
 	_vulkanDebugRenderer.init(_engineData.device, _engineData.allocator, _renderPass, _sceneDescriptors.globalSetLayout);
 
 	init_imgui();
+
+	bool loadPrecomputedData = true;
+	if (!loadPrecomputedData) {
+		precalculationInfo.voxelSize = 0.25;
+		precalculationInfo.voxelPadding = 2;
+		precalculationInfo.probeOverlaps = 10;
+		precalculationInfo.raysPerProbe = 1000;
+		precalculationInfo.raysPerReceiver = 8000;
+		precalculationInfo.sphericalHarmonicsOrder = 7;
+		precalculationInfo.clusterCoefficientCount = 256;
+		precalculationInfo.maxReceiversInCluster = 1024;
+		precalculationInfo.lightmapResolution = 256;
+		precalculationInfo.texelSize = 6;
+		precalculationInfo.desiredSpacing = 1;
+	}
+	else {
+		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
+	}
+
 	init_scene();
 
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.materialDescriptor, "MaterialDescriptor");
@@ -130,34 +165,18 @@ void VulkanEngine::init()
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
 	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
 
-	bool loadPrecomputedData = true;
-
-	int res = 512;
-
 	if (!loadPrecomputedData) {
-		precalculationInfo.voxelSize = 0.3;
-		precalculationInfo.voxelPadding = 2;
-		precalculationInfo.probeOverlaps = 10;
-		precalculationInfo.raysPerProbe = 1000;
-		precalculationInfo.raysPerReceiver = 8000;
-		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 64;
-		precalculationInfo.maxReceiversInCluster = 1024;
-		precalculationInfo.lightmapResolution = res;
-
-		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
-		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
+		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
+		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
+		exit(0);
 	}
-	else {
-		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
-	}
-	precalculationInfo.lightmapResolution = res;
-
-	//exit(0);
 
 	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors);
-	diffuseIllumination.build_rt_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
+	diffuseIllumination.build_proberaycast_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
 	diffuseIllumination.build_realtime_proberaycast_pipeline(_engineData, _sceneDescriptors);
+
+	diffuseIllumination.build_groundtruth_gi_raycast_descriptors(_engineData, gltf_scene, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
+	diffuseIllumination.build_groundtruth_gi_raycast_pipeline(_engineData, _sceneDescriptors);
 
 	glossyIllumination.init(_vulkanRaytracing);
 	glossyIllumination.init_images(_engineData, _windowExtent);
@@ -169,6 +188,9 @@ void VulkanEngine::init()
 	glossyDenoise.init_descriptors(_engineData, _sceneDescriptors);
 	glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
 	
+	init_query_pool();
+
+
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
 	shadow._shadowMapData.LightBleedingReduction = 0.999f;
@@ -250,7 +272,7 @@ void VulkanEngine::draw()
 	glm::vec3 lightInvDir = glm::vec3(_camData.lightPos); 
 	float radius = gltf_scene.m_dimensions.max.x > gltf_scene.m_dimensions.max.y ? gltf_scene.m_dimensions.max.x : gltf_scene.m_dimensions.max.y;
 	radius = radius > gltf_scene.m_dimensions.max.z ? radius : gltf_scene.m_dimensions.max.z;
-	radius *= sqrt(2);
+	//radius *= sqrt(2);
 	glm::mat4 depthViewMatrix = glm::lookAt(gltf_scene.m_dimensions.center * _sceneScale + lightInvDir * radius, gltf_scene.m_dimensions.center * _sceneScale, glm::vec3(0, 1, 0));
 	float maxX = gltf_scene.m_dimensions.min.x * _sceneScale, maxY = gltf_scene.m_dimensions.min.y * _sceneScale, maxZ = gltf_scene.m_dimensions.min.z * _sceneScale;
 	float minX = gltf_scene.m_dimensions.max.x * _sceneScale, minY = gltf_scene.m_dimensions.max.y * _sceneScale, minZ = gltf_scene.m_dimensions.max.z * _sceneScale;
@@ -333,6 +355,13 @@ void VulkanEngine::draw()
 		sprintf_s(buffer, "Indirect Diffuse");
 		ImGui::Checkbox(buffer, (bool*) & _camData.indirectDiffuse);
 
+		if (_camData.indirectDiffuse) {
+			sprintf_s(buffer, "Ground Truth");
+			if (ImGui::Checkbox(buffer, &enableGroundTruthDiffuse)) {
+				_frameNumber = 0;
+			}
+		}
+
 		sprintf_s(buffer, "Use realtime probe raycasting");
 		ImGui::Checkbox(buffer, (bool*)&useRealtimeRaycast);
 
@@ -344,8 +373,17 @@ void VulkanEngine::draw()
 			if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
 				///_frameNumber = 0;
 			}
+
 			if (_camData.useStochasticSpecular) {
-				ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
+				sprintf_s(buffer, "Enable SVGF denoising");
+				ImGui::Checkbox(buffer, &enableDenoise);
+
+				if (enableDenoise) {
+					ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
+				}
+				else {
+					ImGui::Text("Currently using stochastic raytracing");
+				}
 			}
 			else {
 				ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
@@ -382,8 +420,22 @@ void VulkanEngine::draw()
 			selectedPreset = 6;
 			_camData.lightPos = { 2.75, 2, 2.44, 0.0f };
 		}
+
+		ImGui::InputText("Custom name", customName, sizeof(customName));
 		if (ImGui::Button("Screenshot")) {
 			screenshot = true;
+		}
+
+		if (ImGui::Button("Show Saved Data")) {
+			std::string path = "./screenshots/";
+			load_files.clear();
+			for (const auto& entry : std::filesystem::directory_iterator(path)) {
+				auto& path = entry.path();
+				if (path.extension().generic_string().compare(".cam") == 0) {
+					load_files.push_back(path.generic_string());
+				}
+			}
+			showFileList = true;
 		}
 
 		ImGui::NewLine();
@@ -393,35 +445,45 @@ void VulkanEngine::draw()
 		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 		ImGui::End();
 
-		sprintf_s(buffer, "Show Probes");
-		ImGui::Checkbox(buffer, &showProbes);
+		if (showFileList) {
+			ImGui::Begin("Files", &showFileList);
+			ImGui::ListBoxHeader("");
+			for (int i = 0; i < load_files.size(); i++) {
+				if (ImGui::Selectable(load_files[i].c_str(), i == selected_file)) {
+					selected_file = i;
+				}
+			}
+			ImGui::ListBoxFooter();
+			if (ImGui::Button("Load")) {
+				ScreenshotSaveData saveData = {};
+				load_binary(load_files[selected_file], &saveData, sizeof(ScreenshotSaveData));
+				camera = saveData.camera;
+				_camData.lightPos = saveData.lightPos;
+			}
+			ImGui::End();
+		}
+
+		ImGui::Checkbox("Show Probes", &showProbes);
 
 		if (showProbes) {
-			sprintf_s(buffer, "Show Probe Rays");
-			ImGui::Checkbox(buffer, &showProbeRays);
+			ImGui::Checkbox("Show Probe Rays", &showProbeRays);
 		}
 
 		ImGui::NewLine();
 
-		sprintf_s(buffer, "Show Receivers");
-		ImGui::Checkbox(buffer, &showReceivers);
+		ImGui::Checkbox("Show Receivers", &showReceivers);
 
 		ImGui::NewLine();
 
-		sprintf_s(buffer, "Show Specific Receivers");
-		ImGui::Checkbox(buffer, &showSpecificReceiver);
+		ImGui::Checkbox("Show Specific Receivers", &showSpecificReceiver);
 
 		if (showSpecificReceiver) {
-			sprintf_s(buffer, "Cluster: ");
-			ImGui::SliderInt(buffer, &specificCluster, 0, precalculationLoadData.aabbClusterCount - 1);
-			sprintf_s(buffer, "Receiver: ");
-			ImGui::SliderInt(buffer, &specificReceiver, 0, precalculationResult.clusterReceiverInfos[specificCluster].receiverCount - 1);
+			ImGui::SliderInt("Cluster: ", &specificCluster, 0, precalculationLoadData.aabbClusterCount - 1);
+			ImGui::SliderInt("Receiver: ", &specificReceiver, 0, precalculationResult.clusterReceiverInfos[specificCluster].receiverCount - 1);
 			
-			sprintf_s(buffer, "Ray sample count: ");
-			ImGui::DragInt(buffer, &specificReceiverRaySampleCount);
+			ImGui::DragInt("Ray sample count: ", &specificReceiverRaySampleCount);
 
-			sprintf_s(buffer, "Show Selected Probe Rays");
-			ImGui::Checkbox(buffer, &showSpecificProbeRays);
+			ImGui::Checkbox("Show Selected Probe Rays", &showSpecificProbeRays);
 
 			{
 				int receiverCount = precalculationResult.clusterReceiverInfos[specificCluster].receiverCount;
@@ -441,6 +503,8 @@ void VulkanEngine::draw()
 			ImGui::LabelText(buffer, buffer);
 			sprintf_s(buffer, "Base color %d", i);
 			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
+			sprintf_s(buffer, "Emissive color %d", i);
+			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].emissive_color.r);
 			sprintf_s(buffer, "Roughness %d", i);
 			materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].roughness_factor, 0, 1);
 			sprintf_s(buffer, "Metallic %d", i);
@@ -494,27 +558,52 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 	{
+		vkTimer.start_recording(_engineData, cmd, "Gbuffer");
 		gbuffer.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
+		vkTimer.stop_recording(_engineData, cmd);
 
 		// SHADOW MAP RENDERING
+		vkTimer.start_recording(_engineData, cmd, "Shadow Map");
 		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
+		vkTimer.stop_recording(_engineData, cmd);
 
-		diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
-			draw_objects(cmd);
-		}, useRealtimeRaycast);
-
-		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, brdfUtils);
-
-		if (_camData.useStochasticSpecular) {
-			glossyDenoise.render(cmd, _engineData, _sceneDescriptors, gbuffer, glossyIllumination);
-			deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise);
+		vkTimer.start_recording(_engineData, cmd, "Diffuse Illumination");
+		if (enableGroundTruthDiffuse) {
+			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils);
 		}
 		else {
+			diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
+				draw_objects(cmd);
+				}, useRealtimeRaycast);
+		}
+		vkTimer.stop_recording(_engineData, cmd);
+
+		vkTimer.start_recording(_engineData, cmd, "Glossy Illumination");
+		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, brdfUtils);
+		vkTimer.stop_recording(_engineData, cmd);
+
+		if (_camData.useStochasticSpecular) {
+			vkTimer.start_recording(_engineData, cmd, "Glossy Denoising");
+			glossyDenoise.render(cmd, _engineData, _sceneDescriptors, gbuffer, glossyIllumination);
+			vkTimer.stop_recording(_engineData, cmd);
+
+			vkTimer.start_recording(_engineData, cmd, "Deferred Lighting");
+			if (enableDenoise) {
+				deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise);
+			}
+			else {
+				deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
+			}
+			vkTimer.stop_recording(_engineData, cmd);
+		}
+		else {
+			vkTimer.start_recording(_engineData, cmd, "Deferred Lighting");
 			deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
+			vkTimer.stop_recording(_engineData, cmd);
 		}
 		
 		//POST PROCESSING + UI
@@ -530,8 +619,9 @@ void VulkanEngine::draw()
 			VkClearValue clearValues[] = { clearValue, depthClear };
 			rpInfo.pClearValues = clearValues;
 			
+			vkTimer.start_recording(_engineData, cmd, "Post Processing + UI");
 			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-			
+
 			vkutils::cmd_viewport_scissor(cmd, _windowExtent);
 			
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipeline);
@@ -544,6 +634,8 @@ void VulkanEngine::draw()
 			}
 
 			vkCmdEndRenderPass(cmd);
+			vkTimer.stop_recording(_engineData, cmd);
+			printf("%d\n", _frameNumber);
 		}
 	}
 	
@@ -586,12 +678,19 @@ void VulkanEngine::draw()
 	
 	if (screenshot) {
 		screenshot = false;
-		sprintf_s(buffer, "preset_%d.png", selectedPreset);
+		std::time_t screenshot = std::time(0);
+		sprintf_s(buffer, "screenshots/%d-%s.png", screenshot, customName);
 		vkutils::screenshot(&_engineData, buffer, _swapchainImages[swapchainImageIndex], _windowExtent);
+		ScreenshotSaveData saveData = { camera, _camData.lightPos };
+		sprintf_s(buffer, "screenshots/%d-%s.cam", screenshot, customName);
+		save_binary(buffer, &saveData, sizeof(ScreenshotSaveData));
+		memset(customName, 0, sizeof(customName));
 	}
 
 	//increase the number of frames drawn
 	_frameNumber++;
+
+	vkTimer.get_results(_engineData);
 }
 
 void VulkanEngine::run()
@@ -640,29 +739,31 @@ void VulkanEngine::run()
 
 		float speed = 0.1f;
 
-		if (keys[SDL_SCANCODE_LSHIFT]) {
-			speed *= 4;
-		}
-		if (keys[SDL_SCANCODE_W])
-		{
-			camera.pos += front * speed;
-			moved = true;
-		}
-		if (keys[SDL_SCANCODE_S])
-		{
-			camera.pos -= front * speed;
-			moved = true;
-		}
-		if (keys[SDL_SCANCODE_A]) {
-			camera.pos -= glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
-			moved = true;
-		}
-		if (keys[SDL_SCANCODE_D]) {
-			camera.pos += glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
-			moved = true;
-		}
-		if (moved) {
-			///_frameNumber = 0;
+		if (!onGui) {
+			if (keys[SDL_SCANCODE_LSHIFT]) {
+				speed *= 4;
+			}
+			if (keys[SDL_SCANCODE_W])
+			{
+				camera.pos += front * speed;
+				moved = true;
+			}
+			if (keys[SDL_SCANCODE_S])
+			{
+				camera.pos -= front * speed;
+				moved = true;
+			}
+			if (keys[SDL_SCANCODE_A]) {
+				camera.pos -= glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
+				moved = true;
+			}
+			if (keys[SDL_SCANCODE_D]) {
+				camera.pos += glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f))) * speed;
+				moved = true;
+			}
+			if (keys[SDL_SCANCODE_P]) {
+				screenshot = true;
+			}
 		}
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplSDL2_NewFrame(_window);
@@ -1397,15 +1498,20 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	//std::string file_name = "../../assets/cornellBox.gltf";
+	std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
-	std::string file_name = "../../assets/cornell3.gltf";
+	//std::string file_name = "../../assets/cornell3.gltf";
+	
 	//std::string file_name = "../../assets/cornell4.gltf";
 	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
 	//std::string file_name = "../../assets/VC/glTF/VC.gltf";
 	
+	//std::string file_name = "../../assets/interior_scene/scene.gltf";
+	
+	//std::string file_name = "../../assets/caustics.gltf";
+
 	tinygltf::Model tmodel;
 	tinygltf::TinyGLTF tcontext;
 
@@ -1419,10 +1525,10 @@ void VulkanEngine::init_scene()
 	if (!error.empty()) {
 		printf("WARNING: SCENE LOADING: %s\n", error);
 	}
-
+	
 	gltf_scene.import_materials(tmodel);
 	gltf_scene.import_drawable_nodes(tmodel, GltfAttributes::Normal |
-		GltfAttributes::Texcoord_0);
+		GltfAttributes::Texcoord_0 | GltfAttributes::Tangent);
 
 	printf("dimensions: %f %f %f\n", gltf_scene.m_dimensions.size.x, gltf_scene.m_dimensions.size.y, gltf_scene.m_dimensions.size.z);
 	
@@ -1463,7 +1569,7 @@ void VulkanEngine::init_scene()
 	xatlas::ChartOptions chartOptions = xatlas::ChartOptions();
 	//chartOptions.fixWinding = true;
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
-	packOptions.texelsPerUnit = 1.0f;
+	packOptions.texelsPerUnit = precalculationInfo.texelSize;
 	packOptions.bilinear = true;
 
 	xatlas::Generate(atlas, chartOptions, packOptions);
@@ -1476,6 +1582,7 @@ void VulkanEngine::init_scene()
 	std::vector<uint32_t> indices;
 	std::vector<glm::vec3> normals;
 	std::vector<glm::vec2> texcoords0;
+	std::vector<glm::vec4> tangents;
 
 	for (int i = 0; i < gltf_scene.nodes.size(); i++) {
 		GltfPrimMesh mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
@@ -1495,6 +1602,7 @@ void VulkanEngine::init_scene()
 			positions.push_back(gltf_scene.positions[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
 			normals.push_back(gltf_scene.normals[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
 			texcoords0.push_back(gltf_scene.texcoords0[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
+			tangents.push_back(gltf_scene.tangents[atlas->meshes[i].vertexArray[j].xref + orihinal_vtx_offset]);
 		}
 
 		for (int j = 0; j < atlas->meshes[i].indexCount; j++) {
@@ -1507,12 +1615,14 @@ void VulkanEngine::init_scene()
 	gltf_scene.indices.clear();
 	gltf_scene.normals.clear();
 	gltf_scene.texcoords0.clear();
+	gltf_scene.tangents.clear();
 
 	gltf_scene.prim_meshes = prim_meshes;
 	gltf_scene.positions = positions;
 	gltf_scene.indices = indices;
 	gltf_scene.normals = normals;
 	gltf_scene.texcoords0 = texcoords0;
+	gltf_scene.tangents = tangents;
 
 	printf("Generated lightmap uvs, %d x %d\n", atlas->width, atlas->height);
 	xatlas::Destroy(atlas);
@@ -1532,6 +1642,10 @@ void VulkanEngine::init_scene()
 
 	normal_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.normals.data(), gltf_scene.normals.size() * sizeof(glm::vec3),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	tangent_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.tangents.data(), gltf_scene.tangents.size() * sizeof(glm::vec4),
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
 
 	tex_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -1567,8 +1681,8 @@ void VulkanEngine::init_scene()
 	VkSampler blockySampler;
 	vkCreateSampler(_engineData.device, &samplerInfo, nullptr, &blockySampler);
 	std::array<uint8_t, 4> nil = { 0, 0, 0, 0 };
-
-	if (tmodel.images.size() == 0) {
+	
+	if (tmodel.textures.size() == 0) {
 		AllocatedImage allocated_image;
 		uint32_t mipLevels;
 		vkutils::load_image_from_memory(&_engineData, nil.data(), 1, 1, allocated_image, mipLevels);
@@ -1585,8 +1699,9 @@ void VulkanEngine::init_scene()
 		image_infos.push_back(imageBufferInfo);
 	}
 
-	for (int i = 0; i < tmodel.images.size(); i++) {
-		auto& gltf_img = tmodel.images[i];
+	for (int i = 0; i < tmodel.textures.size(); i++) {
+		
+		auto& gltf_img = tmodel.images[tmodel.textures[i].source];
 		AllocatedImage allocated_image;
 		uint32_t mipLevels;
 
@@ -1733,9 +1848,9 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd)
 	OPTICK_EVENT();
 
 	{
-		VkDeviceSize offsets[] = { 0, 0, 0, 0 };
-		VkBuffer buffers[] = { vertex_buffer._buffer, normal_buffer._buffer, tex_buffer._buffer, lightmap_tex_buffer._buffer };
-		vkCmdBindVertexBuffers(cmd, 0, 4, buffers, offsets);
+		VkDeviceSize offsets[] = { 0, 0, 0, 0, 0 };
+		VkBuffer buffers[] = { vertex_buffer._buffer, normal_buffer._buffer, tex_buffer._buffer, lightmap_tex_buffer._buffer, tangent_buffer._buffer };
+		vkCmdBindVertexBuffers(cmd, 0, 5, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		for (int i = 0; i < gltf_scene.nodes.size(); i++) {
@@ -1743,4 +1858,17 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd)
 			vkCmdDrawIndexed(cmd, mesh.idx_count, 1, mesh.first_idx, mesh.vtx_offset, i);
 		}
 	}
+}
+
+void VulkanEngine::init_query_pool()
+{
+	VkQueryPoolCreateInfo createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+	createInfo.pNext = nullptr;
+	createInfo.flags = 0;
+
+	createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	createInfo.queryCount = 255; // REVIEW
+
+	VK_CHECK(vkCreateQueryPool(_engineData.device, &createInfo, nullptr, &_engineData.queryPool));
 }

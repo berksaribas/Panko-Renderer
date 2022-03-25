@@ -10,6 +10,8 @@ layout (location = 2) flat in int inMaterialId;
 layout (location = 3) in vec3 inNormal;
 layout (location = 4) in vec2 inTexCoord;
 layout (location = 5) in vec2 inLightmapCoord;
+layout (location = 6) in vec3 inTangent;
+layout (location = 7) in vec3 inBitangent;
 
 layout(location = 0) out vec4 gbufferAlbedoMetallic;
 layout(location = 1) out vec4 gbufferNormalMotion;
@@ -57,6 +59,17 @@ float compute_curvature()
     return pow(max(x, y), 0.5f);
 }
 
+vec3 getNormal()
+{
+	// Perturb normal, see http://www.thetenthplanet.de/archives/1180
+	vec3 tangentNormal = texture(textures[materials[inMaterialId].normal_texture], inTexCoord).xyz * 2.0 - 1.0;
+
+	mat3 TBN = mat3(normalize(inTangent), normalize(inBitangent), normalize(inNormal));
+
+    // Multiple vector by the TBN matrix to transform the normal from tangent space to world space.
+    return normalize(TBN * tangentNormal);
+}
+
 void main()
 {
     vec3 albedo = vec3(1.0f, 1.0f, 1.0f);
@@ -73,8 +86,21 @@ void main()
         albedo = materials[inMaterialId].base_color.xyz;
     }
 
+    if(materials[inMaterialId].metallic_roughness_texture > -1) {
+        vec4 values = texture(textures[materials[inMaterialId].metallic_roughness_texture], inTexCoord);
+        roughness *= values.g;
+        metallic *= values.b;
+    }
+
     gbufferAlbedoMetallic = vec4(albedo, metallic);
-    gbufferNormalMotion = vec4(direction_to_octohedral(inNormal), compute_motion_vector(inOldPosition, inPosition));
+
+    vec3 normal = normalize(inNormal);
+
+    if(materials[inMaterialId].normal_texture > -1) {
+        //normal = getNormal();
+    }
+
+    gbufferNormalMotion = vec4(direction_to_octohedral(normal), compute_motion_vector(inOldPosition, inPosition));
     float linearDepth = gl_FragCoord.z / gl_FragCoord.w;
     float curvature = compute_curvature();
     //gbufferRoughnessDepthCurvatureMaterial = vec4(roughness, linearize_depth(gl_FragCoord.z, 0.1f, 1000.0f), curvature, inMaterialId);

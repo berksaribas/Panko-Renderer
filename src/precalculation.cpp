@@ -18,13 +18,13 @@
 #include <set>
 #include <vk_pipeline.h>
 
+#include <file_helper.h>
+
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
-
-#define TEXEL_SAMPLES 8
 
 void calcY(float* o, vec3 r, int order) {
 	float x = r.x, y = r.y, z = r.z;
@@ -109,37 +109,6 @@ void calcY(float* o, vec3 r, int order) {
 		o[62] = (2.6459606618019005) * ((x * x * x * x * x * x) + ((-15.) * (x * x * x * x) * (y * y)) + ((15.) * (x * x) * (y * y * y * y)) + ((-1.) * (y * y * y * y * y * y))) * (z);
 		o[63] = (-0.7071627325245962) * (x) * ((x * x * x * x * x * x) + ((-21.) * (x * x * x * x) * (y * y)) + ((35.) * (x * x) * (y * y * y * y)) + ((-7.) * (y * y * y * y * y * y)));
 	}
-}
-
-//Christer Ericson's Real-Time Collision Detection 
-static glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c) {
-	//glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
-	//float d00 = glm::dot(v0, v0);
-	//float d01 = glm::dot(v0, v1);
-	//float d11 = glm::dot(v1, v1);
-	//float d20 = glm::dot(v2, v0);
-	//float d21 = glm::dot(v2, v1);
-	//float denom = d00 * d11 - d01 * d01;
-	//
-	//float v = (d11 * d20 - d01 * d21) / denom;
-	//float w = (d00 * d21 - d01 * d20) / denom;
-	//float u = 1.0f - v - w;
-	//return { u, v, w };
-
-	glm::vec2 v0 = b - a, v1 = c - a, v2 = p - a;
-	float den = v0.x * v1.y - v1.x * v0.y;
-	float v = (v2.x * v1.y - v1.x * v2.y) / den;
-	float w = (v0.x * v2.y - v2.x * v0.y) / den;
-	float u = 1.0f - v - w;
-	return { u, v, w };
-}
-
-static glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c) {
-	return {
-		barycentricCoordinates.x * a.x + barycentricCoordinates.y * b.x + barycentricCoordinates.z * c.x,
-		barycentricCoordinates.x * a.y + barycentricCoordinates.y * b.y + barycentricCoordinates.z * c.y,
-		barycentricCoordinates.x * a.z + barycentricCoordinates.y * b.z + barycentricCoordinates.z * c.z
-	};
 }
 
 static float calculate_density(float length, float radius) {
@@ -260,26 +229,6 @@ static void divide_aabb(std::vector<AABB>& aabbClusters, AABB node, Receiver* re
 	}
 }
 
-static void save_binary(std::string filename, void* data, size_t size) {
-	FILE* ptr;
-	fopen_s(&ptr, filename.c_str(), "wb");
-	fwrite(data, size, 1, ptr);
-	fclose(ptr);
-}
-
-size_t seek_file(std::string filename) {
-	struct stat stat_buf;
-	int rc = stat(filename.c_str(), &stat_buf);
-	return rc == 0 ? stat_buf.st_size : -1;
-}
-
-void load_binary(std::string filename, void* destination, size_t size) {
-	FILE* ptr;
-	fopen_s(&ptr, filename.c_str(), "rb");
-	fread_s(destination, size, size, 1, ptr);
-	fclose(ptr);
-}
-
 void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, PrecalculationInfo precalculationInfo, PrecalculationLoadData& outPrecalculationLoadData, PrecalculationResult& outPrecalculationResult, const char* loadProbes) {
 	printf("Scene center: %f x %f x %f\n", scene.m_dimensions.center.x, scene.m_dimensions.center.y, scene.m_dimensions.center.z);
 	printf("Scene dimensions: %f x %f x %f\n", scene.m_dimensions.size.x, scene.m_dimensions.size.y, scene.m_dimensions.size.z);
@@ -307,7 +256,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 			}
 		}
 
-		float desiredSpacing = 3.f;
+		float desiredSpacing = precalculationInfo.desiredSpacing;
 		int targetProbeCount = (scene.m_dimensions.size.x / desiredSpacing) * (scene.m_dimensions.size.y / desiredSpacing) * (scene.m_dimensions.size.z / desiredSpacing);
 		printf("Desired spacing: %d. Targeted amount of probes is %d. Current probes: %d\n", desiredSpacing, targetProbeCount, probes.size());
 
@@ -366,6 +315,12 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 					}
 				}
 			}
+			file.close();
+		}
+
+		{
+			std::ofstream file("mesh_voxelized_probe.obj");
+			int counter = 0;
 
 			for (int i = 0; i < probes.size(); i++) {
 				float voxelX = probes[i].x;
@@ -405,6 +360,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 
 				counter++;
 			}
+
 			file.close();
 		}
 
@@ -414,9 +370,9 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		////////
 
 		if (true) {
-			std::ofstream file("mesh_voxelized_res_with_probes.obj");
+			std::ofstream file("mesh_voxelized_probe_selected.obj");
 			int counter = 0;
-
+			/*
 			for (int k = 0; k < voxelDimZ; k++) {
 				for (int j = 0; j < voxelDimY; j++) {
 					for (int i = 0; i < voxelDimX; i++) {
@@ -464,7 +420,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 						counter++;
 					}
 				}
-			}
+			}*/
 
 			for (int i = 0; i < probes.size(); i++) {
 				float voxelX = probes[i].x;
@@ -665,6 +621,9 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	config["sphericalHarmonicsOrder"] = precalculationInfo.sphericalHarmonicsOrder;
 	config["clusterCoefficientCount"] = precalculationInfo.clusterCoefficientCount;
 	config["maxReceiversInCluster"] = precalculationInfo.maxReceiversInCluster;
+	config["lightmapResolution"] = precalculationInfo.lightmapResolution;
+	config["texelSize"] = precalculationInfo.texelSize;
+	config["desiredSpacing"] = precalculationInfo.desiredSpacing;
 
 	config["probesCount"] = outPrecalculationLoadData.probesCount;
 	config["totalClusterReceiverCount"] = outPrecalculationLoadData.totalClusterReceiverCount;
@@ -724,6 +683,9 @@ void Precalculation::load(const char* filename, PrecalculationInfo& precalculati
 	precalculationInfo.sphericalHarmonicsOrder = config["sphericalHarmonicsOrder"];
 	precalculationInfo.clusterCoefficientCount = config["clusterCoefficientCount"];
 	precalculationInfo.maxReceiversInCluster = config["maxReceiversInCluster"];
+	precalculationInfo.lightmapResolution = config["lightmapResolution"];
+	precalculationInfo.texelSize = config["texelSize"];
+	precalculationInfo.desiredSpacing = config["desiredSpacing"];
 
 	outPrecalculationLoadData.probesCount = config["probesCount"];
 	outPrecalculationLoadData.totalClusterReceiverCount = config["totalClusterReceiverCount"];
@@ -988,13 +950,13 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 		vkutils::cpu_to_gpu(engine._engineData.allocator, instance.bindings[0].buffer, &ub, sizeof(GPUProbeDensityUniformData));
 		int groupcount = ((probes.size()) / 256) + 1;
 		engine._vulkanCompute.compute(instance, groupcount, 1, 1);
+
+		void* gpuWeightData;
+		vmaMapMemory(engine._engineData.allocator, instance.bindings[2].buffer._allocation, &gpuWeightData);
 #endif
 		for (int i = 0; i < probes.size(); i++) {
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
-			void* gpuWeightData;
-			vmaMapMemory(engine._engineData.allocator, instance.bindings[2].buffer._allocation, &gpuWeightData);
 			float weight = ((float*)gpuWeightData)[i];
-			vmaUnmapMemory(engine._engineData.allocator, instance.bindings[2].buffer._allocation);
 #else
 			float weight = calculate_spatial_weight(radius, i, probes);
 #endif
@@ -1005,6 +967,8 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 		}
 
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
+		vmaUnmapMemory(engine._engineData.allocator, instance.bindings[2].buffer._allocation);
+
 		void* gpuProbeData;
 		glm::vec4* castedGpuProbeData;
 		vmaMapMemory(engine._engineData.allocator, instance.bindings[1].buffer._allocation, &gpuProbeData);
@@ -1018,6 +982,9 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 			probes.pop_back();
 			currMaxWeight = -1;
 			toRemoveIndex = -1;
+		}
+		else {
+			break;
 		}
 		printf("Size of probes %d\n", probes.size());
 	}
@@ -1758,7 +1725,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData, int* clusterProbes)
 {
 	int shNumCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
-	int maxReceiverInABatch = MIN(256, maxReceivers);
+	int maxReceiverInABatch = MIN(64, maxReceivers);
 
 	RaytracingPipeline rtPipeline = {};
 	VkDescriptorSetLayout rtDescriptorSetLayout;
@@ -1915,6 +1882,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 					dataReceiver[i * (TEXEL_SAMPLES * TEXEL_SAMPLES) + j].dPos = aabbClusters[nodeIndex].receivers[i].poses.size();
 				}
 			}
+			
 			vmaUnmapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation);
 		}
 
@@ -1972,6 +1940,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				cpy.size = maxReceiverInABatch * aabbClusters[nodeIndex].probeCount * shNumCoeff * sizeof(float);
 				cpy.srcOffset = 0;
 				cpy.dstOffset = 0;
+
 				vkCmdCopyBuffer(cmdBuf, matrixBuffer._buffer, matrixBufferCPU._buffer, 1, &cpy);
 
 				vkutils::submit_and_free_command_buffer(engine._engineData.device, engine._vulkanRaytracing._raytracingContext.commandPool, cmdBuf, engine._vulkanRaytracing._queue, engine._vulkanRaytracing._raytracingContext.fence);

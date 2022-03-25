@@ -4,6 +4,9 @@
 #include <vk_utils.h>
 #include <vk_pipeline.h>
 
+glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c);
+glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c);
+
 uint wang_hash(uint& seed) {
 	seed = (seed ^ 61) ^ (seed >> 16);
 	seed *= 9;
@@ -174,7 +177,7 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	//ProbeBasisFunctions buffer (GPU ONLY)
 	auto probeBasisBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastBasisFunctions, sizeof(glm::vec4) * (_config.rayCount * _config.basisFunctionCount / 4 + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection Temp buffer (GPU ONLY)
-	auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * _config.probeCount * _config.rayCount * _config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	//auto probeRelightTempBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * _config.probeCount * _config.rayCount * _config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	//gi_probe_projection output buffer (GPU ONLY)
 	_probeRelightOutputBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec4) * _config.probeCount * _config.basisFunctionCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
 
@@ -267,7 +270,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 		}
 
 		{
-			int groupcount = ((_precalculationResult->probes.size() * _precalculationInfo->raysPerProbe) / 256) + 1;
+			int groupcount = ((_precalculationResult->probes.size() * _precalculationInfo->raysPerProbe) / 64) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _probeRelight.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _probeRelight.pipelineLayout, 0, 1, &_probeRelight.descriptorSet, 0, nullptr);
 
@@ -299,7 +302,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 		}
 
 		{
-			int groupcount = ((_precalculationResult->probes.size() * _precalculationInfo->raysPerProbe) / 256) + 1;
+			int groupcount = ((_precalculationResult->probes.size() * _precalculationInfo->raysPerProbe) / 64) + 1;
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _probeRelightRealtime.pipeline);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _probeRelightRealtime.pipelineLayout, 0, 1, &_probeRelightRealtime.descriptorSet, 0, nullptr);
 
@@ -324,7 +327,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 	//GI - Cluster Projection
 	{
 
-		int groupcount = ((_precalculationLoadData->aabbClusterCount * _precalculationInfo->clusterCoefficientCount) / 256) + 1;
+		int groupcount = ((_precalculationLoadData->aabbClusterCount * _precalculationInfo->clusterCoefficientCount) / 64) + 1;
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _clusterProjection.pipeline);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _clusterProjection.pipelineLayout, 0, 1, &_clusterProjection.descriptorSet, 0, nullptr);
 		vkCmdDispatch(cmd, groupcount, 1, 1);
@@ -346,7 +349,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 
 	//GI - Receiver Projection
 	{
-		int groupcount = ((_precalculationLoadData->aabbClusterCount * _precalculationInfo->maxReceiversInCluster) / 256) + 1;
+		int groupcount = ((_precalculationLoadData->aabbClusterCount * _precalculationInfo->maxReceiversInCluster) / 64) + 1;
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _receiverReconstruction.pipeline);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _receiverReconstruction.pipelineLayout, 0, 1, &_receiverReconstruction.descriptorSet, 0, nullptr);
 		vkCmdDispatch(cmd, groupcount, 1, 1);
@@ -368,6 +371,40 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 		vkCmdPipelineBarrier(
 			cmd,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &imageMemoryBarrier);
+	}
+}
+
+void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, _gtDiffuseRTPipeline.pipeline);
+
+	std::vector<VkDescriptorSet> descSets{ _gtDiffuseRTDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, _giIndirectLightTextureDescriptor, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, _giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor };
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, _gtDiffuseRTPipeline.pipelineLayout, 0,
+		(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
+
+	vkCmdTraceRaysKHR(cmd, &_gtDiffuseRTPipeline.rgenRegion, &_gtDiffuseRTPipeline.missRegion, &_gtDiffuseRTPipeline.hitRegion, &_gtDiffuseRTPipeline.callRegion, _gpuReceiverCount, 1, 1);
+
+	{
+		VkImageMemoryBarrier imageMemoryBarrier = {};
+		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		// We won't be changing the layout of the image
+		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		imageMemoryBarrier.image = _giIndirectLightImage._image;
+		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		vkCmdPipelineBarrier(
+			cmd,
+			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
 			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 			0,
 			0, nullptr,
@@ -448,9 +485,8 @@ void DiffuseIllumination::build_lightmap_pipeline(EngineData& engineData)
 	vkDestroyShaderModule(engineData.device, lightmapFragShader, nullptr);
 }
 
-void DiffuseIllumination::build_rt_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer)
+void DiffuseIllumination::build_proberaycast_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer)
 {
-	//Descriptors: Acceleration structure, storage buffer to save results, Materials
 	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
 	VkDescriptorSetLayoutBinding sceneDescBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
 		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 1);
@@ -512,6 +548,130 @@ void DiffuseIllumination::build_realtime_proberaycast_pipeline(EngineData& engin
 	vkutils::setObjectName(engineData.device, _probeRTPipeline.pipelineLayout, "ProbeRTPipelineLayout");
 }
 
+void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& engineData, GltfScene& scene, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer)
+{
+	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding sceneDescBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 1);
+	VkDescriptorSetLayoutBinding meshInfoBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 2);
+	VkDescriptorSetLayoutBinding receiversBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 3);
+	VkDescriptorSetLayoutBinding outColorBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 4);
+	VkDescriptorSetLayoutBinding bindings[5] = { tlasBind, sceneDescBind, meshInfoBind, receiversBind, outColorBind };
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 5);
+	vkCreateDescriptorSetLayout(engineData.device, &setinfo, nullptr, &_gtDiffuseRTDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocateInfo =
+		vkinit::descriptorset_allocate_info(engineData.descriptorPool, &_gtDiffuseRTDescriptorSetLayout, 1);
+
+	vkAllocateDescriptorSets(engineData.device, &allocateInfo, &_gtDiffuseRTDescriptorSet);
+
+	std::vector<VkWriteDescriptorSet> writes;
+
+	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+	descASInfo.accelerationStructureCount = 1;
+	descASInfo.pAccelerationStructures = &_vulkanRaytracing->tlas.accel;
+	VkWriteDescriptorSet accelerationStructureWrite{};
+	accelerationStructureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	// The specialized acceleration structure descriptor has to be chained
+	accelerationStructureWrite.pNext = &descASInfo;
+	accelerationStructureWrite.dstSet = _gtDiffuseRTDescriptorSet;
+	accelerationStructureWrite.dstBinding = 0;
+	accelerationStructureWrite.descriptorCount = 1;
+	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+
+	writes.emplace_back(accelerationStructureWrite);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _gtDiffuseRTDescriptorSet, &sceneDescBuffer._descriptorBufferInfo, 1));
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _gtDiffuseRTDescriptorSet, &meshInfoBuffer._descriptorBufferInfo, 2));
+
+	{
+		std::vector<GPUReceiverDataUV> receiverDataVector;
+		
+		for (int nodeIndex = 0; nodeIndex < scene.nodes.size(); nodeIndex++) {
+			auto& mesh = scene.prim_meshes[scene.nodes[nodeIndex].prim_mesh];
+			for (int triangle = 0; triangle < mesh.idx_count; triangle += 3) {
+				glm::vec3 worldVertices[3];
+				glm::vec3 worldNormals[3];
+				glm::vec2 texVertices[3];
+				int minX = _precalculationInfo->lightmapResolution, minY = _precalculationInfo->lightmapResolution;
+				int maxX = 0, maxY = 0;
+				for (int i = 0; i < 3; i++) {
+					int vertexIndex = mesh.vtx_offset + scene.indices[mesh.first_idx + triangle + i];
+
+					glm::vec4 vertex = scene.nodes[nodeIndex].world_matrix * glm::vec4(scene.positions[vertexIndex], 1.0);
+					worldVertices[i] = glm::vec3(vertex / vertex.w);
+
+
+					worldNormals[i] = glm::mat3(glm::transpose(glm::inverse(scene.nodes[nodeIndex].world_matrix))) * scene.normals[vertexIndex];
+
+					texVertices[i] = scene.lightmapUVs[vertexIndex] * glm::vec2(_precalculationInfo->lightmapResolution / (float)scene.lightmap_width, _precalculationInfo->lightmapResolution / (float)scene.lightmap_height);
+
+					if (texVertices[i].x < minX) {
+						minX = texVertices[i].x;
+					}
+					if (texVertices[i].x > maxX) {
+						maxX = texVertices[i].x;
+					}
+					if (texVertices[i].y < minY) {
+						minY = texVertices[i].y;
+					}
+					if (texVertices[i].y > maxY) {
+						maxY = texVertices[i].y;
+					}
+				}
+
+				for (int j = minY; j <= maxY; j++) {
+					for (int i = minX; i <= maxX; i++) {
+						int maxSample = TEXEL_SAMPLES;
+
+						for (int sample = 0; sample < maxSample * maxSample; sample++) {
+							glm::vec2 pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+							glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
+								texVertices[0], texVertices[1], texVertices[2]);
+							if (barycentric.x >= 0 && barycentric.y >= 0 && barycentric.z >= 0) {
+								GPUReceiverDataUV receiverData = {};
+								receiverData.pos = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
+								receiverData.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
+								receiverData.uvPad = { i, j, 0, 0 };
+								receiverDataVector.push_back(receiverData);
+							}
+						}
+					}
+				}
+			}
+		}
+		_gpuReceiverCount = receiverDataVector.size();
+		_receiverBuffer = vkutils::create_upload_buffer(&engineData, receiverDataVector.data(), sizeof(GPUReceiverDataUV) * receiverDataVector.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _gtDiffuseRTDescriptorSet, &_receiverBuffer._descriptorBufferInfo, 3));
+	}
+
+	{
+		VkDescriptorImageInfo storageImageBufferInfo;
+		storageImageBufferInfo.sampler = engineData.linearSampler;
+		storageImageBufferInfo.imageView = _giIndirectLightImageView;
+		storageImageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+		writes.emplace_back(vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, _gtDiffuseRTDescriptorSet, &storageImageBufferInfo, 4, 1));
+	}
+	
+	vkUpdateDescriptorSets(engineData.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+}
+
+void DiffuseIllumination::build_groundtruth_gi_raycast_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors)
+{
+	VkDescriptorSetLayout setLayouts[] = { _gtDiffuseRTDescriptorSetLayout, sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 9);
+
+	_vulkanRaytracing->create_new_pipeline(_gtDiffuseRTPipeline, pipeline_layout_info,
+		"../../shaders/diffusegi_groundtruth.rgen.spv",
+		"../../shaders/reflections_rt.rmiss.spv",
+		"../../shaders/reflections_rt.rchit.spv");
+
+	vkutils::setObjectName(engineData.device, _gtDiffuseRTPipeline.pipeline, "gtDiffuseRTPipeline");
+	vkutils::setObjectName(engineData.device, _gtDiffuseRTPipeline.pipelineLayout, "gtDiffuseRTPipelineLayout");
+}
+
 void DiffuseIllumination::rebuild_shaders(EngineData& engineData, SceneDescriptors& sceneDescriptors)
 {
 	_vulkanCompute->rebuildPipeline(_probeRelight, "../../shaders/gi_probe_projection.comp.spv");
@@ -523,6 +683,10 @@ void DiffuseIllumination::rebuild_shaders(EngineData& engineData, SceneDescripto
 
 	_vulkanRaytracing->destroy_raytracing_pipeline(_probeRTPipeline);
 	build_realtime_proberaycast_pipeline(engineData, sceneDescriptors);
+
+	_vulkanRaytracing->destroy_raytracing_pipeline(_gtDiffuseRTPipeline);
+	build_groundtruth_gi_raycast_pipeline(engineData, sceneDescriptors);
+
 }
 
 void DiffuseIllumination::debug_draw_probes(VulkanDebugRenderer& debugRenderer, bool showProbeRays, float sceneScale)

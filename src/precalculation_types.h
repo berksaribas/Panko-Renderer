@@ -43,6 +43,8 @@ struct PrecalculationInfo {
 	int clusterCoefficientCount;
 	int maxReceiversInCluster;
 	int lightmapResolution;
+	int texelSize;
+	float desiredSpacing;
 };
 
 struct PrecalculationLoadData {

@@ -6,7 +6,7 @@
 
 #include "common.glsl"
 
-layout (local_size_x = 256) in;
+layout (local_size_x = 64) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 probeRaycasts[]; };

@@ -43,6 +43,11 @@ struct Camera {
 	glm::vec3 rotation;
 };
 
+struct ScreenshotSaveData {
+	Camera camera;
+	glm::vec4 lightPos;
+};
+
 class VulkanEngine {
 public:
 	EngineData _engineData;
@@ -78,7 +83,7 @@ public:
 	GltfScene gltf_scene;
 	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
-	AllocatedBuffer vertex_buffer, index_buffer, normal_buffer, tex_buffer, material_buffer, lightmap_tex_buffer;
+	AllocatedBuffer vertex_buffer, index_buffer, normal_buffer, tex_buffer, material_buffer, lightmap_tex_buffer, tangent_buffer;
 	AllocatedBuffer sceneDescBuffer, meshInfoBuffer;
 
 	/* DEFAULT RENDERING VARIABLES */
@@ -149,4 +154,6 @@ private:
 	void init_scene();
 
 	void init_imgui();
+
+	void init_query_pool();
 };

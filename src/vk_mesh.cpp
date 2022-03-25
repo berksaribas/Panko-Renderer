@@ -26,10 +26,16 @@ VertexInputDescription Vertex::get_vertex_description()
 	lightmap_binding.stride = sizeof(glm::vec2);
 	lightmap_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
+	VkVertexInputBindingDescription tangent_binding = {};
+	tangent_binding.binding = 4;
+	tangent_binding.stride = sizeof(glm::vec4);
+	tangent_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
 	description.bindings.push_back(vertex_binding);
 	description.bindings.push_back(normal_binding);
 	description.bindings.push_back(tex_binding);
 	description.bindings.push_back(lightmap_binding);
+	description.bindings.push_back(tangent_binding);
 
 	//Position will be stored at Location 0
 	VkVertexInputAttributeDescription positionAttribute = {};
@@ -58,9 +64,16 @@ VertexInputDescription Vertex::get_vertex_description()
 	lightmapAttribute.format = VK_FORMAT_R32G32_SFLOAT;
 	lightmapAttribute.offset = 0;
 
+	VkVertexInputAttributeDescription tangentAttribute = {};
+	tangentAttribute.binding = 4;
+	tangentAttribute.location = 4;
+	tangentAttribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	tangentAttribute.offset = 0;
+
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(uvAttribute);
 	description.attributes.push_back(lightmapAttribute);
+	description.attributes.push_back(tangentAttribute);
 	return description;
 }

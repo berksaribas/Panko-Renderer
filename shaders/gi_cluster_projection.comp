@@ -7,7 +7,7 @@
 
 #include "common.glsl"
 
-layout (local_size_x = 256) in;
+layout (local_size_x = 64) in;
 
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { vec4 probeRelightColors[]; };
@@ -34,6 +34,9 @@ float window(float l, float w) {
 
 #define WINDOWING 10
 
+float baked_window[] = {1, 0.983632, 0.935489, 0.858394, 0.756827, 0.63662, 0.504551, 0.367883};
+int degree[] = {0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7};
+
 void main()
 {
 	uint gID = gl_GlobalInvocationID.x;
@@ -51,10 +54,11 @@ void main()
 			int probeIndex = clusterProbeOffset + i;
 			int currProbe = probes[probeIndex];
 			for(int k = 0; k < config.basisFunctionCount; k++) {
-				float w = window(floor(sqrt(float(k))), WINDOWING);
+				//float w = window(floor(sqrt(float(k))), WINDOWING);
+				float w = baked_window[degree[k]];
 				vec4 color = probeRelightColors[currProbe * config.basisFunctionCount + k];
 				uint index = config.pcaCoefficient * clusterProbeOffset * config.basisFunctionCount + currCoeff * config.basisFunctionCount * clusterProbeCount + i * config.basisFunctionCount + k;
-				outColors[gID] += color * clusterProjectionMatrices[index] * w; //this weight multiplication is expensive!
+				outColors[gID] += w * color * clusterProjectionMatrices[index];
 			}
 		}
 	}
