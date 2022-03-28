@@ -22,6 +22,7 @@ struct AABB {
 	glm::vec3 min;
 	glm::vec3 max;
 	std::vector<Receiver> receivers;
+	std::vector<int> probes;
 	int probeCount;
 };
 

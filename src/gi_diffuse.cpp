@@ -742,6 +742,8 @@ void DiffuseIllumination::debug_draw_specific_receiver(VulkanDebugRenderer& debu
 
 	int receiverCount = _precalculationResult->clusterReceiverInfos[specificCluster].receiverCount;
 	int receiverOffset = _precalculationResult->clusterReceiverInfos[specificCluster].receiverOffset;
+	int probeCount = _precalculationResult->clusterReceiverInfos[specificCluster].probeCount;
+	int probeOffset = _precalculationResult->clusterReceiverInfos[specificCluster].probeOffset;
 
 	auto receiverPos = _precalculationResult->aabbReceivers[receiverOffset + specificReceiver].position * sceneScale;
 	auto receiverNormal = _precalculationResult->aabbReceivers[receiverOffset + specificReceiver].normal;
@@ -755,10 +757,10 @@ void DiffuseIllumination::debug_draw_specific_receiver(VulkanDebugRenderer& debu
 
 		debugRenderer.draw_line(receiverPos, receiverPos + direction * 100.0f, { 0, 1, 1 });
 	}
-
-
-	for (int i = 0; i < _precalculationResult->probes.size(); i++) {
-		if (_precalculationResult->receiverProbeWeightData[(receiverOffset + specificReceiver) * _precalculationResult->probes.size() + i] > 0.000001) {
+	
+	for (int probe = 0; probe < probeCount; probe++) {
+		int i = _precalculationResult->clusterProbes[probeOffset + probe];
+		if (_precalculationResult->receiverProbeWeightData[(receiverOffset + specificReceiver) * _precalculationLoadData->maxProbesPerCluster + probe] > 0.000001) {
 			if (enabledProbes[i]) {
 				debugRenderer.draw_point(glm::vec3(_precalculationResult->probes[i]) * sceneScale, { 1, 0, 1 });
 

@@ -140,7 +140,7 @@ void main()
         for(int i = 0; i < config.rayCount; i++) {
             float totalWeight = 0;
             for(int j = 0; j < config.clusterProbeCount; j++) {
-                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[j];
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.maxProbesPerCluster + j;
                 totalWeight += results[j + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount].visibility 
                                 * weights[weightIndex];
             }
@@ -148,7 +148,7 @@ void main()
             if(totalWeight > 0.00001) {
                 validRays++;
                 uint resultIndex = clusterProbe + i * config.clusterProbeCount + relativeReceiver * config.clusterProbeCount * config.rayCount;
-                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.totalProbeCount + probes[clusterProbe];
+                uint weightIndex = (config.receiverOffset + absoluteReceiver) * config.maxProbesPerCluster + clusterProbe;
                 float weight = results[resultIndex].visibility * weights[weightIndex] / totalWeight;
                 if(weight > 0.00001) {
                     vec3 dir = normalize(results[resultIndex].dir);

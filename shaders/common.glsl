@@ -136,6 +136,7 @@ struct PrecalculateReceiverMatrixConfig {
 	int receiverOffset;
 	int batchOffset;
 	int batchSize;
+	int maxProbesPerCluster;
 };
 
 struct ReflectionPayload {

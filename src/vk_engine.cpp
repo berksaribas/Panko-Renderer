@@ -141,16 +141,16 @@ void VulkanEngine::init()
 
 	bool loadPrecomputedData = true;
 	if (!loadPrecomputedData) {
-		precalculationInfo.voxelSize = 0.25;
+		precalculationInfo.voxelSize = 0.12;
 		precalculationInfo.voxelPadding = 2;
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 1000;
 		precalculationInfo.raysPerReceiver = 8000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 256;
+		precalculationInfo.clusterCoefficientCount = 128;
 		precalculationInfo.maxReceiversInCluster = 1024;
-		precalculationInfo.lightmapResolution = 256;
-		precalculationInfo.texelSize = 6;
+		precalculationInfo.lightmapResolution = 1024;
+		precalculationInfo.texelSize = 128;
 		precalculationInfo.desiredSpacing = 1;
 	}
 	else {
@@ -488,10 +488,14 @@ void VulkanEngine::draw()
 			{
 				int receiverCount = precalculationResult.clusterReceiverInfos[specificCluster].receiverCount;
 				int receiverOffset = precalculationResult.clusterReceiverInfos[specificCluster].receiverOffset;
-				for (int i = 0; i < precalculationResult.probes.size(); i++) {
-					if (precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationResult.probes.size() + i] > 0) {
-						sprintf_s(buffer, "Probe %d: %f", i, precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationResult.probes.size() + i]);
-						ImGui::Checkbox(buffer, &probesEnabled[i]);
+				int probeCount = precalculationResult.clusterReceiverInfos[specificCluster].probeCount;
+				int probeOffset = precalculationResult.clusterReceiverInfos[specificCluster].probeOffset;
+				
+				for (int i = 0; i < probeCount; i++) {
+					if (precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i] > 0) {
+						int realProbeIndex = precalculationResult.clusterProbes[probeOffset + i];
+						sprintf_s(buffer, "Probe %d: %f", realProbeIndex, precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i]);
+						ImGui::Checkbox(buffer, &probesEnabled[realProbeIndex]);
 					}
 				}
 			}
@@ -1498,7 +1502,7 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	std::string file_name = "../../assets/cornellFixed.gltf";
+	//std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/cornell3.gltf";
 	
@@ -1510,7 +1514,7 @@ void VulkanEngine::init_scene()
 	
 	//std::string file_name = "../../assets/interior_scene/scene.gltf";
 	
-	//std::string file_name = "../../assets/caustics.gltf";
+	std::string file_name = "../../assets/caustics.gltf";
 
 	tinygltf::Model tmodel;
 	tinygltf::TinyGLTF tcontext;

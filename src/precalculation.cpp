@@ -112,7 +112,7 @@ void calcY(float* o, vec3 r, int order) {
 }
 
 static float calculate_density(float length, float radius) {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 
 	float t = length / radius;
 	if (t >= 0 && t <= 1) {
@@ -123,7 +123,7 @@ static float calculate_density(float length, float radius) {
 }
 
 static float calculate_spatial_weight(float radius, int probeIndex, std::vector<glm::vec4>& probes) {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 
 	float total_weight = 0.f;
 #pragma omp parallel for reduction(+:total_weight) 
@@ -136,7 +136,7 @@ static float calculate_spatial_weight(float radius, int probeIndex, std::vector<
 }
 
 static float calculate_radius(Receiver* receivers, int receiverSize, std::vector<glm::vec4>& probes, int overlaps) {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 
 	float radius = 0;
 	int receiverCount = 0;
@@ -462,6 +462,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 			}
 			file.close();
 		}
+		delete[] voxelData;
 	}
 	else {
 		size_t size = seek_file(loadProbes);
@@ -478,6 +479,10 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	outPrecalculationResult.probeRaycastBasisFunctions = (float*)malloc(precalculationInfo.raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
 	probe_raycast(engine, probes, precalculationInfo.raysPerProbe, precalculationInfo.sphericalHarmonicsOrder, outPrecalculationResult.probeRaycastResult, outPrecalculationResult.probeRaycastBasisFunctions);
 
+	//Receiver radius
+	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);
+	printf("Radius for receivers: %f\n", newRadius);
+
 	//AABB clustering
 	std::vector<AABB> aabbClusters;
 	AABB initial_node = {};
@@ -485,6 +490,8 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	initial_node.max = scene.m_dimensions.max + glm::vec3(1.0); //adding some padding
 	divide_aabb(aabbClusters, initial_node, receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, precalculationInfo.maxReceiversInCluster);
 	
+	delete[] receivers;
+
 	for (int i = 0; i < aabbClusters.size(); i++) {
 		std::sort(aabbClusters[i].receivers.begin(), aabbClusters[i].receivers.end(), [](Receiver a, Receiver b) {
 			float adot = glm::dot(a.normal, a.normal);
@@ -531,7 +538,6 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	outPrecalculationResult.aabbReceivers = new Receiver[clusterReceiverCount];
 	outPrecalculationResult.receiverCoefficientMatrices = new float[clusterReceiverCount * precalculationInfo.clusterCoefficientCount];
 	outPrecalculationResult.clusterReceiverUvs = new glm::ivec4[clusterReceiverCount];
-	outPrecalculationResult.receiverProbeWeightData = new float[clusterReceiverCount * probes.size()];
 	int currOffset = 0;
 	for (int i = 0; i < aabbClusters.size(); i++) {
 		for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
@@ -541,36 +547,40 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		currOffset +=aabbClusters[i].receivers.size();
 	}
 
-	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);
-	printf("Radius for receivers: %f\n", newRadius);
-
 	int maxProbesPerCluster = 0;
 	int totalProbesPerCluster = 0;
 	{
 		int recCounter = 0;
-		std::unordered_set<int> supportingProbes;
+		std::set<int> supportingProbes;
 		for (int i = 0; i < aabbClusters.size(); i++) {
 			//#pragma omp parallel for
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
 				for (int k = 0; k < probes.size(); k++) {
-					outPrecalculationResult.receiverProbeWeightData[(recCounter + j) * probes.size() + k] = calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[k])), newRadius);
-					if (outPrecalculationResult.receiverProbeWeightData[(recCounter + j) * probes.size() + k] > 0.0f) {
+					if (calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[k])), newRadius) > 0.0f) {
 						supportingProbes.insert(k);
 					}
 				}
 			}
+
+			for (const auto elem : supportingProbes) {
+				aabbClusters[i].probes.push_back(elem);
+			}
+
 			maxProbesPerCluster = MAX(maxProbesPerCluster, supportingProbes.size());
 			totalProbesPerCluster += supportingProbes.size();
 			recCounter += aabbClusters[i].receivers.size();
+			aabbClusters[i].probeCount = supportingProbes.size();
 			supportingProbes.clear();
 		}
 		printf("MAX probe count per cluster: %d\n", maxProbesPerCluster);
 		printf("Total probes: %d\n", totalProbesPerCluster);
 	}
 
+
 	outPrecalculationLoadData.maxProbesPerCluster = maxProbesPerCluster;
 	outPrecalculationLoadData.totalProbesPerCluster = totalProbesPerCluster;
 
+	outPrecalculationResult.receiverProbeWeightData = new float[clusterReceiverCount * maxProbesPerCluster];
 	outPrecalculationResult.clusterProjectionMatrices = new float[totalProbesPerCluster * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount];
 	outPrecalculationResult.clusterProbes = new int[totalProbesPerCluster];
 
@@ -581,19 +591,22 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		std::set<int> supportingProbes;
 		for (int i = 0; i < aabbClusters.size(); i++) {
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
-				for (int k = 0; k < probes.size(); k++) {
-					if (outPrecalculationResult.receiverProbeWeightData[(recCounter + j) * probes.size() + k] > 0.0f) {
-						supportingProbes.insert(k);
+				for (int k = 0; k < aabbClusters[i].probes.size(); k++) {
+					
+					float value = calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[aabbClusters[i].probes[k]])), newRadius);
+					if (value > 0.0f) {
+						supportingProbes.insert(aabbClusters[i].probes[k]);
 					}
+					outPrecalculationResult.receiverProbeWeightData[(recCounter + j) * maxProbesPerCluster + k] = value;
 				}
 			}
+
 			for (const auto elem : supportingProbes) {
 				outPrecalculationResult.clusterProbes[ctr] = elem;
 				ctr++;
 			}
 
 			recCounter += aabbClusters[i].receivers.size();
-			aabbClusters[i].probeCount = supportingProbes.size();
 			outPrecalculationResult.clusterReceiverInfos[i].probeCount = supportingProbes.size();
 			outPrecalculationResult.clusterReceiverInfos[i].probeOffset = probeCounter;
 			probeCounter += supportingProbes.size();
@@ -656,7 +669,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".ClusterReceiverUvs", outPrecalculationResult.clusterReceiverUvs, clusterReceiverCount * sizeof(glm::ivec4));
 
 	config["fileReceiverProbeWeightData"] = filename + ".ReceiverProbeWeightData";
-	save_binary(filename + ".ReceiverProbeWeightData", outPrecalculationResult.receiverProbeWeightData, clusterReceiverCount * probes.size() * sizeof(float));
+	save_binary(filename + ".ReceiverProbeWeightData", outPrecalculationResult.receiverProbeWeightData, clusterReceiverCount * maxProbesPerCluster * sizeof(float));
 
 	config["fileClusterProbes"] = filename + ".ClusterProbes";
 	save_binary(filename + ".ClusterProbes", outPrecalculationResult.clusterProbes, totalProbesPerCluster * sizeof(int));
@@ -787,7 +800,7 @@ void Precalculation::load(const char* filename, PrecalculationInfo& precalculati
 
 uint8_t* Precalculation::voxelize(GltfScene& scene, float voxelSize, int padding, int& dimX, int& dimY, int& dimZ)
 {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 
 	int x = (scene.m_dimensions.max.x - scene.m_dimensions.min.x) / voxelSize + padding * 2;
 	int y = (scene.m_dimensions.max.y - scene.m_dimensions.min.y) / voxelSize + padding * 2;
@@ -997,7 +1010,7 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
 }
 
 Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene& scene, int lightmapResolution) {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 	printf("Generating receivers!\n");
 
 	int receiverCount = lightmapResolution * lightmapResolution;
@@ -1140,7 +1153,7 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 
 Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& scene, int lightmapResolution)
 {
-	OPTICK_EVENT();
+	//OPTICK_EVENT();
 	printf("Generating receivers!\n");
 
 	int receiverCount = lightmapResolution * lightmapResolution;
@@ -1724,6 +1737,8 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 
 void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData, int* clusterProbes)
 {
+	printf("About to start receiver raycasting...\n");
+
 	int shNumCoeff = SPHERICAL_HARMONICS_NUM_COEFF(sphericalHarmonicsOrder);
 	int maxReceiverInABatch = MIN(64, maxReceivers);
 
@@ -1783,7 +1798,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	AllocatedBuffer outputBuffer = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * rays * maxProbesPerCluster * sizeof(GPUReceiverRaycastResult), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &outputBuffer._descriptorBufferInfo, 5));
 	
-	AllocatedBuffer receiverProbeWeights = vkutils::create_upload_buffer(&engine._engineData, receiverProbeWeightData, sizeof(float) * (probes.size() * totalReceiverCount), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	AllocatedBuffer receiverProbeWeights = vkutils::create_upload_buffer(&engine._engineData, receiverProbeWeightData, sizeof(float) * (maxProbesPerCluster * totalReceiverCount), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, rtDescriptorSet, &receiverProbeWeights._descriptorBufferInfo, 6));
 
 	AllocatedBuffer clusterProbesBuffer = vkutils::create_buffer(engine._engineData.allocator, sizeof(int) * maxProbesPerCluster, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -1793,6 +1808,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	matrixConfig.basisFunctionCount = shNumCoeff;
 	matrixConfig.rayCount = rays;
 	matrixConfig.totalProbeCount = probes.size();
+	matrixConfig.maxProbesPerCluster = maxProbesPerCluster;
 
 	AllocatedBuffer receiverMatrixConfig = vkutils::create_upload_buffer(&engine._engineData, &matrixConfig, sizeof(PrecalculateReceiverMatrixConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	AllocatedBuffer matrixBuffer = vkutils::create_buffer(engine._engineData.allocator, maxReceiverInABatch * maxProbesPerCluster * shNumCoeff * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
