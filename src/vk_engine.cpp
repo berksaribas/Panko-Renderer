@@ -141,7 +141,7 @@ void VulkanEngine::init()
 
 	bool loadPrecomputedData = true;
 	if (!loadPrecomputedData) {
-		precalculationInfo.voxelSize = 0.12;
+		precalculationInfo.voxelSize = 0.25;
 		precalculationInfo.voxelPadding = 2;
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 1000;
@@ -1507,14 +1507,14 @@ void VulkanEngine::init_scene()
 	//std::string file_name = "../../assets/cornell3.gltf";
 	
 	//std::string file_name = "../../assets/cornell4.gltf";
-	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
+	std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
 	//std::string file_name = "../../assets/VC/glTF/VC.gltf";
 	
 	//std::string file_name = "../../assets/interior_scene/scene.gltf";
 	
-	std::string file_name = "../../assets/caustics.gltf";
+	//std::string file_name = "../../assets/caustics.gltf";
 
 	tinygltf::Model tmodel;
 	tinygltf::TinyGLTF tcontext;
@@ -1692,7 +1692,7 @@ void VulkanEngine::init_scene()
 		vkutils::load_image_from_memory(&_engineData, nil.data(), 1, 1, allocated_image, mipLevels);
 
 		VkImageView imageView;
-		VkImageViewCreateInfo imageinfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_SRGB, allocated_image._image, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+		VkImageViewCreateInfo imageinfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_UNORM, allocated_image._image, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 		vkCreateImageView(_engineData.device, &imageinfo, nullptr, &imageView);
 
 		VkDescriptorImageInfo imageBufferInfo;
@@ -1717,7 +1717,7 @@ void VulkanEngine::init_scene()
 		}
 	
 		VkImageView imageView;
-		VkImageViewCreateInfo imageinfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_SRGB, allocated_image._image, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+		VkImageViewCreateInfo imageinfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_UNORM, allocated_image._image, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 		vkCreateImageView(_engineData.device, &imageinfo, nullptr, &imageView);
 
 		VkDescriptorImageInfo imageBufferInfo;

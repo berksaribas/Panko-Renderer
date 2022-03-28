@@ -91,7 +91,7 @@ bool vkutils::load_image_from_memory(EngineData* engineData, void* pixels, int w
 	VkDeviceSize imageSize = width * height * 4;
 	
 	//the format R8G8B8A8 matches exactly with the pixels loaded from stb_image lib
-	VkFormat image_format = VK_FORMAT_R8G8B8A8_SRGB;
+	VkFormat image_format = VK_FORMAT_R8G8B8A8_UNORM;
 	
 	//allocate temporary buffer for holding texture data to upload
 	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engineData->allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
