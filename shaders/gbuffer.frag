@@ -79,7 +79,6 @@ void main()
     float metallic = materials[inMaterialId].metallic_factor;
 
 	if(materials[inMaterialId].texture > -1) {
-        //albedo = pow(texture(textures[materials[inMaterialId].texture], inTexCoord).xyz, vec3(2.2));
         albedo = texture(textures[materials[inMaterialId].texture], inTexCoord).xyz;
     }
     else {
@@ -97,7 +96,7 @@ void main()
     vec3 normal = normalize(inNormal);
 
     if(materials[inMaterialId].normal_texture > -1) {
-        //normal = getNormal();
+        normal = getNormal();
     }
 
     gbufferNormalMotion = vec4(direction_to_octohedral(normal), compute_motion_vector(inOldPosition, inPosition));
