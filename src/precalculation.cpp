@@ -483,6 +483,18 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);
 	printf("Radius for receivers: %f\n", newRadius);
 
+	
+	for (int i = 0; i < precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution; i++) {
+		if (receivers[i].exists) {
+			for (int k = 0; k < probes.size(); k++) {
+				if (calculate_density(glm::distance(receivers[i].position, glm::vec3(probes[k])), newRadius) > 0.0f) {
+					receivers[i].probes.push_back(k);
+				}
+			}
+		}
+	}
+	
+
 	//AABB clustering
 	std::vector<AABB> aabbClusters;
 	AABB initial_node = {};
@@ -490,8 +502,59 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	initial_node.max = scene.m_dimensions.max + glm::vec3(1.0); //adding some padding
 	divide_aabb(aabbClusters, initial_node, receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, precalculationInfo.maxReceiversInCluster);
 	
+	//my adaptive clustering base on normal
+
+	
+	for (int i = 0; i < aabbClusters.size(); i++) {
+		printf("Current cluster (%d): %d/%d\n", aabbClusters[i].receivers.size(), i, aabbClusters.size());
+
+		if (aabbClusters[i].receivers.size() <= 64) {
+			continue;
+		}
+
+		bool first_mismatch = false;
+		auto j = aabbClusters[i].receivers.begin();
+
+		int mismatchCount = 0;
+
+		while (j != aabbClusters[i].receivers.end())
+		{
+			int diff = (aabbClusters[i].receivers[0].probes.size() - (*j).probes.size());
+			if (diff < 0) diff *= -1;
+			if ( (glm::distance(aabbClusters[i].receivers[0].normal, (*j).normal) > 0.1 && glm::dot(aabbClusters[i].receivers[0].normal, (*j).normal) < 0.9f)) {
+				mismatchCount++;
+			}
+			++j;
+		}
+
+		printf("Mismatch count: %d\n", mismatchCount);
+
+		if (mismatchCount > 32 && aabbClusters[i].receivers.size() - mismatchCount > 32) {
+			j = aabbClusters[i].receivers.begin();
+			while (j != aabbClusters[i].receivers.end())
+			{
+				int diff = (aabbClusters[i].receivers[0].probes.size() - (*j).probes.size());
+				if (diff < 0) diff *= -1;
+				if ( (glm::distance(aabbClusters[i].receivers[0].normal, (*j).normal) > 0.1 && glm::dot(aabbClusters[i].receivers[0].normal, (*j).normal) < 0.9f)) {
+					if (!first_mismatch) {
+						AABB new_cluster = {};
+						aabbClusters.push_back(new_cluster);
+						first_mismatch = true;
+					}
+					aabbClusters[aabbClusters.size() - 1].receivers.push_back((*j));
+					j = aabbClusters[i].receivers.erase(j);
+				}
+				else {
+					++j;
+				}
+			}
+		}
+	}
+	
+	
 	delete[] receivers;
 
+	/*
 	for (int i = 0; i < aabbClusters.size(); i++) {
 		std::sort(aabbClusters[i].receivers.begin(), aabbClusters[i].receivers.end(), [](Receiver a, Receiver b) {
 			float adot = glm::dot(a.normal, a.normal);
@@ -519,7 +582,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		//for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
 		//	printf("%f %f %f\n", aabbClusters[i].receivers[j].normal.x, aabbClusters[i].receivers[j].normal.y, aabbClusters[i].receivers[j].normal.z);
 		//}
-	}
+	}*/
 
 	outPrecalculationLoadData.aabbClusterCount = aabbClusters.size();
 
@@ -1879,6 +1942,10 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	int receiverOffset = 0;
 	int probeOffset = 0;
 
+	float totalError = 0;
+	int validClusters = 0;
+	float averageSquaredError = 0;
+
 	for (int nodeIndex = 0; nodeIndex < aabbClusters.size(); nodeIndex++) {
 		printf("Starting node: %d with max probes: %d and receivers: %d\n", nodeIndex, aabbClusters[nodeIndex].probeCount, aabbClusters[nodeIndex].receivers.size());
 		auto start = std::chrono::system_clock::now();
@@ -1968,11 +2035,11 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaUnmapMemory(engine._engineData.allocator, matrixBufferCPU._allocation);
 		}
 
-		//{
-		//	std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-		//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-		//	file << clusterMatrix.format(CSVFormat);
-		//}
+		{
+			//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+			//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			//file << clusterMatrix.format(CSVFormat);
+		}
 
 		Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
@@ -1990,7 +2057,17 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				realTotal += svd.singularValues()[aa];
 			}
 
-			printf("Error: %f (total singular value count: %d)\n", 1.0f - sqrt(total / realTotal), svd.singularValues().size());
+			float error = 1.0f - sqrt(total / realTotal);
+
+			if (!isnan(error)) {
+				totalError += aabbClusters[nodeIndex].receivers.size() * error;
+
+				if (error > 0.0000001) {
+					validClusters += 1;
+				}
+			}
+
+			printf("Singular Value error: %f (total singular value count: %d)\n", error, svd.singularValues().size());
 		}
 
 		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().rows(), nc);
@@ -2013,19 +2090,18 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		//printf("Singular matrix size: %d x %d\n", singularMatrix.rows(), singularMatrix.cols());
 		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
 
-
-		//auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
-		//{
-		//	std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
-		//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-		//	file << newMatrix.format(CSVFormat);
-		//}
-		/*
-		printf("Size of the new matrix: %d x %d", newMatrix.rows(), newMatrix.cols());
+		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
+		{
+			//std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
+			//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			//file << newMatrix.format(CSVFormat);
+		}
+		
 		auto diff = clusterMatrix - newMatrix;
-		printf("diff: %f\n", diff.array().abs().sum());
-		*/
-
+		float squaredError = diff.squaredNorm();
+		averageSquaredError += squaredError * aabbClusters[nodeIndex].receivers.size();
+		printf("Squared Error: %f\n", squaredError);
+		
 		/*
 		int globalcounterr = 0;
 		for (int y = 0; y < clusterProjectionMatrix.rows(); y++) {
@@ -2047,8 +2123,12 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 		auto end = std::chrono::system_clock::now();
 		std::chrono::duration<double> elapsed_seconds = end - start;
-		printf("Node tracing done %d/%d (took %f s)\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count());
+		printf("Node tracing done %d/%d (took %f s)\n\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count());
 	}
+
+	totalError /= totalReceiverCount;
+	printf("Average singular value error: %f\n", totalError);
+	printf("Average squared error: %f\n", averageSquaredError / totalReceiverCount);
 
 	engine._vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 

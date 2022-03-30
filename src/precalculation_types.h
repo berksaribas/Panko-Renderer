@@ -16,6 +16,7 @@ struct Receiver {
 	bool processed;
 	std::vector<glm::vec3> poses;
 	std::vector<glm::vec3> norms;
+	std::vector<int> probes;
 };
 
 struct AABB {
