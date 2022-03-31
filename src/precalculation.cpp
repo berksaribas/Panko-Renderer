@@ -1998,6 +1998,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		//printf("Squared Error: %f\n", squaredError);
 		
 		// My take on iterative PCA
+
 		float* receiverErrors = new float[aabbClusters[nodeIndex].receivers.size()];
 		std::unordered_set<int> used;
 		while (true) {
@@ -2026,7 +2027,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 			while (true) {
 				auto svdstart = std::chrono::system_clock::now();
-				//auto mean = targetMatrix.block(0, 0, currRow, targetMatrix.cols()).colwise().mean();
+				auto mean = targetMatrix.block(0, 0, currRow, targetMatrix.cols()).colwise().mean();
 				//Eigen::JacobiSVD<Eigen::MatrixXf> sub_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), Eigen::ComputeThinU | Eigen::ComputeThinV);
 				RedSVD::RedSVD sub_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), nc);
 				auto svdend = std::chrono::system_clock::now();
@@ -2060,7 +2061,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				//	file << targetMatrix.block(0, 0, currRow, targetMatrix.cols()).format(CSVFormat);
 				//}
 
-				if ((clusterMatrix.rows() - used.size() > 16 && err > 0.005) || done) {
+				if ((clusterMatrix.rows() - used.size() > 32 && err > 0.005) || done) {
 					printf("Seperated %d rows. The cluster error is: %f.\n", currRow, err);
 
 					//printf("U size: %d x %d\n", sub_svd.matrixU().rows(), sub_svd.matrixU().cols());
@@ -2103,16 +2104,19 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 					break;
 				}
 
-				#pragma omp parallel for
+				auto reststart = std::chrono::system_clock::now();
+
+				#pragma omp parallel for schedule(static)
 				for (int i = 0; i < clusterMatrix.rows(); i++) {
 					if (used.find(i) == used.end()) {
-						auto diff = (clusterMatrix.row(i));
+						auto diff = (clusterMatrix.row(i) - mean);
 						float squared_norm = diff.squaredNorm();
 						int maxNc = MIN(MIN(sub_svd.singularValues().size(), nc), currRow / 20);
 
 						float approximation = 0;
 						for (int j = 0; j < maxNc; j++) {
-							approximation += (diff * clusterMatrix.row(j)).squaredNorm();
+							float diff2 = (diff.dot(targetMatrix.row(j)));
+							approximation += diff2 * diff2;
 						}
 
 						float approximation_error = squared_norm - approximation;
@@ -2124,7 +2128,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				}
 
 				int selected = -1;
-				float selectedErr = 99999;
+				float selectedErr = 99999999;
 				for (int i = 0; i < clusterMatrix.rows(); i++) {
 					if (used.find(i) == used.end()) {
 						if (receiverErrors[i] < selectedErr) {
@@ -2144,7 +2148,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				}
 
 				auto restend = std::chrono::system_clock::now();
-				elapsed_seconds = restend - svdend;
+				elapsed_seconds = restend - reststart;
 				resttook += elapsed_seconds.count();
 			}
 			printf("SVD took: %f, Rest took %f s\n", svdtook, resttook);
@@ -2173,13 +2177,13 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 		auto end = std::chrono::system_clock::now();
 		std::chrono::duration<double> elapsed_seconds = end - start;
-		printf("Node tracing done %d/%d (took %f s)\n\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count());
+		printf("Node tracing done %d/%d (took %f s). Current cluster count: %d\n\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count(), newClusterCount);
 	}
 
 	*projectionMatricesSize = nodeClusterDataOffset;
 	aabbClusters = newClusters;
 
-	printf("New node count: %d\n", newClusterCount);
+	printf("New cluster count: %d\n", newClusterCount);
 
 	totalError /= totalReceiverCount;
 	printf("Average singular value error: %f\n", totalError);
