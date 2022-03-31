@@ -19,6 +19,7 @@
 #include <vk_pipeline.h>
 
 #include <file_helper.h>
+#include <redsvd.h>
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
@@ -483,18 +484,6 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);
 	printf("Radius for receivers: %f\n", newRadius);
 
-	
-	for (int i = 0; i < precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution; i++) {
-		if (receivers[i].exists) {
-			for (int k = 0; k < probes.size(); k++) {
-				if (calculate_density(glm::distance(receivers[i].position, glm::vec3(probes[k])), newRadius) > 0.0f) {
-					receivers[i].probes.push_back(k);
-				}
-			}
-		}
-	}
-	
-
 	//AABB clustering
 	std::vector<AABB> aabbClusters;
 	AABB initial_node = {};
@@ -502,121 +491,13 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	initial_node.max = scene.m_dimensions.max + glm::vec3(1.0); //adding some padding
 	divide_aabb(aabbClusters, initial_node, receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, precalculationInfo.maxReceiversInCluster);
 	
-	//my adaptive clustering base on normal
-
-	
-	for (int i = 0; i < aabbClusters.size(); i++) {
-		printf("Current cluster (%d): %d/%d\n", aabbClusters[i].receivers.size(), i, aabbClusters.size());
-
-		if (aabbClusters[i].receivers.size() <= 64) {
-			continue;
-		}
-
-		bool first_mismatch = false;
-		auto j = aabbClusters[i].receivers.begin();
-
-		int mismatchCount = 0;
-
-		while (j != aabbClusters[i].receivers.end())
-		{
-			int diff = (aabbClusters[i].receivers[0].probes.size() - (*j).probes.size());
-			if (diff < 0) diff *= -1;
-			if ( (glm::distance(aabbClusters[i].receivers[0].normal, (*j).normal) > 0.1 && glm::dot(aabbClusters[i].receivers[0].normal, (*j).normal) < 0.9f)) {
-				mismatchCount++;
-			}
-			++j;
-		}
-
-		printf("Mismatch count: %d\n", mismatchCount);
-
-		if (mismatchCount > 32 && aabbClusters[i].receivers.size() - mismatchCount > 32) {
-			j = aabbClusters[i].receivers.begin();
-			while (j != aabbClusters[i].receivers.end())
-			{
-				int diff = (aabbClusters[i].receivers[0].probes.size() - (*j).probes.size());
-				if (diff < 0) diff *= -1;
-				if ( (glm::distance(aabbClusters[i].receivers[0].normal, (*j).normal) > 0.1 && glm::dot(aabbClusters[i].receivers[0].normal, (*j).normal) < 0.9f)) {
-					if (!first_mismatch) {
-						AABB new_cluster = {};
-						aabbClusters.push_back(new_cluster);
-						first_mismatch = true;
-					}
-					aabbClusters[aabbClusters.size() - 1].receivers.push_back((*j));
-					j = aabbClusters[i].receivers.erase(j);
-				}
-				else {
-					++j;
-				}
-			}
-		}
-	}
-	
-	
 	delete[] receivers;
-
-	/*
-	for (int i = 0; i < aabbClusters.size(); i++) {
-		std::sort(aabbClusters[i].receivers.begin(), aabbClusters[i].receivers.end(), [](Receiver a, Receiver b) {
-			float adot = glm::dot(a.normal, a.normal);
-			float bdot = glm::dot(b.normal, b.normal);
 	
-			if (std::abs(adot - bdot) < 0.00001) {
-				if (std::abs(a.normal.x - b.normal.x) > 0.00001) {
-					return a.normal.x > b.normal.x;
-				}
-				else if (std::abs(a.normal.y - b.normal.y) > 0.00001) {
-					return a.normal.y > b.normal.y;
-				}
-				else if (std::abs(a.normal.z - b.normal.z) > 0.00001) {
-					return a.normal.z > b.normal.z;
-				}
-				else {
-					return false;
-				}
-			}
-			else {
-				return adot > bdot;
-			}
-		});
-		//printf("--------------------------------------------------------------\n");
-		//for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
-		//	printf("%f %f %f\n", aabbClusters[i].receivers[j].normal.x, aabbClusters[i].receivers[j].normal.y, aabbClusters[i].receivers[j].normal.z);
-		//}
-	}*/
-
-	outPrecalculationLoadData.aabbClusterCount = aabbClusters.size();
-
-	//Allocate memory for the results
-	outPrecalculationResult.clusterReceiverInfos = new ClusterReceiverInfo[aabbClusters.size()];
-	int clusterReceiverCount = 0;
-	for (int i = 0; i < aabbClusters.size(); i++) {
-		outPrecalculationResult.clusterReceiverInfos[i].receiverCount = aabbClusters[i].receivers.size();
-		outPrecalculationResult.clusterReceiverInfos[i].receiverOffset = clusterReceiverCount;
-		clusterReceiverCount += aabbClusters[i].receivers.size();
-	}
-
-	printf("Total receivers avaialble for aabb: %d\n", clusterReceiverCount);
-
-	outPrecalculationLoadData.totalClusterReceiverCount = clusterReceiverCount;
-	outPrecalculationResult.aabbReceivers = new Receiver[clusterReceiverCount];
-	outPrecalculationResult.receiverCoefficientMatrices = new float[clusterReceiverCount * precalculationInfo.clusterCoefficientCount];
-	outPrecalculationResult.clusterReceiverUvs = new glm::ivec4[clusterReceiverCount];
-	int currOffset = 0;
-	for (int i = 0; i < aabbClusters.size(); i++) {
-		for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
-			outPrecalculationResult.clusterReceiverUvs[currOffset + j] = glm::ivec4(aabbClusters[i].receivers[j].uv.x, aabbClusters[i].receivers[j].uv.y, 0, 0);
-			outPrecalculationResult.aabbReceivers[currOffset + j] = aabbClusters[i].receivers[j];
-		}
-		currOffset +=aabbClusters[i].receivers.size();
-	}
-
 	int maxProbesPerCluster = 0;
-	int totalProbesPerCluster = 0;
+	int totalReceiverCount = 0;
 	{
-		int recCounter = 0;
 		std::set<int> supportingProbes;
 		for (int i = 0; i < aabbClusters.size(); i++) {
-			//#pragma omp parallel for
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
 				for (int k = 0; k < probes.size(); k++) {
 					if (calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[k])), newRadius) > 0.0f) {
@@ -629,62 +510,73 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 				aabbClusters[i].probes.push_back(elem);
 			}
 
+			if (aabbClusters[i].probes.size() == 0) {
+				printf("Cluster(%d) with no probe!\n", i);
+			}
+
 			maxProbesPerCluster = MAX(maxProbesPerCluster, supportingProbes.size());
-			totalProbesPerCluster += supportingProbes.size();
-			recCounter += aabbClusters[i].receivers.size();
-			aabbClusters[i].probeCount = supportingProbes.size();
 			supportingProbes.clear();
+			totalReceiverCount += aabbClusters[i].receivers.size();
 		}
 		printf("MAX probe count per cluster: %d\n", maxProbesPerCluster);
-		printf("Total probes: %d\n", totalProbesPerCluster);
+		printf("Total receivers %d\n", totalReceiverCount);
 	}
 
-
-	outPrecalculationLoadData.maxProbesPerCluster = maxProbesPerCluster;
-	outPrecalculationLoadData.totalProbesPerCluster = totalProbesPerCluster;
-
-	outPrecalculationResult.receiverProbeWeightData = new float[clusterReceiverCount * maxProbesPerCluster];
-	outPrecalculationResult.clusterProjectionMatrices = new float[totalProbesPerCluster * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount];
-	outPrecalculationResult.clusterProbes = new int[totalProbesPerCluster];
+	outPrecalculationResult.receiverProbeWeightData = new float[totalReceiverCount * maxProbesPerCluster];
 
 	{
 		int recCounter = 0;
-		int probeCounter = 0;
-		int ctr = 0;
-		std::set<int> supportingProbes;
 		for (int i = 0; i < aabbClusters.size(); i++) {
 			for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
 				for (int k = 0; k < aabbClusters[i].probes.size(); k++) {
-					
 					float value = calculate_density(glm::distance(aabbClusters[i].receivers[j].position, glm::vec3(probes[aabbClusters[i].probes[k]])), newRadius);
-					if (value > 0.0f) {
-						supportingProbes.insert(aabbClusters[i].probes[k]);
-					}
 					outPrecalculationResult.receiverProbeWeightData[(recCounter + j) * maxProbesPerCluster + k] = value;
 				}
 			}
-
-			for (const auto elem : supportingProbes) {
-				outPrecalculationResult.clusterProbes[ctr] = elem;
-				ctr++;
-			}
-
 			recCounter += aabbClusters[i].receivers.size();
-			outPrecalculationResult.clusterReceiverInfos[i].probeCount = supportingProbes.size();
-			outPrecalculationResult.clusterReceiverInfos[i].probeOffset = probeCounter;
-			probeCounter += supportingProbes.size();
-			supportingProbes.clear();
 		}
 	}
 
+	outPrecalculationLoadData.maxProbesPerCluster = maxProbesPerCluster;
+	outPrecalculationResult.receiverCoefficientMatrices = new float[totalReceiverCount * precalculationInfo.clusterCoefficientCount];
+	//outPrecalculationResult.clusterProjectionMatrices = new float[totalReceiverCount * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount];
+
+	size_t* projectionMatricesSize = new size_t(0);
+
+	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, precalculationInfo.maxReceiversInCluster, totalReceiverCount, maxProbesPerCluster, &outPrecalculationResult.clusterProjectionMatrices, &outPrecalculationResult.receiverCoefficientMatrices, outPrecalculationResult.receiverProbeWeightData, projectionMatricesSize);
+
+	outPrecalculationLoadData.aabbClusterCount = aabbClusters.size();
+	outPrecalculationResult.clusterReceiverInfos = new ClusterReceiverInfo[aabbClusters.size()];
+	int clusterReceiverCount = 0;
+	int totalProbeCount = 0;
 	for (int i = 0; i < aabbClusters.size(); i++) {
-		if (aabbClusters[i].probeCount == 0) {
-			printf("Cluster(%d) with no probe!\n", i);
-		}
+		outPrecalculationResult.clusterReceiverInfos[i].receiverCount = aabbClusters[i].receivers.size();
+		outPrecalculationResult.clusterReceiverInfos[i].receiverOffset = clusterReceiverCount;
+		clusterReceiverCount += aabbClusters[i].receivers.size();
+
+		outPrecalculationResult.clusterReceiverInfos[i].probeCount = aabbClusters[i].probes.size();
+		outPrecalculationResult.clusterReceiverInfos[i].probeOffset = totalProbeCount;
+		totalProbeCount += aabbClusters[i].probes.size();
 	}
+	outPrecalculationLoadData.totalClusterReceiverCount = clusterReceiverCount;
+	outPrecalculationLoadData.totalProbesPerCluster = totalProbeCount;
+	outPrecalculationResult.aabbReceivers = new Receiver[clusterReceiverCount];
+	outPrecalculationResult.clusterReceiverUvs = new glm::ivec4[clusterReceiverCount];
+	outPrecalculationResult.clusterProbes = new int[totalProbeCount];
 
-	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, precalculationInfo.maxReceiversInCluster, clusterReceiverCount, maxProbesPerCluster, outPrecalculationResult.clusterProjectionMatrices, outPrecalculationResult.receiverCoefficientMatrices, outPrecalculationResult.receiverProbeWeightData, outPrecalculationResult.clusterProbes);
+	int currOffset = 0;
+	int currProbeOffset = 0;
+	for (int i = 0; i < aabbClusters.size(); i++) {
+		for (int j = 0; j < aabbClusters[i].receivers.size(); j++) {
+			outPrecalculationResult.clusterReceiverUvs[currOffset + j] = glm::ivec4(aabbClusters[i].receivers[j].uv.x, aabbClusters[i].receivers[j].uv.y, 0, 0);
+			outPrecalculationResult.aabbReceivers[currOffset + j] = aabbClusters[i].receivers[j];
 
+		}
+		currOffset += aabbClusters[i].receivers.size();
+		memcpy(outPrecalculationResult.clusterProbes + currProbeOffset, aabbClusters[i].probes.data(), aabbClusters[i].probes.size() * sizeof(int));
+		currProbeOffset += aabbClusters[i].probes.size();
+	}
+	
 	// Save everything
 	std::string filename = "../../precomputation/precalculation";
 
@@ -720,7 +612,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".AabbReceivers", outPrecalculationResult.aabbReceivers, sizeof(Receiver) * clusterReceiverCount);
 
 	config["fileClusterProjectionMatrices"] = filename + ".ClusterProjectionMatrices";
-	save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, totalProbesPerCluster* SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder)* precalculationInfo.clusterCoefficientCount * sizeof(float));
+	save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, *projectionMatricesSize * sizeof(float));
 
 	config["fileReceiverCoefficientMatrices"] = filename + ".ReceiverCoefficientMatrices";
 	save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
@@ -735,7 +627,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".ReceiverProbeWeightData", outPrecalculationResult.receiverProbeWeightData, clusterReceiverCount * maxProbesPerCluster * sizeof(float));
 
 	config["fileClusterProbes"] = filename + ".ClusterProbes";
-	save_binary(filename + ".ClusterProbes", outPrecalculationResult.clusterProbes, totalProbesPerCluster * sizeof(int));
+	save_binary(filename + ".ClusterProbes", outPrecalculationResult.clusterProbes, totalProbeCount * sizeof(int));
 
 	std::ofstream file(filename + ".cfg");
 	file << config.dump();
@@ -1798,7 +1690,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 	vkDestroyDescriptorSetLayout(engine._engineData.device, rtDescriptorSetLayout, nullptr);
 }
 
-void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float* clusterProjectionMatrices, float* receiverCoefficientMatrices, float* receiverProbeWeightData, int* clusterProbes)
+void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float** clusterProjectionMatrices, float** receiverCoefficientMatrices, float* receiverProbeWeightData, size_t* projectionMatricesSize)
 {
 	printf("About to start receiver raycasting...\n");
 
@@ -1946,11 +1838,14 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	int validClusters = 0;
 	float averageSquaredError = 0;
 
+	std::vector<AABB> newClusters;
+	int newClusterCount = 0;
+
 	for (int nodeIndex = 0; nodeIndex < aabbClusters.size(); nodeIndex++) {
-		printf("Starting node: %d with max probes: %d and receivers: %d\n", nodeIndex, aabbClusters[nodeIndex].probeCount, aabbClusters[nodeIndex].receivers.size());
+		printf("Starting node: %d with max probes: %d and receivers: %d\n", nodeIndex, aabbClusters[nodeIndex].probes.size(), aabbClusters[nodeIndex].receivers.size());
 		auto start = std::chrono::system_clock::now();
 
-		auto clusterMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * aabbClusters[nodeIndex].probeCount);
+		auto clusterMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * aabbClusters[nodeIndex].probes.size());
 		clusterMatrix.fill(0);
 
 		{
@@ -1969,7 +1864,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			vmaUnmapMemory(engine._engineData.allocator, receiverLocationsBuffer._allocation);
 		}
 
-		vkutils::cpu_to_gpu(engine._engineData.allocator, clusterProbesBuffer, &clusterProbes[probeOffset], sizeof(int) * aabbClusters[nodeIndex].probeCount);
+		vkutils::cpu_to_gpu(engine._engineData.allocator, clusterProbesBuffer, aabbClusters[nodeIndex].probes.data(), sizeof(int) * aabbClusters[nodeIndex].probes.size());
 
 		for (int i = 0; i < aabbClusters[nodeIndex].receivers.size(); i += maxReceiverInABatch) {
 			int remaningSize = MIN(aabbClusters[nodeIndex].receivers.size() - i, maxReceiverInABatch);
@@ -1980,16 +1875,16 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				matrixConfig.receiverOffset = receiverOffset;
 				matrixConfig.batchOffset = i;
 				matrixConfig.batchSize = remaningSize;
-				matrixConfig.clusterProbeCount = aabbClusters[nodeIndex].probeCount;
+				matrixConfig.clusterProbeCount = aabbClusters[nodeIndex].probes.size();
 				vkutils::cpu_to_gpu(engine._engineData.allocator, receiverMatrixConfig, &matrixConfig, sizeof(PrecalculateReceiverMatrixConfig));
-				int probeCount = aabbClusters[nodeIndex].probeCount;
+				int probeCount = aabbClusters[nodeIndex].probes.size();
 				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._engineData.device, engine._vulkanRaytracing._raytracingContext.commandPool, true);
 				std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
 				vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
 				vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
 					(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 
-				int pushConstantVariables[3] = { aabbClusters[nodeIndex].probeCount, i, receiverOffset };
+				int pushConstantVariables[3] = { aabbClusters[nodeIndex].probes.size(), i, receiverOffset };
 
 				vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
 					sizeof(int) * 3, pushConstantVariables);
@@ -2020,7 +1915,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				}
 
 				VkBufferCopy cpy;
-				cpy.size = maxReceiverInABatch * aabbClusters[nodeIndex].probeCount * shNumCoeff * sizeof(float);
+				cpy.size = maxReceiverInABatch * aabbClusters[nodeIndex].probes.size() * shNumCoeff * sizeof(float);
 				cpy.srcOffset = 0;
 				cpy.dstOffset = 0;
 
@@ -2031,77 +1926,232 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 			void* mappedOutputData;
 			vmaMapMemory(engine._engineData.allocator, matrixBufferCPU._allocation, &mappedOutputData);
-			memcpy(clusterMatrix.data() + i * aabbClusters[nodeIndex].probeCount * shNumCoeff, mappedOutputData, remaningSize * aabbClusters[nodeIndex].probeCount * shNumCoeff * sizeof(float));
+			memcpy(clusterMatrix.data() + i * aabbClusters[nodeIndex].probes.size() * shNumCoeff, mappedOutputData, remaningSize * aabbClusters[nodeIndex].probes.size()* shNumCoeff * sizeof(float));
 			vmaUnmapMemory(engine._engineData.allocator, matrixBufferCPU._allocation);
 		}
 
 		{
-			//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-			//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-			//file << clusterMatrix.format(CSVFormat);
+			std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			file << clusterMatrix.format(CSVFormat);
 		}
 
-		Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
-
+		//Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
+		//
 		int nc = clusterCoefficientCount;
+		//
+		//{
+		//	float total = 0.f;
+		//	float realTotal = 0.f;
+		//	for (int aa = 0; aa < nc; aa++) {
+		//		if (aa < svd.singularValues().size()) {
+		//			total += svd.singularValues()[aa];
+		//		}
+		//	}
+		//	for (int aa = 0; aa < svd.singularValues().size(); aa++) {
+		//		realTotal += svd.singularValues()[aa];
+		//	}
+		//
+		//	float error = 1.0f - sqrt(total / realTotal);
+		//
+		//	if (!isnan(error)) {
+		//		totalError += aabbClusters[nodeIndex].receivers.size() * error;
+		//
+		//		if (error > 0.0000001) {
+		//			validClusters += 1;
+		//		}
+		//	}
+		//
+		//	printf("Singular Value error: %f (total singular value count: %d)\n", error, svd.singularValues().size());
+		//}
+		//
+		//auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().rows(), nc);
+		//receiverReconstructionCoefficientMatrix.fill(0);
+		//receiverReconstructionCoefficientMatrix.block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols())) = svd.matrixU().block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols()));
+		//
+		//Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
+		//int singularValueSize = svd.singularValues().size();
+		//singularMatrix.setZero();
+		//for (int aa = 0; aa < nc; aa++) {
+		//	if (aa < singularValueSize) {
+		//		singularMatrix(aa, aa) = svd.singularValues()[aa];
+		//	}
+		//	else if(aa < svd.matrixV().cols()) {
+		//		singularMatrix(aa, aa) = 0;
+		//	}
+		//}
+		//auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * svd.matrixV().transpose());
+		//
+		////printf("Singular matrix size: %d x %d\n", singularMatrix.rows(), singularMatrix.cols());
+		////printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
+		//
+		//auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
+		//{
+		//	//std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
+		//	//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+		//	//file << newMatrix.format(CSVFormat);
+		//}
+		//
+		//auto diff = clusterMatrix - newMatrix;
+		//float squaredError = diff.squaredNorm();
+		//averageSquaredError += squaredError * aabbClusters[nodeIndex].receivers.size();
+		//printf("Squared Error: %f\n", squaredError);
+		
+		// My take on iterative PCA
+		float* receiverErrors = new float[aabbClusters[nodeIndex].receivers.size()];
+		std::unordered_set<int> used;
+		while (true) {
+			auto targetMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(aabbClusters[nodeIndex].receivers.size(), shNumCoeff * aabbClusters[nodeIndex].probes.size());
+			std::vector<int> rowIndices;
 
-		{
-			float total = 0.f;
-			float realTotal = 0.f;
-			for (int aa = 0; aa < nc; aa++) {
-				if (aa < svd.singularValues().size()) {
-					total += svd.singularValues()[aa];
+			if (used.size() == clusterMatrix.rows()) {
+				break;
+			}
+
+			for (int i = 0; i < clusterMatrix.rows(); i++) {
+				if (used.find(i) == used.end()) {
+					targetMatrix.row(0) = clusterMatrix.row(i);
+					used.insert(i);
+					rowIndices.push_back(i);
+					break;
 				}
 			}
-			for (int aa = 0; aa < svd.singularValues().size(); aa++) {
-				realTotal += svd.singularValues()[aa];
-			}
 
-			float error = 1.0f - sqrt(total / realTotal);
+			int currRow = 1;
+			float err = 0;
+			bool done = false;
 
-			if (!isnan(error)) {
-				totalError += aabbClusters[nodeIndex].receivers.size() * error;
+			float svdtook = 0;
+			float resttook = 0;
 
-				if (error > 0.0000001) {
-					validClusters += 1;
+			while (true) {
+				auto svdstart = std::chrono::system_clock::now();
+				//auto mean = targetMatrix.block(0, 0, currRow, targetMatrix.cols()).colwise().mean();
+				//Eigen::JacobiSVD<Eigen::MatrixXf> sub_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), Eigen::ComputeThinU | Eigen::ComputeThinV);
+				RedSVD::RedSVD sub_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), nc);
+				auto svdend = std::chrono::system_clock::now();
+				std::chrono::duration<double> elapsed_seconds = svdend - svdstart;
+				svdtook += elapsed_seconds.count();
+
+				err = 0;
+				for (int i = 0; i < currRow; i++) {
+					auto diff = (targetMatrix.row(i));
+					err += diff.squaredNorm();
 				}
+				int maxNc = MIN(sub_svd.singularValues().size(), nc);
+				for (int j = 0; j < maxNc; j++) {
+					err -= sub_svd.singularValues()[j] * sub_svd.singularValues()[j];
+				}
+
+
+				//Eigen::MatrixXf constructed = sub_svd.matrixU() * sub_svd.singularValues().head(MIN(nc, sub_svd.singularValues().size())).asDiagonal() * sub_svd.matrixV().transpose();
+				//Eigen::MatrixXf diff = constructed - targetMatrix.block(0, 0, currRow, targetMatrix.cols());
+				//printf("Squared Error: %f\n", diff.squaredNorm());
+				//err = diff.squaredNorm();
+				//{
+				//	std::ofstream file("eigenmatrix_og" + std::to_string(nodeIndex) + ".csv");
+				//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+				//	file << constructed.format(CSVFormat);
+				//
+				//}
+				//{
+				//	std::ofstream file("eigenmatrix_constructed" + std::to_string(nodeIndex) + ".csv");
+				//	const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+				//	file << targetMatrix.block(0, 0, currRow, targetMatrix.cols()).format(CSVFormat);
+				//}
+
+				if ((clusterMatrix.rows() - used.size() > 16 && err > 0.005) || done) {
+					printf("Seperated %d rows. The cluster error is: %f.\n", currRow, err);
+
+					//printf("U size: %d x %d\n", sub_svd.matrixU().rows(), sub_svd.matrixU().cols());
+					//printf("Singular size: %d\n", sub_svd.singularValues().size());
+					//printf("V size: %d x %d\n", sub_svd.matrixV().rows(), sub_svd.matrixV().cols());
+					newClusterCount++;
+					
+					auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(sub_svd.matrixU().rows(), nc);
+					receiverReconstructionCoefficientMatrix.fill(0);
+					receiverReconstructionCoefficientMatrix.block(0, 0, sub_svd.matrixU().rows(), MIN(nc, sub_svd.matrixU().cols())) = sub_svd.matrixU().block(0, 0, sub_svd.matrixU().rows(), MIN(nc, sub_svd.matrixU().cols()));
+
+					Eigen::MatrixXf singularMatrix(nc, sub_svd.matrixV().cols());
+					int singularValueSize = sub_svd.singularValues().size();
+					singularMatrix.setZero();
+					for (int aa = 0; aa < nc; aa++) {
+						if (aa < singularValueSize) {
+							singularMatrix(aa, aa) = sub_svd.singularValues()[aa];
+						}
+						else if (aa < sub_svd.matrixV().cols()) {
+							singularMatrix(aa, aa) = 0;
+						}
+					}
+
+					auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * sub_svd.matrixV().transpose());
+
+					*clusterProjectionMatrices = (float*) realloc(*clusterProjectionMatrices, nodeClusterDataOffset * sizeof(float) + clusterProjectionMatrix.size() * sizeof(float));
+					memcpy(*clusterProjectionMatrices + nodeClusterDataOffset, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
+					nodeClusterDataOffset += clusterProjectionMatrix.size();
+
+					memcpy(*receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
+					nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
+
+					AABB newCluster = {};
+					newCluster.probes = aabbClusters[nodeIndex].probes;
+					for (int k = 0; k < rowIndices.size(); k++) {
+						newCluster.receivers.push_back(aabbClusters[nodeIndex].receivers[rowIndices[k]]);
+					}
+					rowIndices.clear();
+					newClusters.push_back(newCluster);
+					break;
+				}
+
+				#pragma omp parallel for
+				for (int i = 0; i < clusterMatrix.rows(); i++) {
+					if (used.find(i) == used.end()) {
+						auto diff = (clusterMatrix.row(i));
+						float squared_norm = diff.squaredNorm();
+						int maxNc = MIN(MIN(sub_svd.singularValues().size(), nc), currRow / 20);
+
+						float approximation = 0;
+						for (int j = 0; j < maxNc; j++) {
+							approximation += (diff * clusterMatrix.row(j)).squaredNorm();
+						}
+
+						float approximation_error = squared_norm - approximation;
+						receiverErrors[i] = approximation_error;
+					}
+					else {
+						receiverErrors[i] = 0;
+					}
+				}
+
+				int selected = -1;
+				float selectedErr = 99999;
+				for (int i = 0; i < clusterMatrix.rows(); i++) {
+					if (used.find(i) == used.end()) {
+						if (receiverErrors[i] < selectedErr) {
+							selected = i;
+							selectedErr = receiverErrors[i];
+						}
+					}
+				}
+				if (selected != -1) {
+					targetMatrix.row(currRow) = clusterMatrix.row(selected);
+					currRow++;
+					used.insert(selected);
+					rowIndices.push_back(selected);
+				}
+				else {
+					done = true;
+				}
+
+				auto restend = std::chrono::system_clock::now();
+				elapsed_seconds = restend - svdend;
+				resttook += elapsed_seconds.count();
 			}
+			printf("SVD took: %f, Rest took %f s\n", svdtook, resttook);
 
-			printf("Singular Value error: %f (total singular value count: %d)\n", error, svd.singularValues().size());
 		}
+		delete[] receiverErrors;
 
-		auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(svd.matrixU().rows(), nc);
-		receiverReconstructionCoefficientMatrix.fill(0);
-		receiverReconstructionCoefficientMatrix.block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols())) = svd.matrixU().block(0, 0, svd.matrixU().rows(), MIN(nc, svd.matrixU().cols()));
-
-		Eigen::MatrixXf singularMatrix(nc, svd.matrixV().cols());
-		int singularValueSize = svd.singularValues().size();
-		singularMatrix.setZero();
-		for (int aa = 0; aa < nc; aa++) {
-			if (aa < singularValueSize) {
-				singularMatrix(aa, aa) = svd.singularValues()[aa];
-			}
-			else if(aa < svd.matrixV().cols()) {
-				singularMatrix(aa, aa) = 0;
-			}
-		}
-		auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * svd.matrixV().transpose());
-
-		//printf("Singular matrix size: %d x %d\n", singularMatrix.rows(), singularMatrix.cols());
-		//printf("V matrix size: %d x %d\n", svd.matrixV().rows(), svd.matrixV().cols());
-
-		auto newMatrix = receiverReconstructionCoefficientMatrix * clusterProjectionMatrix;
-		{
-			//std::ofstream file("eigenmatrix_pca" + std::to_string(nodeIndex) + ".csv");
-			//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-			//file << newMatrix.format(CSVFormat);
-		}
-		
-		auto diff = clusterMatrix - newMatrix;
-		float squaredError = diff.squaredNorm();
-		averageSquaredError += squaredError * aabbClusters[nodeIndex].receivers.size();
-		printf("Squared Error: %f\n", squaredError);
-		
 		/*
 		int globalcounterr = 0;
 		for (int y = 0; y < clusterProjectionMatrix.rows(); y++) {
@@ -2112,19 +2162,24 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		}
 		*/
 
-		memcpy(clusterProjectionMatrices + nodeClusterDataOffset, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
-		nodeClusterDataOffset += clusterProjectionMatrix.size();
-
-		memcpy(receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
-		nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
+		//memcpy(clusterProjectionMatrices + nodeClusterDataOffset, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
+		//nodeClusterDataOffset += clusterProjectionMatrix.size();
+		//
+		//memcpy(receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
+		//nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
 
 		receiverOffset += aabbClusters[nodeIndex].receivers.size();
-		probeOffset += aabbClusters[nodeIndex].probeCount;
+		probeOffset += aabbClusters[nodeIndex].probes.size();
 
 		auto end = std::chrono::system_clock::now();
 		std::chrono::duration<double> elapsed_seconds = end - start;
 		printf("Node tracing done %d/%d (took %f s)\n\n", nodeIndex, aabbClusters.size(), elapsed_seconds.count());
 	}
+
+	*projectionMatricesSize = nodeClusterDataOffset;
+	aabbClusters = newClusters;
+
+	printf("New node count: %d\n", newClusterCount);
 
 	totalError /= totalReceiverCount;
 	printf("Average singular value error: %f\n", totalError);

@@ -16,7 +16,6 @@ struct Receiver {
 	bool processed;
 	std::vector<glm::vec3> poses;
 	std::vector<glm::vec3> norms;
-	std::vector<int> probes;
 };
 
 struct AABB {
@@ -24,7 +23,6 @@ struct AABB {
 	glm::vec3 max;
 	std::vector<Receiver> receivers;
 	std::vector<int> probes;
-	int probeCount;
 };
 
 struct GPUProbeDensityUniformData {
