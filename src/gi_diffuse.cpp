@@ -197,9 +197,9 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_vulkanCompute->build(_probeRelightRealtime, _descriptorPool, "../../shaders/gi_probe_projection_realtime.comp.spv");
 
 	//Cluster projection matrices (GPU ONLY)
-	auto clusterProjectionMatricesBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->clusterProjectionMatrices, _precalculationLoadData->totalProbesPerCluster * _config.basisFunctionCount * _config.pcaCoefficient * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
+	auto clusterProjectionMatricesBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->clusterProjectionMatrices, _precalculationLoadData->projectionMatricesSize * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
 	//gi_cluster_projection output buffer (GPU ONLY)
-	_clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, _config.clusterCount * _config.pcaCoefficient * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	_clusterProjectionOutputBuffer = vkutils::create_buffer(_allocator, _precalculationLoadData->totalSvdCoeffCount * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	auto clusterReceiverInfos = vkutils::create_upload_buffer(&engineData, _precalculationResult->clusterReceiverInfos, _config.clusterCount * sizeof(ClusterReceiverInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	auto clusterProbes = vkutils::create_upload_buffer(&engineData, _precalculationResult->clusterProbes, (_precalculationLoadData->totalProbesPerCluster / 4 + 1) * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
@@ -212,7 +212,7 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_vulkanCompute->build(_clusterProjection, _descriptorPool, "../../shaders/gi_cluster_projection.comp.spv");
 
 
-	auto receiverReconstructionMatricesBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->receiverCoefficientMatrices, (_precalculationLoadData->totalClusterReceiverCount * _config.pcaCoefficient / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
+	auto receiverReconstructionMatricesBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->receiverCoefficientMatrices, (_precalculationLoadData->reconstructionMatricesSize / 4 + 1) * sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT);
 	auto clusterReceiverUvs = vkutils::create_upload_buffer(&engineData, _precalculationResult->clusterReceiverUvs, _precalculationLoadData->totalClusterReceiverCount * sizeof(glm::ivec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	_vulkanCompute->add_buffer_binding(_receiverReconstruction, ComputeBufferType::UNIFORM, _configBuffer);

@@ -23,6 +23,9 @@ struct AABB {
 	glm::vec3 max;
 	std::vector<Receiver> receivers;
 	std::vector<int> probes;
+	int svdCoeffCount;
+	int projectionMatrixOffset;
+	int reconstructionMatrixOffset;
 };
 
 struct GPUProbeDensityUniformData {
@@ -53,6 +56,9 @@ struct PrecalculationLoadData {
 	int aabbClusterCount;
 	int maxProbesPerCluster;
 	int totalProbesPerCluster;
+	int projectionMatricesSize;
+	int reconstructionMatricesSize;
+	int totalSvdCoeffCount;
 };
 
 struct PrecalculationResult {

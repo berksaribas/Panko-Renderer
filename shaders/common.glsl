@@ -126,6 +126,10 @@ struct ClusterReceiverInfo {
 	int receiverOffset;
 	int probeCount;
 	int probeOffset;
+	int svdCoeffCount;
+	int svdCoeffOffset;
+	int projectionMatrixOffset;
+	int reconstructionMatrixOffset;
 };
 
 struct PrecalculateReceiverMatrixConfig {

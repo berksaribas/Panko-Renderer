@@ -27,6 +27,19 @@
 #define USE_COMPUTE_PROBE_DENSITY_CALCULATION 1
 #define M_PI    3.14159265358979323846264338327950288
 
+
+
+inline float dot_product(float* data1, float* data2, int size) {
+	float result = 0;
+	for (int i = 0; i < size; i += 8) {
+		__m256 x = _mm256_load_ps(data1 + i);
+		__m256 y = _mm256_load_ps(data2 + i);
+		__m256 value = _mm256_dp_ps(x, y, 0xff);
+		result += ((float*)&value)[0];
+	}
+	return result;
+}
+
 void calcY(float* o, vec3 r, int order) {
 	float x = r.x, y = r.y, z = r.z;
 
@@ -538,17 +551,19 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	}
 
 	outPrecalculationLoadData.maxProbesPerCluster = maxProbesPerCluster;
-	outPrecalculationResult.receiverCoefficientMatrices = new float[totalReceiverCount * precalculationInfo.clusterCoefficientCount];
+	//outPrecalculationResult.receiverCoefficientMatrices = new float[totalReceiverCount * precalculationInfo.clusterCoefficientCount];
 	//outPrecalculationResult.clusterProjectionMatrices = new float[totalReceiverCount * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * precalculationInfo.clusterCoefficientCount];
 
-	size_t* projectionMatricesSize = new size_t(0);
+	int* projectionMatricesSize = new int(0);
+	int* reconstructionMatricesSize = new int(0);
 
-	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, precalculationInfo.maxReceiversInCluster, totalReceiverCount, maxProbesPerCluster, &outPrecalculationResult.clusterProjectionMatrices, &outPrecalculationResult.receiverCoefficientMatrices, outPrecalculationResult.receiverProbeWeightData, projectionMatricesSize);
+	receiver_raycast(engine, aabbClusters, probes, precalculationInfo.raysPerReceiver, newRadius, precalculationInfo.sphericalHarmonicsOrder, precalculationInfo.clusterCoefficientCount, precalculationInfo.maxReceiversInCluster, totalReceiverCount, maxProbesPerCluster, &outPrecalculationResult.clusterProjectionMatrices, &outPrecalculationResult.receiverCoefficientMatrices, outPrecalculationResult.receiverProbeWeightData, projectionMatricesSize, reconstructionMatricesSize);
 
 	outPrecalculationLoadData.aabbClusterCount = aabbClusters.size();
 	outPrecalculationResult.clusterReceiverInfos = new ClusterReceiverInfo[aabbClusters.size()];
 	int clusterReceiverCount = 0;
 	int totalProbeCount = 0;
+	int totalSvdCoeffCount = 0;
 	for (int i = 0; i < aabbClusters.size(); i++) {
 		outPrecalculationResult.clusterReceiverInfos[i].receiverCount = aabbClusters[i].receivers.size();
 		outPrecalculationResult.clusterReceiverInfos[i].receiverOffset = clusterReceiverCount;
@@ -557,7 +572,18 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 		outPrecalculationResult.clusterReceiverInfos[i].probeCount = aabbClusters[i].probes.size();
 		outPrecalculationResult.clusterReceiverInfos[i].probeOffset = totalProbeCount;
 		totalProbeCount += aabbClusters[i].probes.size();
+
+		outPrecalculationResult.clusterReceiverInfos[i].svdCoeffCount = aabbClusters[i].svdCoeffCount;
+		outPrecalculationResult.clusterReceiverInfos[i].svdCoeffOffset = totalSvdCoeffCount;
+		totalSvdCoeffCount += aabbClusters[i].svdCoeffCount;
+
+		outPrecalculationResult.clusterReceiverInfos[i].projectionMatrixOffset = aabbClusters[i].projectionMatrixOffset;
+		outPrecalculationResult.clusterReceiverInfos[i].reconstructionMatrixOffset = aabbClusters[i].reconstructionMatrixOffset;
 	}
+	outPrecalculationLoadData.projectionMatricesSize = *projectionMatricesSize;
+	outPrecalculationLoadData.reconstructionMatricesSize = *reconstructionMatricesSize;
+
+	outPrecalculationLoadData.totalSvdCoeffCount = totalSvdCoeffCount;
 	outPrecalculationLoadData.totalClusterReceiverCount = clusterReceiverCount;
 	outPrecalculationLoadData.totalProbesPerCluster = totalProbeCount;
 	outPrecalculationResult.aabbReceivers = new Receiver[clusterReceiverCount];
@@ -598,6 +624,9 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	config["aabbClusterCount"] = outPrecalculationLoadData.aabbClusterCount;
 	config["maxProbesPerCluster"] = outPrecalculationLoadData.maxProbesPerCluster;
 	config["totalProbesPerCluster"] = outPrecalculationLoadData.totalProbesPerCluster;
+	config["projectionMatricesSize"] = outPrecalculationLoadData.projectionMatricesSize;
+	config["reconstructionMatricesSize"] = outPrecalculationLoadData.reconstructionMatricesSize;
+	config["totalSvdCoeffCount"] = outPrecalculationLoadData.totalSvdCoeffCount;
 
 	config["fileProbes"] = filename + ".Probes";
 	save_binary(filename + ".Probes", outPrecalculationResult.probes.data(), sizeof(glm::vec4) * outPrecalculationResult.probes.size());
@@ -615,7 +644,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	save_binary(filename + ".ClusterProjectionMatrices", outPrecalculationResult.clusterProjectionMatrices, *projectionMatricesSize * sizeof(float));
 
 	config["fileReceiverCoefficientMatrices"] = filename + ".ReceiverCoefficientMatrices";
-	save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, clusterReceiverCount * precalculationInfo.clusterCoefficientCount * sizeof(float));
+	save_binary(filename + ".ReceiverCoefficientMatrices", outPrecalculationResult.receiverCoefficientMatrices, *reconstructionMatricesSize * sizeof(float));
 
 	config["fileClusterReceiverInfos"] = filename + ".ClusterReceiverInfos";
 	save_binary(filename + ".ClusterReceiverInfos", outPrecalculationResult.clusterReceiverInfos, aabbClusters.size() * sizeof(ClusterReceiverInfo));
@@ -660,6 +689,9 @@ void Precalculation::load(const char* filename, PrecalculationInfo& precalculati
 	outPrecalculationLoadData.aabbClusterCount = config["aabbClusterCount"];
 	outPrecalculationLoadData.maxProbesPerCluster = config["maxProbesPerCluster"];
 	outPrecalculationLoadData.totalProbesPerCluster = config["totalProbesPerCluster"];
+	outPrecalculationLoadData.projectionMatricesSize = config["projectionMatricesSize"];
+	outPrecalculationLoadData.reconstructionMatricesSize = config["reconstructionMatricesSize"];
+	outPrecalculationLoadData.totalSvdCoeffCount = config["totalSvdCoeffCount"];
 
 	{
 		std::string file = config["fileProbes"].get<std::string>();
@@ -1690,7 +1722,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 	vkDestroyDescriptorSetLayout(engine._engineData.device, rtDescriptorSetLayout, nullptr);
 }
 
-void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float** clusterProjectionMatrices, float** receiverCoefficientMatrices, float* receiverProbeWeightData, size_t* projectionMatricesSize)
+void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float** clusterProjectionMatrices, float** receiverCoefficientMatrices, float* receiverProbeWeightData, int* projectionMatricesSize, int* reconstructionMatricesSize)
 {
 	printf("About to start receiver raycasting...\n");
 
@@ -1840,6 +1872,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 
 	std::vector<AABB> newClusters;
 	int newClusterCount = 0;
+	float maxError = 0;
 
 	for (int nodeIndex = 0; nodeIndex < aabbClusters.size(); nodeIndex++) {
 		printf("Starting node: %d with max probes: %d and receivers: %d\n", nodeIndex, aabbClusters[nodeIndex].probes.size(), aabbClusters[nodeIndex].receivers.size());
@@ -2026,6 +2059,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 			float resttook = 0;
 
 			while (true) {
+				//recalculate:
 				auto svdstart = std::chrono::system_clock::now();
 				auto mean = targetMatrix.block(0, 0, currRow, targetMatrix.cols()).colwise().mean();
 				//Eigen::JacobiSVD<Eigen::MatrixXf> sub_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), Eigen::ComputeThinU | Eigen::ComputeThinV);
@@ -2044,10 +2078,6 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 					err -= sub_svd.singularValues()[j] * sub_svd.singularValues()[j];
 				}
 
-
-				//Eigen::MatrixXf constructed = sub_svd.matrixU() * sub_svd.singularValues().head(MIN(nc, sub_svd.singularValues().size())).asDiagonal() * sub_svd.matrixV().transpose();
-				//Eigen::MatrixXf diff = constructed - targetMatrix.block(0, 0, currRow, targetMatrix.cols());
-				//printf("Squared Error: %f\n", diff.squaredNorm());
 				//err = diff.squaredNorm();
 				//{
 				//	std::ofstream file("eigenmatrix_og" + std::to_string(nodeIndex) + ".csv");
@@ -2061,46 +2091,89 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				//	file << targetMatrix.block(0, 0, currRow, targetMatrix.cols()).format(CSVFormat);
 				//}
 
-				if ((clusterMatrix.rows() - used.size() > 32 && err > 0.005) || done) {
+				if ((/*clusterMatrix.rows() - used.size() > 16 &&*/ err > 0.005) || done) {
+
+					//if (!done) {
+					//	done = true;
+					//	currRow--;
+					//	used.erase(rowIndices[rowIndices.size() - 1]);
+					//	rowIndices.pop_back();
+					//	goto recalculate;
+					//}
+
+					Eigen::JacobiSVD<Eigen::MatrixXf> new_svd(targetMatrix.block(0, 0, currRow, targetMatrix.cols()), Eigen::ComputeFullU | Eigen::ComputeFullV);
+
+					int targetCoeffCount = nc;
+
+					{
+						err = 0;
+						for (int i = 0; i < currRow; i++) {
+							auto diff = (targetMatrix.row(i));
+							err += diff.squaredNorm();
+						}
+						int maxNc = MIN(new_svd.singularValues().size(), nc);
+						for (int j = 0; j < maxNc; j++) {
+							err -= new_svd.singularValues()[j] * new_svd.singularValues()[j];
+							if (err < 0.005) {
+								printf("%d singular values would be enough\n", j + 1);
+								targetCoeffCount = j + 1;
+								break;
+							}
+						}
+
+						Eigen::MatrixXf constructed = new_svd.matrixU() * new_svd.singularValues().head(MIN(targetCoeffCount, new_svd.singularValues().size())).asDiagonal() * new_svd.matrixV().transpose();
+						Eigen::MatrixXf diff = constructed - targetMatrix.block(0, 0, currRow, targetMatrix.cols());
+						err = diff.squaredNorm();
+					}
+
 					printf("Seperated %d rows. The cluster error is: %f.\n", currRow, err);
+
+					if (err > maxError) {
+						maxError = err;
+					}
 
 					//printf("U size: %d x %d\n", sub_svd.matrixU().rows(), sub_svd.matrixU().cols());
 					//printf("Singular size: %d\n", sub_svd.singularValues().size());
 					//printf("V size: %d x %d\n", sub_svd.matrixV().rows(), sub_svd.matrixV().cols());
 					newClusterCount++;
 					
-					auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(sub_svd.matrixU().rows(), nc);
+					auto receiverReconstructionCoefficientMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(new_svd.matrixU().rows(), targetCoeffCount);
 					receiverReconstructionCoefficientMatrix.fill(0);
-					receiverReconstructionCoefficientMatrix.block(0, 0, sub_svd.matrixU().rows(), MIN(nc, sub_svd.matrixU().cols())) = sub_svd.matrixU().block(0, 0, sub_svd.matrixU().rows(), MIN(nc, sub_svd.matrixU().cols()));
+					receiverReconstructionCoefficientMatrix.block(0, 0, new_svd.matrixU().rows(), MIN(targetCoeffCount, new_svd.matrixU().cols())) = new_svd.matrixU().block(0, 0, new_svd.matrixU().rows(), MIN(targetCoeffCount, new_svd.matrixU().cols()));
 
-					Eigen::MatrixXf singularMatrix(nc, sub_svd.matrixV().cols());
-					int singularValueSize = sub_svd.singularValues().size();
+					Eigen::MatrixXf singularMatrix(targetCoeffCount, new_svd.matrixV().cols());
+					int singularValueSize = new_svd.singularValues().size();
 					singularMatrix.setZero();
-					for (int aa = 0; aa < nc; aa++) {
+					for (int aa = 0; aa < targetCoeffCount; aa++) {
 						if (aa < singularValueSize) {
-							singularMatrix(aa, aa) = sub_svd.singularValues()[aa];
+							singularMatrix(aa, aa) = new_svd.singularValues()[aa];
 						}
-						else if (aa < sub_svd.matrixV().cols()) {
+						else if (aa < new_svd.matrixV().cols()) {
 							singularMatrix(aa, aa) = 0;
 						}
 					}
 
-					auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * sub_svd.matrixV().transpose());
-
-					*clusterProjectionMatrices = (float*) realloc(*clusterProjectionMatrices, nodeClusterDataOffset * sizeof(float) + clusterProjectionMatrix.size() * sizeof(float));
-					memcpy(*clusterProjectionMatrices + nodeClusterDataOffset, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
-					nodeClusterDataOffset += clusterProjectionMatrix.size();
-
-					memcpy(*receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
-					nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
+					auto clusterProjectionMatrix = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>(singularMatrix * new_svd.matrixV().transpose());
 
 					AABB newCluster = {};
+					newCluster.svdCoeffCount = targetCoeffCount;
 					newCluster.probes = aabbClusters[nodeIndex].probes;
+					newCluster.projectionMatrixOffset = nodeClusterDataOffset;
+					newCluster.reconstructionMatrixOffset = nodeReceiverDataOffset;
 					for (int k = 0; k < rowIndices.size(); k++) {
 						newCluster.receivers.push_back(aabbClusters[nodeIndex].receivers[rowIndices[k]]);
 					}
 					rowIndices.clear();
 					newClusters.push_back(newCluster);
+
+					*clusterProjectionMatrices = (float*) realloc(*clusterProjectionMatrices, nodeClusterDataOffset * sizeof(float) + clusterProjectionMatrix.size() * sizeof(float));
+					memcpy(*clusterProjectionMatrices + nodeClusterDataOffset, clusterProjectionMatrix.data(), clusterProjectionMatrix.size() * sizeof(float));
+					nodeClusterDataOffset += clusterProjectionMatrix.size();
+
+					*receiverCoefficientMatrices = (float*)realloc(*receiverCoefficientMatrices, nodeReceiverDataOffset * sizeof(float) + receiverReconstructionCoefficientMatrix.size() * sizeof(float));
+					memcpy(*receiverCoefficientMatrices + nodeReceiverDataOffset, receiverReconstructionCoefficientMatrix.data(), receiverReconstructionCoefficientMatrix.size() * sizeof(float));
+					nodeReceiverDataOffset += receiverReconstructionCoefficientMatrix.size();
+
 					break;
 				}
 
@@ -2109,13 +2182,14 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				#pragma omp parallel for schedule(static)
 				for (int i = 0; i < clusterMatrix.rows(); i++) {
 					if (used.find(i) == used.end()) {
-						auto diff = (clusterMatrix.row(i) - mean);
+						Eigen::VectorXf diff = (clusterMatrix.row(i) - mean);
 						float squared_norm = diff.squaredNorm();
 						int maxNc = MIN(MIN(sub_svd.singularValues().size(), nc), currRow / 20);
 
 						float approximation = 0;
 						for (int j = 0; j < maxNc; j++) {
 							float diff2 = (diff.dot(targetMatrix.row(j)));
+							//float diff2 = dot_product(diff.data(), targetMatrix.row(j).data(), diff.size());
 							approximation += diff2 * diff2;
 						}
 
@@ -2181,13 +2255,11 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	}
 
 	*projectionMatricesSize = nodeClusterDataOffset;
+	*reconstructionMatricesSize = nodeReceiverDataOffset;
 	aabbClusters = newClusters;
 
 	printf("New cluster count: %d\n", newClusterCount);
-
-	totalError /= totalReceiverCount;
-	printf("Average singular value error: %f\n", totalError);
-	printf("Average squared error: %f\n", averageSquaredError / totalReceiverCount);
+	printf("Max singular value error: %f\n", maxError);
 
 	engine._vulkanRaytracing.destroy_raytracing_pipeline(rtPipeline);
 

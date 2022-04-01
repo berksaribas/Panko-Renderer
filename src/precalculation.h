@@ -17,5 +17,5 @@ private:
 	Receiver* generate_receivers(VulkanEngine& engine, GltfScene& scene, int lightmapResolution);
 	Receiver* generate_receivers_cpu(VulkanEngine& engine, GltfScene& scene, int lightmapResolution);
 	void probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>& probes, int rays, int sphericalHarmonicsOrder, GPUProbeRaycastResult* probeRaycastResult, float* probeRaycastBasisFunctions);
-	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float** clusterProjectionMatrices, float** receiverCoefficientMatrices, float* receiverProbeWeightData, size_t* projectionMatricesSize);
+	void receiver_raycast(VulkanEngine& engine, std::vector<AABB>& aabbClusters, std::vector<glm::vec4>& probes, int rays, float radius, int sphericalHarmonicsOrder, int clusterCoefficientCount, int maxReceivers, int totalReceiverCount, int maxProbesPerCluster, float** clusterProjectionMatrices, float** receiverCoefficientMatrices, float* receiverProbeWeightData, int* projectionMatricesSize, int* reconstructionMatricesSize);
 };

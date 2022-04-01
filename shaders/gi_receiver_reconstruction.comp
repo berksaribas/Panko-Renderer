@@ -29,15 +29,17 @@ void main()
 	if(gID < config.clusterCount * config.maxReceiversInCluster) {
 		uint cluster = gID / config.maxReceiversInCluster;
 		uint receiverCount  = clusterReceiverInfos[cluster].receiverCount;
+		int clusterCoeffCount = clusterReceiverInfos[cluster].svdCoeffCount;
+		int clusterCoeffOffset = clusterReceiverInfos[cluster].svdCoeffOffset;
+		int reconstructionMatrixOffset = clusterReceiverInfos[cluster].reconstructionMatrixOffset;
 		uint j = gID % config.maxReceiversInCluster;
 
 		if(j < receiverCount) {
-			int offset = clusterReceiverInfos[cluster].receiverOffset * config.pcaCoefficient;
 			vec4 result = vec4(0);
 
-			for(int i = 0; i < config.pcaCoefficient; i++) {
-				vec4 color = clusterProjectionColors[cluster * config.pcaCoefficient + i];
-				uint index = offset + j * config.pcaCoefficient + i;
+			for(int i = 0; i < clusterCoeffCount; i++) {
+				vec4 color = clusterProjectionColors[clusterCoeffOffset + i];
+				uint index = reconstructionMatrixOffset + j * clusterCoeffCount + i;
 				
 				result += receiverReconstructionMatrices[index / 4][index % 4] * color;
 			}
