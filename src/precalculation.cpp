@@ -1071,6 +1071,14 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 		}
 	}
 
+	int maxSamples = 0;
+	for (int i = 0; i < lightmapResolution * lightmapResolution; i++) {
+		if (_receivers[i].exists) {
+			maxSamples = maxSamples > _receivers[i].poses.size() ? maxSamples : _receivers[i].poses.size();
+		}
+	}
+	printf("Largest number of samples for a texel: %d\n", maxSamples);
+
 	for (int i = 0; i < lightmapResolution; i++) {
 		for (int j = 0; j < lightmapResolution; j++) {
 			if (!_receivers[j + i * lightmapResolution].exists) {
@@ -1964,9 +1972,9 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		}
 
 		{
-			std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
-			const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
-			file << clusterMatrix.format(CSVFormat);
+			//std::ofstream file("eigenmatrix" + std::to_string(nodeIndex) + ".csv");
+			//const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+			//file << clusterMatrix.format(CSVFormat);
 		}
 
 		//Eigen::JacobiSVD<Eigen::MatrixXf, Eigen::FullPivHouseholderQRPreconditioner> svd(clusterMatrix, Eigen::ComputeFullU | Eigen::ComputeFullV);
