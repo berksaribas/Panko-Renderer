@@ -37,6 +37,7 @@ struct GPUCameraData {
 	mat4 viewproj;
 	mat4 viewprojInverse;
 	mat4 prevViewproj;
+	vec4 clearColor;
 	vec4 cameraPos;
 	vec4 lightPos;
 	vec4 lightColor;

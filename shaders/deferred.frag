@@ -253,7 +253,7 @@ void main()
     vec2 inLightmapCoord = gb4.zw;
 
     if(inMaterialId < 0) {
-        outFragColor = vec4(0.0);
+        outFragColor = vec4(cameraData.clearColor);
         return;
     }
 

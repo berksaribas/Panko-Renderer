@@ -75,13 +75,15 @@ int selectedPreset = -1;
 char customName[128];
 bool screenshot = false;
 
-bool useRealtimeRaycast = false;
+bool useRealtimeRaycast = true;
 bool enableDenoise = true;
 bool enableGroundTruthDiffuse = false;
 
 bool showFileList = false;
 std::vector<std::string> load_files;
 int selected_file = 0;
+
+bool useSceneCamera = false;
 
 void VulkanEngine::init()
 {
@@ -147,11 +149,11 @@ void VulkanEngine::init()
 		precalculationInfo.raysPerProbe = 1000;
 		precalculationInfo.raysPerReceiver = 8000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
-		precalculationInfo.clusterCoefficientCount = 128;
+		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
-		precalculationInfo.lightmapResolution = 1024;
-		precalculationInfo.texelSize = 128;
-		precalculationInfo.desiredSpacing = 1;
+		precalculationInfo.lightmapResolution = 256;
+		precalculationInfo.texelSize = 6;
+		precalculationInfo.desiredSpacing = 2;
 	}
 	else {
 		precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo, precalculationLoadData, precalculationResult);
@@ -199,7 +201,8 @@ void VulkanEngine::init()
 	_camData.lightColor = { 1.f, 1.f, 1.f, 1.0f };
 	_camData.indirectDiffuse = true;
 	_camData.indirectSpecular = true;
-	_camData.useStochasticSpecular = false;
+	_camData.useStochasticSpecular = true;
+	_camData.clearColor = { 0.f, 0.f, 0.f, 0.0f };
 	camera.pos = { 0, 0, 7 };
 
 
@@ -250,10 +253,21 @@ void VulkanEngine::draw()
 	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
 	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
 	auto res = glm::mat4{ 1 };
-	res = glm::translate(res, camera.pos);
-	res = glm::rotate(res, glm::radians(camera.rotation.y), UP);
-	res = glm::rotate(res, glm::radians(camera.rotation.x), RIGHT);
-	res = glm::rotate(res, glm::radians(camera.rotation.z), FORWARD);
+
+	float fov = glm::radians(45.0f);
+
+	if (useSceneCamera) {
+		res = gltf_scene.cameras[0].world_matrix;
+		camera.pos = gltf_scene.cameras[0].eye;
+		fov = gltf_scene.cameras[0].cam.perspective.yfov;
+	}
+	else {
+		res = glm::translate(res, camera.pos);
+		res = glm::rotate(res, glm::radians(camera.rotation.y), UP);
+		res = glm::rotate(res, glm::radians(camera.rotation.x), RIGHT);
+		res = glm::rotate(res, glm::radians(camera.rotation.z), FORWARD);
+	}
+
 	auto view = glm::inverse(res);
 	glm::mat4 projection = glm::perspective(glm::radians(45.0f), ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
 	projection[1][1] *= -1;
@@ -350,6 +364,12 @@ void VulkanEngine::draw()
 		sprintf_s(buffer, "Factor");
 		ImGui::DragFloat(buffer, &radius);
 
+		ImGui::NewLine();
+
+		ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
+		if (gltf_scene.cameras.size() > 0) {
+			ImGui::Checkbox("Use scene camera", &useSceneCamera);
+		}
 		ImGui::NewLine();
 
 		sprintf_s(buffer, "Indirect Diffuse");
@@ -1294,9 +1314,9 @@ void VulkanEngine::init_descriptors()
 	//binding set for camera data + shadow map data
 	VkDescriptorSetLayoutBinding bindings[2] = { 
 		// camera
-		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0),
+		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_MISS_BIT_KHR, 0),
 		// shadow map data
-		 vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 1)
+		 vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_MISS_BIT_KHR, 1)
 	};
 	setinfo = vkinit::descriptorset_layout_create_info(bindings, 2);
 	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.globalSetLayout);
@@ -1502,12 +1522,12 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	//std::string file_name = "../../assets/cornellFixed.gltf";
+	std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/cornell3.gltf";
 	
 	//std::string file_name = "../../assets/cornell4.gltf";
-	std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
+	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "../../assets/observer/scene.gltf";
 	//std::string file_name = "../../assets/VC/glTF/VC.gltf";

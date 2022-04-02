@@ -6,13 +6,15 @@
 
 #include "common.glsl"
 
+layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+
 layout(location = 0) rayPayloadInEXT ReflectionPayload payload;
 layout(location = 1) rayPayloadInEXT vec3 reflectionColor;
 
 void main()
 {
-    payload.color = vec3(0);
+    payload.color = cameraData.clearColor.rgb;
     payload.hitDistance = 100;
     payload.normal = vec3(0);
-    reflectionColor = vec3(0);
+    //reflectionColor = vec3(0);
 }
