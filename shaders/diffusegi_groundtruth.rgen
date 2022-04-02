@@ -83,13 +83,15 @@ float random_float_between(inout uint state, float min, float max) {
 
 void main()
 {
-    uint receiverId = gl_LaunchIDEXT.x;
-    vec3 receiverPos = receivers[receiverId].pos;
-    vec3 receiverNormal = normalize(receivers[receiverId].normal.xyz);
-    ivec2 receiverUv = receivers[receiverId].uvPad.xy;
+    uint receiverId = gl_LaunchIDEXT.x * TEXEL_SAMPLES * TEXEL_SAMPLES;
 
-    uint random_state = (receiverUv.x * 1973 + 9277  * receiverUv.y + receiverId * 26699) | 1;
+    int sampleId = cameraData.frameCount % receivers[receiverId].uvPad.z;
 
+    vec3 receiverPos = receivers[receiverId + sampleId].pos;
+    vec3 receiverNormal = normalize(receivers[receiverId + sampleId].normal.xyz);
+    ivec2 receiverUv = receivers[receiverId + sampleId].uvPad.xy;
+
+    uint random_state = (receiverUv.x * 1973 + 9277  * receiverUv.y + (receiverId + sampleId) * 26699) | 1;
 
     vec3 direction = normalize(getCosHemisphereSample(cameraData.frameCount, vec2(random_float_between(random_state, 0.0, 1.0), random_float_between(random_state, 0.0, 1.0)) , receiverNormal));
 

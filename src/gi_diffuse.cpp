@@ -585,8 +585,9 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _gtDiffuseRTDescriptorSet, &meshInfoBuffer._descriptorBufferInfo, 2));
 
 	{
+		std::vector<GPUReceiverDataUV>* lm = new std::vector<GPUReceiverDataUV>[_precalculationInfo->lightmapResolution * _precalculationInfo->lightmapResolution];
 		std::vector<GPUReceiverDataUV> receiverDataVector;
-		
+		int receiverCount = 0;
 		for (int nodeIndex = 0; nodeIndex < scene.nodes.size(); nodeIndex++) {
 			auto& mesh = scene.prim_meshes[scene.nodes[nodeIndex].prim_mesh];
 			for (int triangle = 0; triangle < mesh.idx_count; triangle += 3) {
@@ -623,7 +624,6 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 				for (int j = minY; j <= maxY; j++) {
 					for (int i = minX; i <= maxX; i++) {
 						int maxSample = TEXEL_SAMPLES;
-
 						for (int sample = 0; sample < maxSample * maxSample; sample++) {
 							glm::vec2 pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
 							glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
@@ -633,14 +633,31 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 								receiverData.pos = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 								receiverData.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
 								receiverData.uvPad = { i, j, 0, 0 };
-								receiverDataVector.push_back(receiverData);
+								lm[i + j * _precalculationInfo->lightmapResolution].push_back(receiverData);
 							}
 						}
 					}
 				}
 			}
 		}
-		_gpuReceiverCount = receiverDataVector.size();
+
+		for (int i = 0; i < _precalculationInfo->lightmapResolution * _precalculationInfo->lightmapResolution; i++) {
+			if (lm[i].size() > 0) {
+				receiverCount++;
+				int targetSize = (TEXEL_SAMPLES * TEXEL_SAMPLES) > lm[i].size() ? lm[i].size() : (TEXEL_SAMPLES * TEXEL_SAMPLES);
+				for (int j = 0; j < targetSize; j++) {
+					lm[i][j].uvPad.b = lm[i].size();
+					receiverDataVector.push_back(lm[i][j]);
+				}
+				int remainingSize = TEXEL_SAMPLES * TEXEL_SAMPLES - targetSize;
+				for (int j = 0; j < remainingSize; j++) {
+					receiverDataVector.push_back(lm[i][0]);
+				}
+			}
+		}
+
+		delete[] lm;
+		_gpuReceiverCount = receiverCount;
 		_receiverBuffer = vkutils::create_upload_buffer(&engineData, receiverDataVector.data(), sizeof(GPUReceiverDataUV) * receiverDataVector.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 		writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _gtDiffuseRTDescriptorSet, &_receiverBuffer._descriptorBufferInfo, 3));
 	}
