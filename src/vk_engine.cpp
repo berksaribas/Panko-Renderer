@@ -331,143 +331,156 @@ void VulkanEngine::draw()
 	static char buffer[128];
 	{
 		//todo: imgui stuff
-		ImGui:ImGui::Begin("Engine Config");
+		ImGui::Begin("Engine Config");
+		{
+			sprintf_s(buffer, "Rebuild Shaders");
+			if (ImGui::Button(buffer)) {
+				diffuseIllumination.rebuild_shaders(_engineData, _sceneDescriptors);
+				init_pipelines(true);
+				shadow.init_pipelines(_engineData, _sceneDescriptors, true);
+				gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
+				deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
+				glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils, true);
+				glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
 
-		sprintf_s(buffer, "Rebuild Shaders");
-		if(ImGui::Button(buffer)) {
-			diffuseIllumination.rebuild_shaders(_engineData, _sceneDescriptors);
-			init_pipelines(true);
-			shadow.init_pipelines(_engineData, _sceneDescriptors, true);
-			gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
-			deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
-			glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils, true);
-			glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
-
-		}
-
-		ImGui::NewLine();
-
-		sprintf_s(buffer, "Positive Exponent");
-		ImGui::DragFloat(buffer, &shadow._shadowMapData.positiveExponent);
-		sprintf_s(buffer, "Negative Exponent");
-		ImGui::DragFloat(buffer, &shadow._shadowMapData.negativeExponent);
-		sprintf_s(buffer, "Light Bleeding Reduction");
-		ImGui::DragFloat(buffer, &shadow._shadowMapData.LightBleedingReduction);
-		sprintf_s(buffer, "VSM Bias");
-		ImGui::DragFloat(buffer, &shadow._shadowMapData.VSMBias);
-
-		glm::vec3 mins = { minX, minY, minZ };
-		glm::vec3 maxs = { maxX, maxY, maxZ };
-
-		sprintf_s(buffer, "Ligh Direction");
-		ImGui::DragFloat3(buffer, &_camData.lightPos.x);
-	
-		sprintf_s(buffer, "Factor");
-		ImGui::DragFloat(buffer, &radius);
-
-		ImGui::NewLine();
-
-		ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
-		if (gltf_scene.cameras.size() > 0) {
-			ImGui::Checkbox("Use scene camera", &useSceneCamera);
-		}
-		ImGui::NewLine();
-
-		sprintf_s(buffer, "Indirect Diffuse");
-		ImGui::Checkbox(buffer, (bool*) & _camData.indirectDiffuse);
-
-		if (_camData.indirectDiffuse) {
-			sprintf_s(buffer, "Ground Truth");
-			if (ImGui::Checkbox(buffer, &enableGroundTruthDiffuse)) {
-				_frameNumber = 0;
-			}
-		}
-
-		sprintf_s(buffer, "Use realtime probe raycasting");
-		ImGui::Checkbox(buffer, (bool*)&useRealtimeRaycast);
-
-		sprintf_s(buffer, "Indirect Specular");
-		ImGui::Checkbox(buffer, (bool*)&_camData.indirectSpecular);
-
-		if (_camData.indirectSpecular) {
-			sprintf_s(buffer, "Use Stochastic Raytracing");
-			if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
-				///_frameNumber = 0;
 			}
 
-			if (_camData.useStochasticSpecular) {
-				sprintf_s(buffer, "Enable SVGF denoising");
-				if (ImGui::Checkbox(buffer, &enableDenoise)) {
-					_camData.glossyFrameCount = 0;
-					_camData.glossyDenoise = enableDenoise;
+			ImGui::NewLine();
+
+			sprintf_s(buffer, "Positive Exponent");
+			ImGui::DragFloat(buffer, &shadow._shadowMapData.positiveExponent);
+			sprintf_s(buffer, "Negative Exponent");
+			ImGui::DragFloat(buffer, &shadow._shadowMapData.negativeExponent);
+			sprintf_s(buffer, "Light Bleeding Reduction");
+			ImGui::DragFloat(buffer, &shadow._shadowMapData.LightBleedingReduction);
+			sprintf_s(buffer, "VSM Bias");
+			ImGui::DragFloat(buffer, &shadow._shadowMapData.VSMBias);
+
+			glm::vec3 mins = { minX, minY, minZ };
+			glm::vec3 maxs = { maxX, maxY, maxZ };
+
+			sprintf_s(buffer, "Ligh Direction");
+			ImGui::DragFloat3(buffer, &_camData.lightPos.x);
+
+			sprintf_s(buffer, "Factor");
+			ImGui::DragFloat(buffer, &radius);
+
+			ImGui::NewLine();
+
+			ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
+			if (gltf_scene.cameras.size() > 0) {
+				ImGui::Checkbox("Use scene camera", &useSceneCamera);
+			}
+			ImGui::NewLine();
+
+			sprintf_s(buffer, "Indirect Diffuse");
+			ImGui::Checkbox(buffer, (bool*)&_camData.indirectDiffuse);
+
+			if (_camData.indirectDiffuse) {
+				sprintf_s(buffer, "Ground Truth");
+				if (ImGui::Checkbox(buffer, &enableGroundTruthDiffuse)) {
+					_frameNumber = 0;
+				}
+			}
+
+			sprintf_s(buffer, "Use realtime probe raycasting");
+			ImGui::Checkbox(buffer, (bool*)&useRealtimeRaycast);
+
+			sprintf_s(buffer, "Indirect Specular");
+			ImGui::Checkbox(buffer, (bool*)&_camData.indirectSpecular);
+
+			if (_camData.indirectSpecular) {
+				sprintf_s(buffer, "Use Stochastic Raytracing");
+				if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
+					///_frameNumber = 0;
 				}
 
-				if (enableDenoise) {
-					ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
+				if (_camData.useStochasticSpecular) {
+					sprintf_s(buffer, "Enable SVGF denoising");
+					if (ImGui::Checkbox(buffer, &enableDenoise)) {
+						_camData.glossyFrameCount = 0;
+						_camData.glossyDenoise = enableDenoise;
+					}
+
+					if (enableDenoise) {
+						ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
+					}
+					else {
+						ImGui::Text("Currently using stochastic raytracing");
+					}
 				}
 				else {
-					ImGui::Text("Currently using stochastic raytracing");
+					ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
 				}
 			}
-			else {
-				ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
+
+			ImGui::NewLine();
+			ImGui::Checkbox("Show Probes", &showProbes);
+			if (showProbes) {
+				ImGui::Checkbox("Show Probe Rays", &showProbeRays);
 			}
-		}
+			ImGui::Checkbox("Show Receivers", &showReceivers);
+			ImGui::Checkbox("Show Specific Receivers", &showSpecificReceiver);
+			if (showSpecificReceiver) {
+				ImGui::SliderInt("Cluster: ", &specificCluster, 0, precalculationLoadData.aabbClusterCount - 1);
+				ImGui::SliderInt("Receiver: ", &specificReceiver, 0, precalculationResult.clusterReceiverInfos[specificCluster].receiverCount - 1);
 
-		ImGui::NewLine();
+				ImGui::DragInt("Ray sample count: ", &specificReceiverRaySampleCount);
 
-		if (ImGui::Button("Light Preset 0")) {
-			selectedPreset = 0; 
-			_camData.lightPos = { -8.440, 2, 2.250, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 1")) {
-			selectedPreset = 1;
-			_camData.lightPos = { -8.440, 2, 7.510, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 2")) {
-			selectedPreset = 2;
-			_camData.lightPos = { 13.450, 2, 1.450, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 3")) {
-			selectedPreset = 3;
-			_camData.lightPos = { 15.520, 41.070, 3.180, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 4")) {
-			selectedPreset = 4;
-			_camData.lightPos = { 0, 2, 0.150, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 5")) {
-			selectedPreset = 5;
-			_camData.lightPos = { -2.75, 2, 2.44, 0.0f };
-		}
-		if (ImGui::Button("Light Preset 6")) {
-			selectedPreset = 6;
-			_camData.lightPos = { 2.75, 2, 2.44, 0.0f };
-		}
+				ImGui::Checkbox("Show Selected Probe Rays", &showSpecificProbeRays);
 
-		ImGui::InputText("Custom name", customName, sizeof(customName));
-		if (ImGui::Button("Screenshot")) {
-			screenshot = true;
-		}
+				{
+					int receiverCount = precalculationResult.clusterReceiverInfos[specificCluster].receiverCount;
+					int receiverOffset = precalculationResult.clusterReceiverInfos[specificCluster].receiverOffset;
+					int probeCount = precalculationResult.clusterReceiverInfos[specificCluster].probeCount;
+					int probeOffset = precalculationResult.clusterReceiverInfos[specificCluster].probeOffset;
 
-		if (ImGui::Button("Show Saved Data")) {
-			std::string path = "./screenshots/";
-			load_files.clear();
-			for (const auto& entry : std::filesystem::directory_iterator(path)) {
-				auto& path = entry.path();
-				if (path.extension().generic_string().compare(".cam") == 0) {
-					load_files.push_back(path.generic_string());
+					for (int i = 0; i < probeCount; i++) {
+						if (precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i] > 0) {
+							int realProbeIndex = precalculationResult.clusterProbes[probeOffset + i];
+							sprintf_s(buffer, "Probe %d: %f", realProbeIndex, precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i]);
+							ImGui::Checkbox(buffer, &probesEnabled[realProbeIndex]);
+						}
+					}
 				}
 			}
-			showFileList = true;
+
+			ImGui::NewLine();
+
+			ImGui::InputText("Custom name", customName, sizeof(customName));
+			if (ImGui::Button("Screenshot")) {
+				screenshot = true;
+			}
+
+			if (ImGui::Button("Show Saved Data")) {
+				std::string path = "./screenshots/";
+				load_files.clear();
+				for (const auto& entry : std::filesystem::directory_iterator(path)) {
+					auto& path = entry.path();
+					if (path.extension().generic_string().compare(".cam") == 0) {
+						load_files.push_back(path.generic_string());
+					}
+				}
+				showFileList = true;
+			}
+
+			ImGui::End();
 		}
 
-		ImGui::NewLine();
+		ImGui::Begin("Textures");
+		{
+			ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
+			ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
+			ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
+			ImGui::End();
+		}
 
-		ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
-		ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
-		ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
-		ImGui::End();
+		//ImGui::Begin("Viewport", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		//{
+		//	
+		//	ImGui::Image(deferred._deferredColorTextureDescriptor, ImGui::GetWindowContentRegionMax());
+		//	ImGui::End();
+		//}
 
 		if (showFileList) {
 			ImGui::Begin("Files", &showFileList);
@@ -487,61 +500,28 @@ void VulkanEngine::draw()
 			ImGui::End();
 		}
 
-		ImGui::Checkbox("Show Probes", &showProbes);
-
-		if (showProbes) {
-			ImGui::Checkbox("Show Probe Rays", &showProbeRays);
-		}
-
-		ImGui::NewLine();
-
-		ImGui::Checkbox("Show Receivers", &showReceivers);
-
-		ImGui::NewLine();
-
-		ImGui::Checkbox("Show Specific Receivers", &showSpecificReceiver);
-
-		if (showSpecificReceiver) {
-			ImGui::SliderInt("Cluster: ", &specificCluster, 0, precalculationLoadData.aabbClusterCount - 1);
-			ImGui::SliderInt("Receiver: ", &specificReceiver, 0, precalculationResult.clusterReceiverInfos[specificCluster].receiverCount - 1);
-			
-			ImGui::DragInt("Ray sample count: ", &specificReceiverRaySampleCount);
-
-			ImGui::Checkbox("Show Selected Probe Rays", &showSpecificProbeRays);
-
-			{
-				int receiverCount = precalculationResult.clusterReceiverInfos[specificCluster].receiverCount;
-				int receiverOffset = precalculationResult.clusterReceiverInfos[specificCluster].receiverOffset;
-				int probeCount = precalculationResult.clusterReceiverInfos[specificCluster].probeCount;
-				int probeOffset = precalculationResult.clusterReceiverInfos[specificCluster].probeOffset;
-				
-				for (int i = 0; i < probeCount; i++) {
-					if (precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i] > 0) {
-						int realProbeIndex = precalculationResult.clusterProbes[probeOffset + i];
-						sprintf_s(buffer, "Probe %d: %f", realProbeIndex, precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i]);
-						ImGui::Checkbox(buffer, &probesEnabled[realProbeIndex]);
-					}
-				}
+		ImGui::Begin("Materials");
+		{
+			bool materialsChanged = false;
+			for (int i = 0; i < materials.size(); i++) {
+				sprintf_s(buffer, "Material %d - %s", i, gltf_scene.materials[i].name.c_str());
+				ImGui::LabelText(buffer, buffer);
+				sprintf_s(buffer, "Base color %d", i);
+				materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
+				sprintf_s(buffer, "Emissive color %d", i);
+				materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].emissive_color.r);
+				sprintf_s(buffer, "Roughness %d", i);
+				materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].roughness_factor, 0, 1);
+				sprintf_s(buffer, "Metallic %d", i);
+				materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].metallic_factor, 0, 1);
 			}
-		}
 
-		bool materialsChanged = false;
-		for (int i = 0; i < materials.size(); i++) {
-			sprintf_s(buffer, "Material %d - %s", i, gltf_scene.materials[i].name.c_str());
-			ImGui::LabelText(buffer, buffer);
-			sprintf_s(buffer, "Base color %d", i);
-			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
-			sprintf_s(buffer, "Emissive color %d", i);
-			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].emissive_color.r);
-			sprintf_s(buffer, "Roughness %d", i);
-			materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].roughness_factor, 0, 1);
-			sprintf_s(buffer, "Metallic %d", i);
-			materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].metallic_factor, 0, 1);
-		}
+			if (materialsChanged) {
+				vkutils::cpu_to_gpu(_engineData.allocator, material_buffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
+				///_frameNumber = 0;
+			}
 
-		if (materialsChanged) {
-			vkutils::cpu_to_gpu(_engineData.allocator, material_buffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
-			///_frameNumber = 0;
+			ImGui::End();
 		}
 		
 		ImGui::Render();
@@ -1847,6 +1827,8 @@ void VulkanEngine::init_imgui()
 	ImGui::CreateContext();
 
 	ImGui::StyleColorsDark();
+
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
 	//this initializes imgui for SDL
 	ImGui_ImplSDL2_InitForVulkan(_window);
