@@ -1028,13 +1028,13 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 					minX = texVertices[i].x;
 				}
 				if (texVertices[i].x > maxX) {
-					maxX = texVertices[i].x;
+					maxX = std::ceil(texVertices[i].x);
 				}
 				if (texVertices[i].y < minY) {
 					minY = texVertices[i].y;
 				}
 				if (texVertices[i].y > maxY) {
-					maxY = texVertices[i].y;
+					maxY = std::ceil(texVertices[i].y);
 				}
 			}
 
@@ -1043,12 +1043,18 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 					int maxSample = TEXEL_SAMPLES;
 					int receiverIndex = i + j * lightmapResolution;
 					
-					if (_receivers[receiverIndex].exists && nodeIndex != _receivers[receiverIndex].objectId) {
-						continue;
-					}
+					//if (_receivers[receiverIndex].exists && nodeIndex != _receivers[receiverIndex].objectId) {
+					//	continue;
+					//}
 
 					for (int sample = 0; sample < maxSample * maxSample; sample++) {
-						glm::vec2 pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+						glm::vec2 pixelMiddle;
+						if (maxSample > 1) {
+							pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+						}
+						else {
+							pixelMiddle = { i + 0.5, j + 0.5 };
+						}
 						glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
 							texVertices[0], texVertices[1], texVertices[2]);
 						if (barycentric.x >= 0 && barycentric.y >= 0 && barycentric.z >= 0) {
@@ -1059,11 +1065,21 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 								receiverCounter++;
 							}
 
-							_receivers[receiverIndex].position = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
-							_receivers[receiverIndex].normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
-							
-							_receivers[receiverIndex].poses.push_back(apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]));
-							_receivers[receiverIndex].norms.push_back(apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]));
+							glm::vec3 sampledPos = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
+							glm::vec3 sampledNormal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
+							bool exists = false;
+
+							for (int checker = 0; checker < _receivers[receiverIndex].poses.size(); checker++) {
+								if (_receivers[receiverIndex].poses[checker] == sampledPos) {
+									exists = true;
+									break;
+								}
+							}
+
+							if (!exists) {
+								_receivers[receiverIndex].poses.push_back(sampledPos);
+								_receivers[receiverIndex].norms.push_back(sampledNormal);
+							}							
 						}
 					}
 				}
@@ -1075,10 +1091,22 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 	for (int i = 0; i < lightmapResolution * lightmapResolution; i++) {
 		if (_receivers[i].exists) {
 			maxSamples = maxSamples > _receivers[i].poses.size() ? maxSamples : _receivers[i].poses.size();
+
+			vec3 averagePosition = vec3(0);
+			vec3 averageNormal = vec3(0);
+			for (int j = 0; j < _receivers[i].poses.size(); j++) {
+				averagePosition += _receivers[i].poses[j];
+				averageNormal += _receivers[i].norms[j];
+			}
+
+			_receivers[i].position = averagePosition / (float)_receivers[i].poses.size();
+			_receivers[i].normal = averageNormal / (float)_receivers[i].norms.size();
 		}
+
 	}
 	printf("Largest number of samples for a texel: %d\n", maxSamples);
 
+	
 	for (int i = 0; i < lightmapResolution; i++) {
 		for (int j = 0; j < lightmapResolution; j++) {
 			if (!_receivers[j + i * lightmapResolution].exists) {
@@ -2099,7 +2127,7 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				//	file << targetMatrix.block(0, 0, currRow, targetMatrix.cols()).format(CSVFormat);
 				//}
 
-				if ((/*clusterMatrix.rows() - used.size() > 16 &&*/ err > 0.005) || done) {
+				if ((clusterMatrix.rows() - used.size() > 4 && err > 0.005) || done) {
 
 					//if (!done) {
 					//	done = true;

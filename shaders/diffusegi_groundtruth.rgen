@@ -21,104 +21,55 @@ layout (set = 0, binding = 4, rgba32f) uniform image2D resultImage;
 
 layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
-float halton(int index, int base)
-{
-	float result = 0;
-	float f = 1;
-	while (index > 0) {
-		f /= base;
-		result += f * (index % base);
-		index = int(floor(index / float(base)));
-	}
-	return result;
-}
-
-vec3 getPerpendicularVector(vec3 u)
-{
-	vec3 a = abs(u);
-	uint xm = ((a.x - a.y)<0 && (a.x - a.z)<0) ? 1 : 0;
-	uint ym = (a.y - a.z)<0 ? (1 ^ xm) : 0;
-	uint zm = 1 ^ (xm | ym);
-	return cross(u, vec3(xm, ym, zm));
-}
-
-vec3 getCosHemisphereSample(int index, vec2 offset, vec3 hitNorm)
-{
-	// Generate 2 uniformly-distributed values in range 0 to 1
-	float u = halton(index, 3);
-	float v = halton(index, 5);
-	// Apply per-texel randomization
-	u = fract(u + offset.x);
-	v = fract(v + offset.y);
-
-	vec2 randVal = vec2(u, v);
-
-	// Cosine weighted hemisphere sample from RNG
-	vec3 bitangent = getPerpendicularVector(hitNorm);
-	vec3 tangent = cross(bitangent, hitNorm);
-	float r = sqrt(randVal.x);
-	float phi = 2.0f * 3.14159265f * randVal.y;
-
-	// Get our cosine-weighted hemisphere lobe sample direction
-	return tangent * (r * cos(phi).x) + bitangent * (r * sin(phi)) + hitNorm.xyz * sqrt(1 - randVal.x);
-}
-
-uint wang_hash(inout uint seed) {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed *= 9;
-    seed = seed ^ (seed >> 4);
-    seed *= 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed;
-}
-
-float random_float(inout uint state)
-{
-    return (wang_hash(state) & 0xFFFFFF) / 16777216.0f;
-}
-
-float random_float_between(inout uint state, float min, float max) {
-    return min + (max - min) * random_float(state);
-}
-
 void main()
 {
+    uint randomSeed = initRand(gl_LaunchIDEXT.x, cameraData.frameCount);
+
     uint receiverId = gl_LaunchIDEXT.x * TEXEL_SAMPLES * TEXEL_SAMPLES;
+    ivec2 receiverUv = receivers[receiverId + 0].uvPad.xy;
+    bool success = false;
+    for(int i = 0; i < receivers[receiverId].uvPad.z; i++) {
+        int sampleId = (i + cameraData.frameCount) % receivers[receiverId].uvPad.z;
 
-    int sampleId = cameraData.frameCount % receivers[receiverId].uvPad.z;
+        vec3 receiverPos = receivers[receiverId + sampleId].pos;
+        vec3 receiverNormal = normalize(receivers[receiverId + sampleId].normal.xyz);
+        //ivec2 receiverUv = receivers[receiverId + sampleId].uvPad.xy;
 
-    vec3 receiverPos = receivers[receiverId + sampleId].pos;
-    vec3 receiverNormal = normalize(receivers[receiverId + sampleId].normal.xyz);
-    ivec2 receiverUv = receivers[receiverId + sampleId].uvPad.xy;
+        vec3 direction = normalize(getCosHemisphereSample(cameraData.frameCount, vec2(nextRand(randomSeed), nextRand(randomSeed)) , receiverNormal));
 
-    uint random_state = (receiverUv.x * 1973 + 9277  * receiverUv.y + (receiverId + sampleId) * 26699) | 1;
-
-    vec3 direction = normalize(getCosHemisphereSample(cameraData.frameCount, vec2(random_float_between(random_state, 0.0, 1.0), random_float_between(random_state, 0.0, 1.0)) , receiverNormal));
-
-    uint  rayFlags = gl_RayFlagsOpaqueEXT;
-    float tMin     = 0.0001;
-    float tMax     = 10000.0;
+        uint  rayFlags = gl_RayFlagsOpaqueEXT;
+        float tMin     = 0.0001;
+        float tMax     = 10000.0;
     
-    vec3 raystartPos = receiverPos.xyz + sign(receiverNormal) * abs(receiverPos.xyz * 0.0000002);
+        vec3 raystartPos = offset_ray(receiverPos, receiverNormal);
 
-    traceRayEXT(topLevelAS,     // acceleration structure
-                rayFlags,       // rayFlags
-                0xFF,           // cullMask
-                0,              // sbtRecordOffset
-                0,              // sbtRecordStride
-                0,              // missIndex
-                raystartPos,     // ray origin
-                tMin,           // ray min range
-                direction.xyz,  // ray direction
-                tMax,           // ray max range
-                0               // payload (location = 0)
-    );
-
-    float NdotL = clamp(dot(receiverNormal, direction), 0, 1);
-    float pdf = NdotL / 3.14159265358979323846264;
+        traceRayEXT(topLevelAS,     // acceleration structure
+                    rayFlags,       // rayFlags
+                    0xFF,           // cullMask
+                    0,              // sbtRecordOffset
+                    0,              // sbtRecordStride
+                    0,              // missIndex
+                    raystartPos,     // ray origin
+                    tMin,           // ray min range
+                    direction.xyz,  // ray direction
+                    tMax,           // ray max range
+                    0               // payload (location = 0)
+        );
 	
-	vec3 previousColor = imageLoad(resultImage, receiverUv).rgb;
-	
-    vec3 finalColor = mix(max(vec3(0),payload.color), previousColor, float(cameraData.frameCount) / float(cameraData.frameCount + 1));
-    imageStore(resultImage, receiverUv, vec4(finalColor, 1.0));
+        if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
+            if(cameraData.frameCount > 1) {
+	            vec3 previousColor = imageLoad(resultImage, receiverUv).rgb;
+                vec3 finalColor = mix(max(vec3(0),payload.color), previousColor, float(cameraData.frameCount) / float(cameraData.frameCount + 1));
+                imageStore(resultImage, receiverUv, vec4(finalColor, 1.0));
+            }
+            else {
+                imageStore(resultImage, receiverUv, vec4(max(vec3(0),payload.color), 1.0));
+            }
+            success = true;
+            break;
+        }
+    }
+    if(!success) {
+        //imageStore(resultImage, receiverUv, vec4(vec3(1,0,0), 1.0));
+    }
 }

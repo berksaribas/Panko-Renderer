@@ -25,149 +25,60 @@ layout(set = 0, binding = 7, scalar) readonly buffer _ClusterProbes { int probes
 layout(push_constant) uniform _PushConstantRay { int probeCount; int batchOffset; int receiverOffset; };
 const float PI  = 3.14159265358979323846264;
 
-float random (vec2 st)
-{
-    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
-}
-
-vec3 hemiSpherePointCos(float u, float v, vec3 normal)
-{
-    float a = 6.2831853 * v;
-    u = 2.0*u - 1.0;
-    return normalize(normal + vec3(sqrt(1.0-u*u) * vec2(cos(a), sin(a)), u));
-}
-
-uint wang_hash(inout uint seed) {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed *= 9;
-    seed = seed ^ (seed >> 4);
-    seed *= 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed;
-}
-
-float random_float(inout uint state)
-{
-    return (wang_hash(state) & 0xFFFFFF) / 16777216.0f;
-}
-
-float random_float_between(inout uint state, float min, float max) {
-    return min + (max - min) * random_float(state);
-}
-
-vec3 random_unit_vector(inout uint state) {
-    float a = random_float_between(state, 0.0, 2.0 * PI);
-    float z = random_float_between(state, -1.0, 1.0);
-    float r = sqrt(1.0 - z * z);
-    return vec3(r * cos(a), r * sin(a), z);
-}
-
-float halton(int index, int base)
-{
-	float result = 0;
-	float f = 1;
-	while (index > 0) {
-		f /= base;
-		result += f * (index % base);
-		index = int(floor(index / float(base)));
-	}
-	return result;
-}
-
-// Precomputed Global Illumination in Frostbite (GDC 2018)
-vec3 randomDirHemisphere(int index, vec2 offset, vec3 normal)
-{
-	// Generate 2 uniformly-distributed values in range 0 to 1
-	float u = halton(index, 3);
-	float v = halton(index, 5);
-	// Apply per-texel randomization
-	u = fract(u + offset.x);
-	v = fract(v + offset.y);
-	// Transform unit square sample to uniform hemisphere direction
-	float cosTheta = u * 2.0f - 1.0f;
-	float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
-	float vrad = v * 6.2831853071795864769252867665590;
-	float sinPhi = sin(vrad);
-	float cosPhi = cos(vrad);
-	vec3 dir = vec3(cosPhi * sinTheta, sinPhi * sinTheta, cosTheta);
-	
-    vec3 up = normal;
-    vec3 right = normalize(cross(normal, vec3(0.0072, 1.0, 0.0034)));
-    vec3 forward = cross(right, up);
-    return dir.x * right + dir.y * up + dir.z * forward;
-}
-
-vec3 getPerpendicularVector(vec3 u)
-{
-	vec3 a = abs(u);
-	uint xm = ((a.x - a.y)<0 && (a.x - a.z)<0) ? 1 : 0;
-	uint ym = (a.y - a.z)<0 ? (1 ^ xm) : 0;
-	uint zm = 1 ^ (xm | ym);
-	return cross(u, vec3(xm, ym, zm));
-}
-
-vec3 getCosHemisphereSample(int index, vec2 offset, vec3 hitNorm)
-{
-	// Generate 2 uniformly-distributed values in range 0 to 1
-	float u = halton(index, 3);
-	float v = halton(index, 5);
-	// Apply per-texel randomization
-	u = fract(u + offset.x);
-	v = fract(v + offset.y);
-
-	vec2 randVal = vec2(u, v);
-
-	// Cosine weighted hemisphere sample from RNG
-	vec3 bitangent = getPerpendicularVector(hitNorm);
-	vec3 tangent = cross(bitangent, hitNorm);
-	float r = sqrt(randVal.x);
-	float phi = 2.0f * 3.14159265f * randVal.y;
-
-	// Get our cosine-weighted hemisphere lobe sample direction
-	return tangent * (r * cos(phi).x) + bitangent * (r * sin(phi)) + hitNorm.xyz * sqrt(1 - randVal.x);
-}
-
 void main()
 {
-    uint receiverId = batchOffset + gl_LaunchIDEXT.x;
-    int texelSamples = TEXEL_SAMPLES * TEXEL_SAMPLES;
-    int recSampleCount = int(receivers[receiverId * texelSamples].dPos);
-    vec3 receiverPos = receivers[receiverId * texelSamples + gl_LaunchIDEXT.y % recSampleCount].pos;
-    vec3 receiverNormal = normalize(receivers[receiverId * texelSamples + gl_LaunchIDEXT.y % recSampleCount].normal.xyz);
-
-    float _u = random(vec2(receiverId, gl_LaunchIDEXT.y * 2));
-    float _v = random(vec2(receiverId, gl_LaunchIDEXT.y * 2 + 1));
-
-    uint random_state = (gl_LaunchIDEXT.x * 1973 + 9277  * gl_LaunchIDEXT.y + receiverId * 26699) | 1;
-    
-    vec3 direction = normalize(getCosHemisphereSample(int(receiverId), vec2(random_float_between(random_state, 0.0, 1.0), random_float_between(random_state, 0.0, 1.0)), receiverNormal));
-    //vec3 direction = normalize(randomDirHemisphere(int(receiverId), vec2(random_float_between(random_state, 0.0, 1.0), random_float_between(random_state, 0.0, 1.0)), receiverNormal));
-    //vec3 direction = normalize(receiverNormal + random_unit_vector(random_state));
-    //vec3 direction = normalize(hemiSpherePointCos(_u, _v, receiverNormal));
-
     uint  rayFlags = gl_RayFlagsOpaqueEXT;
     float tMin     = 0.0001;
     float tMax     = 10000.0;
+
+    uint receiverId = batchOffset + gl_LaunchIDEXT.x;
+    int texelSamples = TEXEL_SAMPLES * TEXEL_SAMPLES;
+    int recSampleCount = int(receivers[receiverId * texelSamples].dPos);
+
+    vec3 hitNormal;
+    vec3 hitLocation;
+    int hitObjectId;
+    vec3 direction;
+    vec3 raystartPos;
+    int counter = 0;
+
+    uint randomSeed = initRand(gl_LaunchIDEXT.x, gl_LaunchIDEXT.y);
+
+    for(int i = 0; i < recSampleCount; i++) {
+        uint selectedSample = receiverId * texelSamples + (gl_LaunchIDEXT.y + i) % recSampleCount;
+        vec3 receiverPos = receivers[selectedSample].pos;
+        vec3 receiverNormal = normalize(receivers[selectedSample].normal.xyz);
     
-    vec3 raystartPos = receiverPos.xyz + sign(receiverNormal) * abs(receiverPos.xyz * 0.0000002);
-    //vec3 raystartPos = receiverPos.xyz + receiverNormal * 0.1;
+        direction = normalize(getCosHemisphereSample(int(gl_LaunchIDEXT.y), vec2(nextRand(randomSeed), nextRand(randomSeed)) , receiverNormal));
 
-    traceRayEXT(topLevelAS,     // acceleration structure
-                rayFlags,       // rayFlags
-                0xFF,           // cullMask
-                0,              // sbtRecordOffset
-                0,              // sbtRecordStride
-                0,              // missIndex
-                raystartPos,     // ray origin
-                tMin,           // ray min range
-                direction.xyz,  // ray direction
-                tMax,           // ray max range
-                0               // payload (location = 0)
-    );
+        raystartPos = offset_ray(receiverPos, receiverNormal);
 
-    vec3 hitNormal = payload.normal;
-    vec3 hitLocation = payload.pos;
-    int hitObjectId = payload.objectId;
+        traceRayEXT(topLevelAS,     // acceleration structure
+                    rayFlags,       // rayFlags
+                    0xFF,           // cullMask
+                    0,              // sbtRecordOffset
+                    0,              // sbtRecordStride
+                    0,              // missIndex
+                    raystartPos,     // ray origin
+                    tMin,           // ray min range
+                    direction.xyz,  // ray direction
+                    tMax,           // ray max range
+                    0               // payload (location = 0)
+        );
+        
+        if(i == 0 || payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
+            hitNormal = payload.normal;
+            hitLocation = payload.pos;
+            hitObjectId = payload.objectId;
+
+            if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
+                counter++;
+                if(counter > (gl_LaunchIDEXT.y) % recSampleCount) {
+                    break;
+                }
+            }
+        }
+    }
 
     for(int a = 0; a < probeCount; a++) {
         int probeIndex = probes[a];
@@ -177,47 +88,62 @@ void main()
             vec4 probePos = probeLocations[probeIndex];
             vec3 probeDir = direction.xyz;
 
-            if(hitObjectId == -1) {
-                //ray is a miss
-                //trace a ray from the probe with the same direction
-                //traceRayEXT(topLevelAS,     // acceleration structure
-                //        rayFlags,       // rayFlags
-                //        0xFF,           // cullMask
-                //        0,              // sbtRecordOffset
-                //        0,              // sbtRecordStride
-                //        0,              // missIndex
-                //        probePos.xyz,     // ray origin
-                //        tMin,           // ray min range
-                //        direction.xyz,  // ray direction
-                //        tMax,           // ray max range
-                //        0               // payload (location = 0)
-                //);
-                ////???
-                //if(payload.objectId == -1) {
-                //    //visibility = 1;
-                //}
-            }
-            else {
-                //ray hit a location
-                //trace a ray from the probe towards hit location
-                probeDir = normalize(hitLocation - probePos.xyz);
+            traceRayEXT(topLevelAS,     // acceleration structure
+                rayFlags,       // rayFlags
+                0xFF,           // cullMask
+                0,              // sbtRecordOffset
+                0,              // sbtRecordStride
+                0,              // missIndex
+                probePos.xyz,     // ray origin
+                tMin,           // ray min range
+                normalize(raystartPos - probePos.xyz),  // ray direction
+                tMax,           // ray max range
+                0               // payload (location = 0)
+            );
 
-                traceRayEXT(topLevelAS,     // acceleration structure
-                        rayFlags,       // rayFlags
-                        0xFF,           // cullMask
-                        0,              // sbtRecordOffset
-                        0,              // sbtRecordStride
-                        0,              // missIndex
-                        probePos.xyz,     // ray origin
-                        tMin,           // ray min range
-                        probeDir,  // ray direction
-                        tMax,           // ray max range
-                        0               // payload (location = 0)
-                );
-                //debugPrintfEXT("%f (%d vs %d || %d)\n", distance(hitLocation, payload.pos), hitObjectId, payload.objectId, receivers[receiverId].objectId);
-                if(payload.objectId == hitObjectId  && distance(hitLocation, payload.pos) < 0.001 /* && dot(hitNormal, direction) < 0 && dot(payload.normal, probeDir) < 0 && dot(hitNormal, payload.normal) > 0*/) {
-                    //visibility = 1 * pow(clamp(dot(direction, probeDir), 0.05f, 1.0f), 32);
-                    visibility = 1;
+            if(true/*distance(payload.pos,raystartPos) < 0.5*/) {
+                if(hitObjectId == -1) {
+                    //ray is a miss
+                    //trace a ray from the probe with the same direction
+                    //traceRayEXT(topLevelAS,     // acceleration structure
+                    //        rayFlags,       // rayFlags
+                    //        0xFF,           // cullMask
+                    //        0,              // sbtRecordOffset
+                    //        0,              // sbtRecordStride
+                    //        0,              // missIndex
+                    //        probePos.xyz,     // ray origin
+                    //        tMin,           // ray min range
+                    //        direction.xyz,  // ray direction
+                    //        tMax,           // ray max range
+                    //        0               // payload (location = 0)
+                    //);
+                    ////???
+                    //if(payload.objectId == -1) {
+                    //    //visibility = 1;
+                    //}
+                }
+                else {
+                    //ray hit a location
+                    //trace a ray from the probe towards hit location
+                    probeDir = normalize(hitLocation - probePos.xyz);
+
+                    traceRayEXT(topLevelAS,     // acceleration structure
+                            rayFlags,       // rayFlags
+                            0xFF,           // cullMask
+                            0,              // sbtRecordOffset
+                            0,              // sbtRecordStride
+                            0,              // missIndex
+                            probePos.xyz,     // ray origin
+                            tMin,           // ray min range
+                            probeDir,  // ray direction
+                            tMax,           // ray max range
+                            0               // payload (location = 0)
+                    );
+                    //debugPrintfEXT("%f (%d vs %d || %d)\n", distance(hitLocation, payload.pos), hitObjectId, payload.objectId, receivers[receiverId].objectId);
+                    if(payload.objectId == hitObjectId  && distance(hitLocation, payload.pos) < 0.001 /*&& dot(hitNormal, direction) < 0 && dot(payload.normal, probeDir) < 0 && dot(hitNormal, payload.normal) > 0*/) {
+                        //visibility = 1 * pow(clamp(dot(direction, probeDir), 0.05f, 1.0f), 32);
+                        visibility = 1;
+                    }
                 }
             }
 

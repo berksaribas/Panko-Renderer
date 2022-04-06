@@ -165,6 +165,8 @@ struct GltfMaterial {
 	KHR_materials_anisotropy anisotropy;
 	KHR_materials_ior ior;
 	KHR_materials_volume volume;
+
+	std::string name;
 };
 
 struct GltfNode {

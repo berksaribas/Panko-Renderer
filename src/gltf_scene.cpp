@@ -87,6 +87,8 @@ void GltfScene::import_materials(const tinygltf::Model& tmodel) {
 	for (auto& tmat : tmodel.materials) {
 		GltfMaterial gmat;
 
+		gmat.name = tmat.name;
+
 		gmat.alpha_cutoff = static_cast<float>(tmat.alphaCutoff);
 		gmat.alpha_mode =
 			tmat.alphaMode == "MASK" ? 1 : (tmat.alphaMode == "BLEND" ? 2 : 0);

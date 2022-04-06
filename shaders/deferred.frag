@@ -253,7 +253,7 @@ void main()
     vec2 inLightmapCoord = gb4.zw;
 
     if(inMaterialId < 0) {
-        outFragColor = vec4(cameraData.clearColor);
+        outFragColor = vec4(1);
         return;
     }
 
@@ -277,8 +277,8 @@ void main()
         else if(roughness < 11) {
             float mipChannel = 0;
         
+            tHit = textureLod(glossyReflections, InUv, 0).w;
             for(int i = 0; i < 1; i++) {
-                tHit = textureLod(glossyReflections, InUv, 0).w;
                 float camera_ray_length = length(cameraData.cameraPos.xyz - inWorldPosition.xyz);
 
                 /*
@@ -315,7 +315,13 @@ void main()
                 */
 
                 //tHit += 1;
-                tHit = clamp(tHit, 0.1, 1.0);
+                if(gb3.b < 0.001) {
+                    tHit = clamp(tHit, 0.1, 1.0);
+                }
+                else {
+                    tHit = clamp(tHit, 0.1, 1.0);
+                }
+                //tHit *= roughness;
 
                 vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
                 vec3 tangent = normalize(cross(up, inNormal));
@@ -336,6 +342,9 @@ void main()
                 projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
                 vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
 
+                vec2 sourceSize = textureSize(glossyReflections, 0);
+                vec2 texelSize = vec2(1.0) / sourceSize;
+                
                 /*
                 vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
                 vec3 tangent = normalize(cross(up, inNormal));

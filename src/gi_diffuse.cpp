@@ -3,6 +3,7 @@
 #include <random>
 #include <vk_utils.h>
 #include <vk_pipeline.h>
+#include <unordered_set>
 
 glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c);
 glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c);
@@ -586,7 +587,6 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 
 	{
 		std::vector<GPUReceiverDataUV>* lm = new std::vector<GPUReceiverDataUV>[_precalculationInfo->lightmapResolution * _precalculationInfo->lightmapResolution];
-		std::vector<GPUReceiverDataUV> receiverDataVector;
 		int receiverCount = 0;
 		for (int nodeIndex = 0; nodeIndex < scene.nodes.size(); nodeIndex++) {
 			auto& mesh = scene.prim_meshes[scene.nodes[nodeIndex].prim_mesh];
@@ -611,13 +611,13 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 						minX = texVertices[i].x;
 					}
 					if (texVertices[i].x > maxX) {
-						maxX = texVertices[i].x;
+						maxX = std::ceil(texVertices[i].x);
 					}
 					if (texVertices[i].y < minY) {
 						minY = texVertices[i].y;
 					}
 					if (texVertices[i].y > maxY) {
-						maxY = texVertices[i].y;
+						maxY = std::ceil(texVertices[i].y);
 					}
 				}
 
@@ -625,7 +625,14 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 					for (int i = minX; i <= maxX; i++) {
 						int maxSample = TEXEL_SAMPLES;
 						for (int sample = 0; sample < maxSample * maxSample; sample++) {
-							glm::vec2 pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+							glm::vec2 pixelMiddle;
+							if (maxSample > 1) {
+								pixelMiddle = { i + (sample / maxSample) / ((float)(maxSample - 1)), j + (sample % maxSample) / ((float)(maxSample - 1)) };
+								//printf("%f , %f\n", pixelMiddle.x, pixelMiddle.y);
+							}
+							else {
+								pixelMiddle = { i + 0.5, j + 0.5 };
+							}
 							glm::vec3 barycentric = calculate_barycentric(pixelMiddle,
 								texVertices[0], texVertices[1], texVertices[2]);
 							if (barycentric.x >= 0 && barycentric.y >= 0 && barycentric.z >= 0) {
@@ -633,8 +640,81 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 								receiverData.pos = apply_barycentric(barycentric, worldVertices[0], worldVertices[1], worldVertices[2]);
 								receiverData.normal = apply_barycentric(barycentric, worldNormals[0], worldNormals[1], worldNormals[2]);
 								receiverData.uvPad = { i, j, 0, 0 };
-								lm[i + j * _precalculationInfo->lightmapResolution].push_back(receiverData);
+								bool exists = false;
+								for (int checker = 0; checker < lm[i + j * _precalculationInfo->lightmapResolution].size(); checker++) {
+									if (lm[i + j * _precalculationInfo->lightmapResolution][checker].pos == receiverData.pos) {
+										exists = true;
+										break;
+									}
+								}
+								if (!exists) {
+									lm[i + j * _precalculationInfo->lightmapResolution].push_back(receiverData);
+								}
 							}
+						}
+					}
+				}
+			}
+		}
+		int lightmapResolution = _precalculationInfo->lightmapResolution;
+		std::unordered_set<int> processedList;
+		for (int i = 0; i < lightmapResolution; i++) {
+			for (int j = 0; j < lightmapResolution; j++) {
+				if (!lm[j + i * lightmapResolution].size() > 0) {
+					if (j + 1 < lightmapResolution && lm[j + 1 + i * lightmapResolution].size() > 0 && processedList.find(j + 1 + i * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j + 1 + i * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = {j ,i, 0, 0};
+						}
+					}
+					else if (j - 1 >= 0 && lm[j - 1 + i * lightmapResolution].size() > 0 && processedList.find(j - 1 + i * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j - 1 + i * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
+						}
+					}
+					else if (i + 1 < lightmapResolution && lm[j + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j + (i + 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j + (i + 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
+						}
+					}
+					else if (i - 1 >= 0 && lm[j + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j + (i - 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j + (i - 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
+						}
+					}
+					else if (j + 1 < lightmapResolution && i + 1 < lightmapResolution && lm[j + 1 + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j + 1 + (i + 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j + 1 + (i + 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
+						}
+					}
+					else if (j + 1 < lightmapResolution && i - 1 >= 0 && lm[j + 1 + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j + 1 + (i - 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j + 1 + (i - 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = {j ,i, 0, 0};
+						}
+					}
+					else if (j - 1 >= 0 && i + 1 < lightmapResolution && lm[j - 1 + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j - 1 + (i + 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j - 1 + (i + 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
+						}
+					}
+					else if (j - 1 >= 0 && i - 1 >= 0 && lm[j - 1 + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j - 1 + (i - 1) * lightmapResolution) == processedList.end()) {
+						lm[j + i * lightmapResolution] = lm[j - 1 + (i - 1) * lightmapResolution];
+						processedList.insert(j + i * lightmapResolution);
+						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
+							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
 						}
 					}
 				}
@@ -742,7 +822,7 @@ void DiffuseIllumination::debug_draw_receivers(VulkanDebugRenderer& debugRendere
 		glm::vec3 color = { dist(rng), dist(rng) , dist(rng) };
 		int receiverCount = _precalculationResult->clusterReceiverInfos[i].receiverCount;
 		int receiverOffset = _precalculationResult->clusterReceiverInfos[i].receiverOffset;
-
+	
 		for (int j = receiverOffset; j < receiverOffset + receiverCount; j++) {
 			debugRenderer.draw_point(_precalculationResult->aabbReceivers[j].position * sceneScale, color);
 			//debugRenderer.draw_line(precalculation._aabbClusters[i].receivers[j].position * _sceneScale, (precalculation._aabbClusters[i].receivers[j].position + precalculation._aabbClusters[i].receivers[j].normal * 2.f) * _sceneScale, color);

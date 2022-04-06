@@ -79,4 +79,7 @@ private:
 	VkDescriptorSet _gtDiffuseRTDescriptorSet;
 	AllocatedBuffer _receiverBuffer;
 	int _gpuReceiverCount;
+
+	std::vector<GPUReceiverDataUV> receiverDataVector;
+
 };

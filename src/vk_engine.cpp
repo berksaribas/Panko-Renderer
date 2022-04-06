@@ -151,7 +151,7 @@ void VulkanEngine::init()
 		precalculationInfo.sphericalHarmonicsOrder = 7;
 		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
-		precalculationInfo.lightmapResolution = 256;
+		precalculationInfo.lightmapResolution = 261;
 		precalculationInfo.texelSize = 6;
 		precalculationInfo.desiredSpacing = 2;
 	}
@@ -523,7 +523,7 @@ void VulkanEngine::draw()
 
 		bool materialsChanged = false;
 		for (int i = 0; i < materials.size(); i++) {
-			sprintf_s(buffer, "Material %d", i);
+			sprintf_s(buffer, "Material %d - %s", i, gltf_scene.materials[i].name.c_str());
 			ImGui::LabelText(buffer, buffer);
 			sprintf_s(buffer, "Base color %d", i);
 			materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
@@ -1523,6 +1523,8 @@ void VulkanEngine::init_scene()
 	OPTICK_EVENT();
 
 	std::string file_name = "../../assets/cornellFixed.gltf";
+	//std::string file_name = "../../assets/occluderscene.gltf";
+	//std::string file_name = "../../assets/cornellsuzanne.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/cornell3.gltf";
 	
@@ -1534,6 +1536,7 @@ void VulkanEngine::init_scene()
 	
 	//std::string file_name = "../../assets/interior_scene/scene.gltf";
 	
+	//std::string file_name = "../../assets/caustics.gltf";
 	//std::string file_name = "../../assets/caustics.gltf";
 
 	tinygltf::Model tmodel;
@@ -1584,6 +1587,11 @@ void VulkanEngine::init_scene()
 		meshDecleration.vertexPositionStride = sizeof(glm::vec3);
 		meshDecleration.vertexCount = mesh.vtx_count;
 
+		if (gltf_scene.texcoords0.size() > 0) {
+			meshDecleration.vertexUvData = &gltf_scene.texcoords0[mesh.vtx_offset];
+			meshDecleration.vertexUvStride = sizeof(glm::vec2);
+		}
+
 		meshDecleration.indexData = &gltf_scene.indices[mesh.first_idx];
 		meshDecleration.indexCount = mesh.idx_count;
 		meshDecleration.indexFormat = xatlas::IndexFormat::UInt32;
@@ -1595,7 +1603,7 @@ void VulkanEngine::init_scene()
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
 	packOptions.texelsPerUnit = precalculationInfo.texelSize;
 	packOptions.bilinear = true;
-
+	packOptions.padding = 2;
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;

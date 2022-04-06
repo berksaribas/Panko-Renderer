@@ -161,9 +161,15 @@ void main()
 
     //vec3 N = normalize(worldNrm);
     //vec3 L = normalize(cameraData.lightPos.xyz);
-    //payload.color = emissive_color + clamp(dot(N, L), 0.0, 1.0) * cameraData.lightColor.xyz * albedo * shadow + indirectLight;
+    //payload.color = emissive_color + clamp(dot(N, L), 0.0, 1.0) * cameraData.lightColor.xyz * albedo * shadow + texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz * albedo;
 
-    payload.color = emissive_color + directLight + indirectLight;
+    if(cameraData.frameCount > 1) {
+        payload.color = emissive_color + directLight + indirectLight;
+    }
+    else {
+        payload.color = emissive_color + directLight;
+    }
+
     reflectionColor = payload.color;
     payload.hitDistance = (gl_RayTminEXT + gl_HitTEXT) * 0.3;
     payload.normal = normalize(worldNrm);

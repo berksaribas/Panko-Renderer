@@ -34,7 +34,7 @@ void main()
 				color.rgb = texture(lightmap, probeRaycasts[probe * config.rayCount + j].lightmapUv / config.lightmapInputSize).rgb;
 			}
 			else {
-				//color = vec4(0.019);
+				color = vec4(0);
 			}
 
 			tempResult += probeBasis[specialIndex / 4][specialIndex % 4] * color;
