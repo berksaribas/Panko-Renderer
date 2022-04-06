@@ -258,8 +258,8 @@ void VulkanEngine::draw()
 	float fov = glm::radians(45.0f);
 
 	if (useSceneCamera) {
-		res = gltf_scene.cameras[0].world_matrix;
-		camera.pos = gltf_scene.cameras[0].eye;
+		res = glm::scale(glm::vec3(_sceneScale)) * gltf_scene.cameras[0].world_matrix;
+		camera.pos = gltf_scene.cameras[0].eye * _sceneScale;
 		fov = gltf_scene.cameras[0].cam.perspective.yfov;
 	}
 	else {
@@ -270,7 +270,7 @@ void VulkanEngine::draw()
 	}
 
 	auto view = glm::inverse(res);
-	glm::mat4 projection = glm::perspective(glm::radians(45.0f), ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
+	glm::mat4 projection = glm::perspective(fov, ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
 	projection[1][1] *= -1;
 
 	//fill a GPU camera data struct
