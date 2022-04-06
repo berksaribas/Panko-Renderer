@@ -204,7 +204,8 @@ void VulkanEngine::init()
 	_camData.useStochasticSpecular = true;
 	_camData.clearColor = { 0.f, 0.f, 0.f, 0.0f };
 	camera.pos = { 0, 0, 7 };
-
+	_camData.glossyFrameCount = 0;
+	_camData.glossyDenoise = 1;
 
 	//everything went fine
 	_isInitialized = true;
@@ -396,7 +397,10 @@ void VulkanEngine::draw()
 
 			if (_camData.useStochasticSpecular) {
 				sprintf_s(buffer, "Enable SVGF denoising");
-				ImGui::Checkbox(buffer, &enableDenoise);
+				if (ImGui::Checkbox(buffer, &enableDenoise)) {
+					_camData.glossyFrameCount = 0;
+					_camData.glossyDenoise = enableDenoise;
+				}
 
 				if (enableDenoise) {
 					ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
@@ -713,6 +717,7 @@ void VulkanEngine::draw()
 
 	//increase the number of frames drawn
 	_frameNumber++;
+	_camData.glossyFrameCount++;
 
 	vkTimer.get_results(_engineData);
 }
@@ -1522,9 +1527,9 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	std::string file_name = "../../assets/cornellFixed.gltf";
+	//std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/occluderscene.gltf";
-	//std::string file_name = "../../assets/cornellsuzanne.gltf";
+	std::string file_name = "../../assets/cornellsuzanne.gltf";
 	//std::string file_name = "../../assets/cornell2.gltf";
 	//std::string file_name = "../../assets/cornell3.gltf";
 	
@@ -1603,7 +1608,7 @@ void VulkanEngine::init_scene()
 	xatlas::PackOptions packOptions = xatlas::PackOptions();
 	packOptions.texelsPerUnit = precalculationInfo.texelSize;
 	packOptions.bilinear = true;
-	packOptions.padding = 2;
+	packOptions.padding = 1;
 	xatlas::Generate(atlas, chartOptions, packOptions);
 
 	gltf_scene.lightmap_width = atlas->width;

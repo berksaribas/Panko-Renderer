@@ -46,7 +46,9 @@ struct GPUCameraData {
 	int indirectDiffuse;
 	int indirectSpecular;
 	int useStochasticSpecular;
+	int glossyDenoise;
 	int frameCount;
+	int glossyFrameCount;
 };
 
 struct GPUObjectData{
