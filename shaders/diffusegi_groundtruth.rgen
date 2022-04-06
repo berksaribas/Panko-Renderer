@@ -20,7 +20,7 @@ layout(std140, set = 0, binding = 3) readonly buffer _ReceiverData { GPUReceiver
 layout (set = 0, binding = 4, rgba32f) uniform image2D resultImage;
 
 layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
-
+const float PI  = 3.14159265358979323846264;
 void main()
 {
     uint randomSeed = initRand(gl_LaunchIDEXT.x, cameraData.frameCount);
@@ -57,13 +57,16 @@ void main()
         );
 	
         if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
+        if(payload.normal == vec3(0)) {
+        payload.color /= PI;
+        }
             if(cameraData.frameCount > 1) {
 	            vec3 previousColor = imageLoad(resultImage, receiverUv).rgb;
-                vec3 finalColor = mix(max(vec3(0),payload.color), previousColor, float(cameraData.frameCount) / float(cameraData.frameCount + 1));
+                vec3 finalColor = mix(min(max(vec3(0),payload.color), vec3(10)), previousColor, float(cameraData.frameCount) / float(cameraData.frameCount + 1));
                 imageStore(resultImage, receiverUv, vec4(finalColor, 1.0));
             }
             else {
-                imageStore(resultImage, receiverUv, vec4(max(vec3(0),payload.color), 1.0));
+                imageStore(resultImage, receiverUv, vec4(min(max(vec3(0),payload.color), vec3(1)), 1.0));
             }
             success = true;
             break;

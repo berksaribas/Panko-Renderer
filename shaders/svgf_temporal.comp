@@ -40,6 +40,8 @@ layout(set = 5, binding = 1, rgba16f) uniform writeonly image2D currMoments;
 #define ALPHA 0.01f
 #define MOMENTS_ALPHA 0.2f
 
+#define VALID_WEIGHT 0.00001F
+
 bool plane_distance_disocclusion_check(vec3 current_pos, vec3 history_pos, vec3 current_normal)
 {
     vec3  to_current    = current_pos - history_pos;
@@ -123,20 +125,15 @@ vec2 virtual_point_reprojection(ivec2 current_coord, ivec2 size, float depth, fl
 
 // ------------------------------------------------------------------------
 
-vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj)
+vec2 compute_history_coord(ivec2 current_coord, ivec2 size, float depth, vec2 motion, float curvature, float ray_length, vec3 cam_pos, mat4 view_proj_inverse, mat4 prev_view_proj, bool useVirtual)
 {
-    const vec2 surface_history_coord = vec2(current_coord) + motion.xy * vec2(size);
-
-    vec2 history_coord = surface_history_coord;
-
-    if (ray_length > 0.0f && curvature <= 0.0001f) {
+    if(useVirtual) {
         return virtual_point_reprojection(current_coord, size, depth, ray_length, cam_pos, view_proj_inverse, prev_view_proj);
     }
-
-    return history_coord;
+    return vec2(current_coord) + motion.xy * vec2(size);
 }
 
-bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float historyLength, float rayLength)
+bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float historyLength, float rayLength, bool useVirtual, vec3 mean, vec3 stddev, out float weight)
 {
     const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
     const vec2 imageDim = textureSize(raytracingResult, 0);
@@ -165,7 +162,8 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
                                                             rayLength, 
                                                             cameraData.cameraPos.xyz, 
                                                             cameraData.viewprojInverse, 
-                                                            cameraData.prevViewproj);   
+                                                            cameraData.prevViewproj,
+                                                            useVirtual);   
     const ivec2 iposPrev = ivec2(reprojected_coord);                                                      
     const vec2  posPrev = reprojected_coord;                                                                                                         
 
@@ -219,17 +217,24 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
             ivec2 loc = ivec2(posPrev) + offset[sampleIdx];            
             if (v[sampleIdx])
             {
-                prevIndirect += w[sampleIdx] * texelFetch(historyOutput, loc, 0);
-                prevMoments  += w[sampleIdx] * texelFetch(historyMoments, loc, 0).xy;
-                sumw         += w[sampleIdx];
+                vec4 color = texelFetch(historyOutput, loc, 0);
+                vec3 rgb_dist = abs(color.rgb - mean) / stddev;
+                float lumWeight = exp2(-10 * luminance(rgb_dist));
+
+                float sampleWeight = w[sampleIdx] * lumWeight;
+                prevIndirect += sampleWeight * color;
+                prevMoments  += sampleWeight * texelFetch(historyMoments, loc, 0).xy;
+                sumw         += sampleWeight;
             }
         }
 
 		// redistribute weights in case not all taps were used
-		valid = (sumw >= 0.01);
+		valid = (sumw >= VALID_WEIGHT);
 		prevIndirect = valid ? prevIndirect / sumw : vec4(0, 0, 0, 0);
 		prevMoments  = valid ? prevMoments / sumw  : vec2(0, 0);
+        weight = valid ? sumw : 0;
     }
+    
     if(!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
     {
         float cnt = 0.0;
@@ -254,9 +259,13 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
 
                 if ( is_reprojection_valid(iposPrev, current_pos, history_pos, current_normal, history_normal, current_mesh_id, history_mesh_id, ivec2(imageDim)))
                 {
-                    prevIndirect += texelFetch(historyOutput, p, 0);
-					prevMoments += texelFetch(historyMoments, p, 0).xy;
-                    cnt += 1.0;
+                    vec4 color = texelFetch(historyOutput, p, 0);
+                    vec3 rgb_dist = abs(color.rgb - mean) / stddev;
+                    float lumWeight = exp2(-10 * luminance(rgb_dist));
+
+                    prevIndirect += lumWeight * texelFetch(historyOutput, p, 0);
+					prevMoments += lumWeight * texelFetch(historyMoments, p, 0).xy;
+                    cnt += 1.0 * lumWeight;
                 }
             }
         }
@@ -268,7 +277,7 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
         }
 
     }
-
+    
     //if(gb3.r < 0.05) {
     //    valid = false;
     //}
@@ -327,24 +336,14 @@ void main()
     vec4 indirect_raylength = texelFetch(raytracingResult, ipos, 0).rgba;
     vec3 indirect = indirect_raylength.rgb;
     float rayLength = indirect_raylength.a;
-    float historyLength = 0;
-
-    vec4 prevIndirect = vec4(0);
-    vec2 prevMoments = vec2(0);
-
-	bool success = loadPrevData(prevIndirect, prevMoments, historyLength, rayLength);
-
-
-    float roughness = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0).r;
-    float s_max_samples = max(8.0, 32 * ((1.0 - exp(-roughness * 100.0))));
-	historyLength = min(s_max_samples, historyLength + 1.0f);
 
     // Mean, variance, stddev
     vec4 m1 = vec4(0.0);
 	vec4 m2 = vec4(0.0);
-	for (int x = -1; x <= 1; x++)
+    int sampleCount = 8;
+	for (int x = -sampleCount; x <= sampleCount; x++)
 	{
-		for (int y = -1; y <= 1; y++)
+		for (int y = -sampleCount; y <= sampleCount; y++)
 		{
 			ivec2 offset = ivec2(x, y);
 			ivec2 coord = ipos + offset;
@@ -356,9 +355,41 @@ void main()
 		}
 	}
 
-	vec4 mean = m1 / 9.0;
-	vec4 var = (m2 / 9.0) - (mean * mean);
+	vec4 mean = m1 / pow(sampleCount * 2 + 1, 2);
+	vec4 var = (m2 / pow(sampleCount * 2 + 1, 2)) - (mean * mean);
 	vec4 stddev = sqrt(max(var, 0.0f));
+
+    float historyLength = 0;
+    vec4 prevIndirect = vec4(0);
+    vec2 prevMoments = vec2(0);
+    bool success = false;
+
+    {
+        float weight1 = 0;
+        float historyLength1 = 0;
+        vec4 prevIndirect1 = vec4(0);
+        vec2 prevMoments1 = vec2(0);
+	    bool success1 = loadPrevData(prevIndirect1, prevMoments1, historyLength1, rayLength, false, mean.rgb, stddev.rgb, weight1);
+
+        float weight2 = 0;
+        float historyLength2 = 0;
+        vec4 prevIndirect2 = vec4(0);
+        vec2 prevMoments2 = vec2(0);
+	    bool success2 = loadPrevData(prevIndirect2, prevMoments2, historyLength2, rayLength, true, mean.rgb, stddev.rgb, weight2);
+
+        success = success1 || success2;
+
+        if(weight1 + weight2 > VALID_WEIGHT) {
+            prevIndirect = (prevIndirect1 * weight1 + prevIndirect2 * weight2) / (weight1 + weight2);
+            prevMoments = (prevMoments1 * weight1 + prevMoments2 * weight2) / (weight1 + weight2);
+            historyLength = max(historyLength1, historyLength2);
+        }
+    }
+
+
+    float roughness = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0).r;
+    float s_max_samples = max(8.0, 32 * ((1.0 - exp(-roughness * 100.0))));
+	historyLength = min(s_max_samples, historyLength + 1.0f);
 
     indirect = fireflyRejectionVariance(indirect, var.rgb, mean.rgb, stddev.rgb);
 
@@ -389,8 +420,8 @@ void main()
     // temporal integration of radiance
     //color box clamping
     if(success) {
-        vec4 colorMin = mean - stddev;
-	    vec4 colorMax = mean + stddev;
+        vec4 colorMin = mean - stddev * 1;
+	    vec4 colorMax = mean + stddev * 1;
 	    prevIndirect.rgb = clip_aabb(colorMin.rgb, colorMax.rgb, prevIndirect.rgb);
     }
     vec4 accumulated_color = mix(prevIndirect, vec4(indirect, 0), alpha);
