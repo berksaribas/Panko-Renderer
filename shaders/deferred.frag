@@ -253,7 +253,7 @@ void main()
     vec2 inLightmapCoord = gb4.zw;
 
     if(inMaterialId < 0) {
-        outFragColor = vec4(1);
+        outFragColor = vec4(cameraData.clearColor);
         return;
     }
 
@@ -314,14 +314,20 @@ void main()
                 vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
                 */
 
-                //tHit += 1;
-                if(gb3.b < 0.001) {
-                    tHit = clamp(tHit, 0.1, 1.0);
-                }
-                else {
-                    tHit = clamp(tHit, 0.1, 1.0);
-                }
+                //
+                //if(gb3.b < 0.001) {
+                //    tHit = clamp(tHit, 0.1, 1.0);
+                //    tHit += 2;
+                //}
+                //else {
+                //    tHit = clamp(tHit, 0.1, 1.0);
+                //}
                 //tHit *= roughness;
+                //tHit = clamp(tHit, 0, 5);
+                tHit = clamp(tHit, 0, 5);
+                tHit /= 5.0;
+                tHit = mix(tHit, 1, pow(roughness, 1/1.8));
+                tHit *= 5.0;
 
                 vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
                 vec3 tangent = normalize(cross(up, inNormal));
@@ -329,11 +335,11 @@ void main()
 
                 float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f)));
                 vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
-                vec3 newVec = rotateAxis(-view, tangent, coneAngle);
+
+                float angle = atan(length(cameraData.cameraPos.xyz - inWorldPosition.xyz) * tan(coneAngle) / (tHit + length(cameraData.cameraPos.xyz - inWorldPosition.xyz)));
 
                 vec3 virtual_pos_1 = inWorldPosition - view * (tHit);
                 vec3 virtual_pos_2 = inWorldPosition + normalize(mix(-view, tangent -view, coneAngle / PI)) * (tHit);
-
                 vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
                 projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
                 vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
@@ -372,7 +378,7 @@ void main()
                 vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
                 */
 
-                mipChannel = clamp(log2(distance(hitSS1.xy, hitSS2.xy) * 2 / 4 ), 0.0f, 7);
+                mipChannel = clamp(log2(distance(hitSS1.xy, hitSS2.xy) * 2 / 2 ), 0.0f, 7);
             }
             bool bilinear = false;
             vec4 lowerMip = vec4(0);
@@ -386,9 +392,9 @@ void main()
                 higherMip = bilateral4x4(InUv, int(mipChannel) + 1);
             }
             reflectionColor = mix(lowerMip, higherMip, mipChannel - int(mipChannel));
-            reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI) , (pow(64, mipChannel / 7) - 1) / 63);
-            ////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
-            reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI ) , roughnessSquared);
+           reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI) , (pow(64, mipChannel / 7) - 1) / 63);
+           //////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
+           reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI ) , roughnessSquared);
         }
         else {
             reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb , 1.0);
