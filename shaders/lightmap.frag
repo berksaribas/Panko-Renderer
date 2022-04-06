@@ -52,7 +52,7 @@ void main()
     vec3 N = normalize(inNormal);
     vec3 L = normalize(inLightVec);
     
-	vec3 diffuse = (emissive_color +  clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo * shadow + texture(indirectLightMap, inLightmapCoord).xyz * albedo ) ;
+	vec3 diffuse = (emissive_color +  clamp(dot(N, L), 0.0, 1.0) * inLightColor * albedo / PI * shadow + texture(indirectLightMap, inLightmapCoord).xyz * albedo ) ;
 
     outFragColor = vec4(diffuse, 1.0f);  
    
