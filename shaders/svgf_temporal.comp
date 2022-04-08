@@ -340,7 +340,7 @@ void main()
     // Mean, variance, stddev
     vec4 m1 = vec4(0.0);
 	vec4 m2 = vec4(0.0);
-    int sampleCount = 8;
+    int sampleCount = 4;
 	for (int x = -sampleCount; x <= sampleCount; x++)
 	{
 		for (int y = -sampleCount; y <= sampleCount; y++)
