@@ -10,8 +10,8 @@
 class DiffuseIllumination {
 public:
 	void init(EngineData& engineData, PrecalculationInfo* precalculationInfo, PrecalculationLoadData* precalculationLoadData, PrecalculationResult* precalculationResult, VulkanCompute* vulkanCompute, VulkanRaytracing* vulkanRaytracing, GltfScene& scene, SceneDescriptors& sceneDescriptors);
-	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast);
-	void render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils);
+	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout);
+	void render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout);
 	
 	void build_lightmap_pipeline(EngineData& engineData);
 	void build_proberaycast_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
@@ -28,6 +28,7 @@ public:
 
 	void cleanup(EngineData& engineData);
 	VkDescriptorSet _giIndirectLightTextureDescriptor;
+	VkDescriptorSet _dilatedGiIndirectLightTextureDescriptor;
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
 private:
 	VkDevice _device;
@@ -65,6 +66,10 @@ private:
 
 	VkPipeline _lightmapPipeline;
 	VkPipelineLayout _lightmapPipelineLayout;
+
+	AllocatedImage _dilatedGiIndirectLightImage;
+	VkImageView _dilatedGiIndirectLightImageView;
+	VkFramebuffer _dilatedGiIndirectLightFramebuffer;
 
 	//Raytracing for probes
 	RaytracingPipeline _probeRTPipeline;

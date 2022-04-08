@@ -169,6 +169,40 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 			1, &imageMemoryBarrier);
 		});
 
+	{
+		{
+			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			VmaAllocationCreateInfo dimg_allocinfo = {};
+			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedGiIndirectLightImage._image, &_dilatedGiIndirectLightImage._allocation, nullptr);
+
+			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _dilatedGiIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedGiIndirectLightImageView));
+		}
+
+		VkImageView attachments[1] = { _dilatedGiIndirectLightImageView };
+		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_colorRenderPass, _giLightmapExtent);
+		fb_info.pAttachments = attachments;
+		fb_info.attachmentCount = 1;
+		VK_CHECK(vkCreateFramebuffer(_device, &fb_info, nullptr, &_dilatedGiIndirectLightFramebuffer));
+
+		{
+			VkDescriptorImageInfo imageBufferInfo;
+			imageBufferInfo.sampler = engineData.linearSampler;
+			imageBufferInfo.imageView = _dilatedGiIndirectLightImageView;
+			imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(_descriptorPool, &sceneDescriptors.singleImageSetLayout, 1);
+
+			vkAllocateDescriptorSets(_device, &allocInfo, &_dilatedGiIndirectLightTextureDescriptor);
+
+			VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _dilatedGiIndirectLightTextureDescriptor, &imageBufferInfo, 0, 1);
+
+			vkUpdateDescriptorSets(_device, 1, &textures, 0, nullptr);
+		}
+	}
+
 	_configBuffer = vkutils::create_upload_buffer(&engineData, &_config, sizeof(GIConfig), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	//GPUProbeRaycastResult buffer (GPU ONLY)
 	auto probeRaycastResultBuffer = vkutils::create_upload_buffer(&engineData, _precalculationResult->probeRaycastResult, sizeof(GPUProbeRaycastResult) * _config.probeCount * _config.rayCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -237,7 +271,7 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	vkutils::setObjectName(engineData.device, _giIndirectLightImageView, "DiffuseIndirectLightImageView");
 }
 
-void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast)
+void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout)
 {
 	//GI - Probe relight
 	if (!realtimeProbeRaycast) {
@@ -378,13 +412,37 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 			0, nullptr,
 			1, &imageMemoryBarrier);
 	}
+
+	// GI LIGHTMAP DILATION RENDERIN
+	{
+		VkClearValue clearValue;
+		clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+		VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_colorRenderPass, _giLightmapExtent, _dilatedGiIndirectLightFramebuffer);
+
+		rpInfo.clearValueCount = 1;
+		VkClearValue clearValues[] = { clearValue };
+		rpInfo.pClearValues = clearValues;
+
+		vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkutils::cmd_viewport_scissor(cmd, _giLightmapExtent);
+
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipeline);
+		vkCmdPushConstants(cmd, dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &_giLightmapExtent);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipelineLayout, 0, 1, &_giIndirectLightTextureDescriptor, 0, nullptr);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+
+		//finalize the render pass
+		vkCmdEndRenderPass(cmd);
+	}
 }
 
-void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils)
+void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout)
 {
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, _gtDiffuseRTPipeline.pipeline);
 
-	std::vector<VkDescriptorSet> descSets{ _gtDiffuseRTDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, _giIndirectLightTextureDescriptor, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, _giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor };
+	std::vector<VkDescriptorSet> descSets{ _gtDiffuseRTDescriptorSet, sceneDescriptors.globalDescriptor, sceneDescriptors.objectDescriptor, _dilatedGiIndirectLightTextureDescriptor, sceneDescriptors.textureDescriptor, sceneDescriptors.materialDescriptor, shadow._shadowMapTextureDescriptor, _giIndirectLightTextureDescriptor,  brdfUtils._brdfLutTextureDescriptor };
 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, _gtDiffuseRTPipeline.pipelineLayout, 0,
 		(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
@@ -411,6 +469,30 @@ void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& e
 			0, nullptr,
 			0, nullptr,
 			1, &imageMemoryBarrier);
+	}
+
+	// GI LIGHTMAP DILATION RENDERIN
+	{
+		VkClearValue clearValue;
+		clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+		VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_colorRenderPass, _giLightmapExtent, _dilatedGiIndirectLightFramebuffer);
+
+		rpInfo.clearValueCount = 1;
+		VkClearValue clearValues[] = { clearValue };
+		rpInfo.pClearValues = clearValues;
+
+		vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkutils::cmd_viewport_scissor(cmd, _giLightmapExtent);
+
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipeline);
+		vkCmdPushConstants(cmd, dilationPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::ivec2), &_giLightmapExtent);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, dilationPipelineLayout, 0, 1, &_giIndirectLightTextureDescriptor, 0, nullptr);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+
+		//finalize the render pass
+		vkCmdEndRenderPass(cmd);
 	}
 }
 

@@ -471,6 +471,7 @@ void VulkanEngine::draw()
 		{
 			ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
 			ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
+			ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
 			ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 			ImGui::End();
 		}
@@ -581,12 +582,12 @@ void VulkanEngine::draw()
 
 		vkTimer.start_recording(_engineData, cmd, "Diffuse Illumination");
 		if (enableGroundTruthDiffuse) {
-			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils);
+			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, _dilationPipeline, _dilationPipelineLayout);
 		}
 		else {
 			diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
 				draw_objects(cmd);
-				}, useRealtimeRaycast);
+				}, useRealtimeRaycast, _dilationPipeline, _dilationPipelineLayout);
 		}
 		vkTimer.stop_recording(_engineData, cmd);
 
