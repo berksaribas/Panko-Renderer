@@ -38,7 +38,7 @@ void main()
     vec3 hitNormal;
     vec3 hitLocation;
     int hitObjectId;
-    vec3 direction;
+    vec3 selectedDirection;
     vec3 raystartPos;
     int counter = 0;
 
@@ -49,7 +49,7 @@ void main()
         vec3 receiverPos = receivers[selectedSample].pos;
         vec3 receiverNormal = normalize(receivers[selectedSample].normal.xyz);
     
-        direction = normalize(getCosHemisphereSample(int(gl_LaunchIDEXT.y), vec2(nextRand(randomSeed), nextRand(randomSeed)) , receiverNormal));
+        vec3 direction = normalize(getCosHemisphereSample(int(gl_LaunchIDEXT.y), vec2(nextRand(randomSeed), nextRand(randomSeed)) , receiverNormal));
 
         raystartPos = offset_ray(receiverPos, receiverNormal);
 
@@ -70,7 +70,7 @@ void main()
             hitNormal = payload.normal;
             hitLocation = payload.pos;
             hitObjectId = payload.objectId;
-
+            selectedDirection = direction;
             if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
                 counter++;
                 if(counter > (gl_LaunchIDEXT.y) % recSampleCount) {
@@ -86,7 +86,7 @@ void main()
         if(true) {
             float visibility = 0;
             vec4 probePos = probeLocations[probeIndex];
-            vec3 probeDir = direction.xyz;
+            vec3 probeDir = selectedDirection.xyz;
 
             traceRayEXT(topLevelAS,     // acceleration structure
                 rayFlags,       // rayFlags
@@ -102,25 +102,25 @@ void main()
             );
 
             if(true/*distance(payload.pos,raystartPos) < 0.5*/) {
-                if(hitObjectId == -1) {
+                if(hitObjectId == -1 && distance(payload.pos,raystartPos) < 0.01) {
                     //ray is a miss
                     //trace a ray from the probe with the same direction
-                    //traceRayEXT(topLevelAS,     // acceleration structure
-                    //        rayFlags,       // rayFlags
-                    //        0xFF,           // cullMask
-                    //        0,              // sbtRecordOffset
-                    //        0,              // sbtRecordStride
-                    //        0,              // missIndex
-                    //        probePos.xyz,     // ray origin
-                    //        tMin,           // ray min range
-                    //        direction.xyz,  // ray direction
-                    //        tMax,           // ray max range
-                    //        0               // payload (location = 0)
-                    //);
-                    ////???
-                    //if(payload.objectId == -1) {
-                    //    //visibility = 1;
-                    //}
+                    traceRayEXT(topLevelAS,     // acceleration structure
+                            rayFlags,       // rayFlags
+                            0xFF,           // cullMask
+                            0,              // sbtRecordOffset
+                            0,              // sbtRecordStride
+                            0,              // missIndex
+                            probePos.xyz,     // ray origin
+                            tMin,           // ray min range
+                            selectedDirection.xyz,  // ray direction
+                            tMax,           // ray max range
+                            0               // payload (location = 0)
+                    );
+                    //???
+                    if(payload.objectId == -1) {
+                        visibility = 1;
+                    }
                 }
                 else {
                     //ray hit a location
