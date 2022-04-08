@@ -279,21 +279,21 @@ void main()
 
     if(cameraData.useStochasticSpecular == 0)
     {
-        if(roughness < 0.05) {
+        if(roughness < 0.04) {
             reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).rgb, 1.0);
         }
         else if(roughness < 11) {
-
-            
-
             {
                 //tHit = textureLod(glossyReflections, InUv, 0).w;
             }
 
             for(int i = 0; i < 2; i++) {
-                if(i == 1)
+                if(i == 0) {
+                    tHit = textureLod(glossyReflections, InUv, 0).w;
+                }
+                else
                 {
-                    float channel = mipChannel;
+                    float channel = mipChannel - 1;
                     vec4 lowerMip = bilateral4x4(InUv, int(channel), true);
                     vec4 higherMip = bilateral4x4(InUv, int(channel) + 1, true);
 
@@ -306,23 +306,17 @@ void main()
 
                     tHit = mix(lowerMip, higherMip, channel - int(channel)).a;
                 }
-                else {
-                    tHit = textureLod(glossyReflections, InUv, 0).w;
-                }
-
-
-                float camera_ray_length = length(cameraData.cameraPos.xyz - inWorldPosition.xyz);
-
-                float clampThreshold = 10;
-                tHit = clamp(tHit, 0, clampThreshold);
+               
+                //float clampThreshold = 10;
+                //tHit = clamp(tHit, 0, clampThreshold);
                 
                 if(i == 1 && gb3.b > 0.001) {
                     //tHit *= 0.3;
                     tHit = 1;
                 }
 
-                float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f)));
-                //float coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness)) ;
+                float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f))) + 0.02;
+                //coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness)) ;
                 vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
                 float cameraDist = distance(cameraData.cameraPos.xyz, inWorldPosition.xyz);
                 float screenSpaceDistance = 0;
@@ -345,12 +339,17 @@ void main()
                     projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
                     vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
 
-                    vec3 virtual_pos_3 = virtual_pos_1 + incircleSize * bitangent;
+                    vec3 virtual_pos_2 = virtual_pos_1 + incircleSize * bitangent;
+                    vec4 projected_virtual_pos_2 = cameraData.viewproj * vec4(virtual_pos_2, 1.0f);
+                    projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
+                    vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+
+                    vec3 virtual_pos_3 = virtual_pos_1 + incircleSize * tangent;
                     vec4 projected_virtual_pos_3 = cameraData.viewproj * vec4(virtual_pos_3, 1.0f);
                     projected_virtual_pos_3.xy /= projected_virtual_pos_3.w;
                     vec2 hitSS3 = (projected_virtual_pos_3.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
 
-                    screenSpaceDistance = distance(hitSS1, hitSS3) * 2;
+                    screenSpaceDistance = max(distance(hitSS1, hitSS3), distance(hitSS1, hitSS2)) * 2;
                 }
                 else
                 {
@@ -405,7 +404,7 @@ void main()
            reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , (pow(64, mipChannel / 7) - 1) / 63);
            ////////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
            reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0), roughnessSquared);
-            //reflectionColor = vec4(mipChannel/7);
+           //reflectionColor = vec4(mipChannel/16);
         }
         else {
             reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb , 1.0);
