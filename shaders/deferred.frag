@@ -163,6 +163,7 @@ mat3 calculateTBN(vec3 dir) {
 
 	return mat3(x, y, z);
 }
+
 float gaussian_weight(float offset, float deviation)
 {
     float weight = 1.0 / sqrt(2.0 * 3.14159265359 * deviation * deviation);
@@ -170,7 +171,7 @@ float gaussian_weight(float offset, float deviation)
     return weight;
 }
 
-vec4 bilateral4x4(vec2 uv, int mip) {
+vec4 bilateral4x4(vec2 uv, int mip, bool bilateral) {
 	vec4 col = vec4(0.0);
     float accum = 0.0;
     float weight;
@@ -180,9 +181,9 @@ vec4 bilateral4x4(vec2 uv, int mip) {
 
 	vec4 lowerNormalDepth = textureLod(glossyNormal, uv, 0);
 
-    float deviation = 1;
 	const float c_halfSamplesX = 2.;
 	const float c_halfSamplesY = 2.;
+    float deviation = 1;
 
     for (float iy = -c_halfSamplesY; iy <= c_halfSamplesY; iy++)
     {
@@ -190,8 +191,9 @@ vec4 bilateral4x4(vec2 uv, int mip) {
         {          
 
             vec2 offset = vec2(ix, iy);
-            
-            vec2 newuv = uv + offset * texelSize;
+           
+
+			vec2 newuv = uv + offset * texelSize;
             vec2 f = fract( newuv * sourceSize );
             newuv += ( .5 - f ) * texelSize;
 
@@ -199,9 +201,13 @@ vec4 bilateral4x4(vec2 uv, int mip) {
 
             float fx = gaussian_weight(dist.x / texelSize.x, deviation);
             float fy = gaussian_weight(dist.y / texelSize.y, deviation);
+           
 
 			vec4 normalDepth = textureLod(glossyNormal, newuv, mip);
-            weight = fx *fy * bilateralWeight(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w, 0, 0);
+            weight = fx *fy; 
+            if(bilateral) {
+                weight *= bilateralWeight(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w, 0, 0);
+            }
             col += textureLod(glossyReflections, newuv, mip) * weight;
             accum += weight;
         }
@@ -269,116 +275,114 @@ void main()
     //reflections
     vec4 reflectionColor = vec4(0);
     float tHit = 0;
+                float mipChannel = 0;
+
     if(cameraData.useStochasticSpecular == 0)
     {
         if(roughness < 0.05) {
             reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).rgb, 1.0);
         }
         else if(roughness < 11) {
-            float mipChannel = 0;
-        
-            tHit = textureLod(glossyReflections, InUv, 0).w;
-            for(int i = 0; i < 1; i++) {
+
+            
+
+            {
+                //tHit = textureLod(glossyReflections, InUv, 0).w;
+            }
+
+            for(int i = 0; i < 2; i++) {
+                if(i == 1)
+                {
+                    float channel = mipChannel;
+                    vec4 lowerMip = bilateral4x4(InUv, int(channel), true);
+                    vec4 higherMip = bilateral4x4(InUv, int(channel) + 1, true);
+
+                    if(lowerMip.w == 0) {
+                        lowerMip = bilateral4x4(InUv, int(channel), false);
+                    }
+                    if(higherMip.w == 0) {
+                        higherMip = bilateral4x4(InUv, int(channel) + 1, false);
+                    }
+
+                    tHit = mix(lowerMip, higherMip, channel - int(channel)).a;
+                }
+                else {
+                    tHit = textureLod(glossyReflections, InUv, 0).w;
+                }
+
+
                 float camera_ray_length = length(cameraData.cameraPos.xyz - inWorldPosition.xyz);
 
-                /*
-    	        float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f)));
-	            float adjacentLength = camera_ray_length; //or 0.1, somehow figure that out
-                float op_len = 2.0 * tan(coneAngle) * adjacentLength; // opposite side of iso triangle
-                float a = op_len;
-                float h = coneAngle;
-                float a2 = a * a;
-                float fh2 = 4.0f * h * h;
-                float incircleSize = (a * (sqrt(a2 + fh2) - a)) / (4.0f * h);
-
-                vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
-                vec3 tangent = normalize(cross(up, inNormal));
-                vec3 bitangent = cross(inNormal, tangent);
+                float clampThreshold = 10;
+                tHit = clamp(tHit, 0, clampThreshold);
                 
-                vec3 targetPos = inWorldPosition.xyz + normalize(tangent + bitangent) * incircleSize;
-                
-                vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
-                vec3 view2 = normalize(cameraData.cameraPos.xyz - targetPos);
-                
-                float camera_ray_length2 = length(cameraData.cameraPos.xyz - targetPos);
-                
-                vec3 virtual_pos_1 = cameraData.cameraPos.xyz + view * (tHit + camera_ray_length);
-                vec3 virtual_pos_2 = cameraData.cameraPos.xyz + view2 * (tHit + camera_ray_length2);
-
-                vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
-                projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
-                vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
-
-                vec4 projected_virtual_pos_2 = cameraData.viewproj * vec4(virtual_pos_2, 1.0f);
-                projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
-                vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
-                */
-
-                //
-                //if(gb3.b < 0.001) {
-                //    tHit = clamp(tHit, 0.1, 1.0);
-                //    tHit += 2;
-                //}
-                //else {
-                //    tHit = clamp(tHit, 0.1, 1.0);
-                //}
-                //tHit *= roughness;
-                //tHit = clamp(tHit, 0, 5);
-                tHit = clamp(tHit, 0, 5);
-                tHit /= 5.0;
-                tHit = mix(tHit, 1, pow(roughness, 1/1.8));
-                tHit *= 5.0;
-
-                vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
-                vec3 tangent = normalize(cross(up, inNormal));
-                vec3 bitangent = cross(inNormal, tangent);
+                if(i == 1 && gb3.b > 0.001) {
+                    //tHit *= 0.3;
+                    tHit = 1;
+                }
 
                 float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f)));
+                //float coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness)) ;
                 vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
+                float cameraDist = distance(cameraData.cameraPos.xyz, inWorldPosition.xyz);
+                float screenSpaceDistance = 0;
 
-                float angle = atan(length(cameraData.cameraPos.xyz - inWorldPosition.xyz) * tan(coneAngle) / (tHit + length(cameraData.cameraPos.xyz - inWorldPosition.xyz)));
+                if(true)
+                {
+                    vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
+                    vec3 tangent = normalize(cross(up, inNormal));
+                    vec3 bitangent = cross(inNormal, tangent);
 
-                vec3 virtual_pos_1 = inWorldPosition - view * (tHit);
-                vec3 virtual_pos_2 = inWorldPosition + normalize(mix(-view, tangent -view, coneAngle / PI)) * (tHit);
-                vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
-                projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
-                vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+                    float adjacentLength = tHit;
+                    float op_len = 2.0 * tan(coneAngle ) * adjacentLength;
+                    float a = op_len;
+                    float a2 = a * a;
+                    float fh2 = 4.0f * adjacentLength * adjacentLength;
+                    float incircleSize = (a * (sqrt(a2 + fh2) - a)) / (4.0f * adjacentLength);
 
-                vec4 projected_virtual_pos_2 = cameraData.viewproj * vec4(virtual_pos_2, 1.0f);
-                projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
-                vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+                    vec3 virtual_pos_1 = cameraData.cameraPos.xyz - (tHit + cameraDist) * view;
+                    vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
+                    projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
+                    vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
 
-                vec2 sourceSize = textureSize(glossyReflections, 0);
-                vec2 texelSize = vec2(1.0) / sourceSize;
+                    vec3 virtual_pos_3 = virtual_pos_1 + incircleSize * bitangent;
+                    vec4 projected_virtual_pos_3 = cameraData.viewproj * vec4(virtual_pos_3, 1.0f);
+                    projected_virtual_pos_3.xy /= projected_virtual_pos_3.w;
+                    vec2 hitSS3 = (projected_virtual_pos_3.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+
+                    screenSpaceDistance = distance(hitSS1, hitSS3) * 2;
+                }
+                else
+                {
+                    vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
+
+                    vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
+                    vec3 tangent = normalize(cross(up, inNormal));
+                    vec3 bitangent = cross(inNormal, tangent);
+
+                    float cameraDist = distance(cameraData.cameraPos.xyz, inWorldPosition.xyz);
+                    float angle = atan(tHit * tan(coneAngle) / (tHit + cameraDist));
+
+                    vec3 virtual_pos_1 = cameraData.cameraPos.xyz - view * (tHit + cameraDist);
+                    vec3 virtual_pos_2 = cameraData.cameraPos.xyz - rotateAxis(view, tangent, angle) * (tHit + cameraDist);
+
+                    virtual_pos_1 = inWorldPosition - view * (tHit);
+                    virtual_pos_2 = inWorldPosition + normalize(mix(-view, tangent -view, coneAngle / PI)) * (tHit);
+
+                    vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
+                    projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
+                    vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+
+                    vec4 projected_virtual_pos_2 = cameraData.viewproj * vec4(virtual_pos_2, 1.0f);
+                    projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
+                    vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
+
+                    screenSpaceDistance = distance(hitSS1.xy, hitSS2.xy) * 2 ;
+
+                    //screenSpaceDistance *= dot(inNormal, view);
+                }
                 
-                /*
-                vec3 up = abs(inNormal.z) < 0.999f ? vec3(0.0f, 0.0f, 1.0f) : vec3(1.0f, 0.0f, 0.0f);
-                vec3 tangent = normalize(cross(up, inNormal));
-                vec3 bitangent = cross(inNormal, tangent);
-
-                vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
-
-
-                mat3 TBN = calculateTBN(-inNormal);
-			    vec3 microfacet = sampleGGXVNDF(transpose(TBN) * inNormal , roughnessSquared, roughnessSquared, 0, 0 ) ;
-			    vec3 direction = TBN * reflect(-(transpose(TBN) * view), microfacet);
-
-                vec3 microfacet2 = sampleGGXVNDF(transpose(TBN) * inNormal , roughnessSquared, roughnessSquared, 0.99, 0) ;
-			    vec3 direction2 = TBN * reflect(-(transpose(TBN) * view), microfacet2);
-
-                vec3 virtual_pos_1 = reflect(inWorldPosition + reflect(direction, tangent) * (tHit), tangent);
-                vec3 virtual_pos_2 = reflect(inWorldPosition + reflect(direction2, tangent) * (tHit), tangent);
-
-                vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
-                projected_virtual_pos_1.xy /= projected_virtual_pos_1.w;
-                vec2 hitSS1 = (projected_virtual_pos_1.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
-
-                vec4 projected_virtual_pos_2 = cameraData.viewproj * vec4(virtual_pos_2, 1.0f);
-                projected_virtual_pos_2.xy /= projected_virtual_pos_2.w;
-                vec2 hitSS2 = (projected_virtual_pos_2.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
-                */
-
-                mipChannel = clamp(log2(distance(hitSS1.xy, hitSS2.xy) * 2 / 2 ), 0.0f, 7);
+                mipChannel = clamp(log2(screenSpaceDistance / 4), 0.0f, 7);
             }
             bool bilinear = false;
             vec4 lowerMip = vec4(0);
@@ -388,13 +392,20 @@ void main()
                 higherMip = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(mipChannel) + 1), int(mipChannel) + 1, inMaterialId);
             }
             else {
-                lowerMip = bilateral4x4(InUv, int(mipChannel));
-                higherMip = bilateral4x4(InUv, int(mipChannel) + 1);
+                lowerMip = bilateral4x4(InUv, int(mipChannel), true);
+                higherMip = bilateral4x4(InUv, int(mipChannel) + 1, true);
+                if(lowerMip.w == 0) {
+                    lowerMip = bilateral4x4(InUv, int(mipChannel), false);
+                }
+                if( higherMip.w == 0) {
+                    higherMip = bilateral4x4(InUv, int(mipChannel) + 1, false);
+                }
             }
             reflectionColor = mix(lowerMip, higherMip, mipChannel - int(mipChannel));
-           reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI) , (pow(64, mipChannel / 7) - 1) / 63);
-           //////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
-           reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI ) , roughnessSquared);
+           reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , (pow(64, mipChannel / 7) - 1) / 63);
+           ////////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
+           reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0), roughnessSquared);
+            //reflectionColor = vec4(mipChannel/7);
         }
         else {
             reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb , 1.0);
@@ -403,6 +414,8 @@ void main()
     else {
         reflectionColor = vec4(textureLod(glossyReflections, InUv, 0).xyz, 1.0);
     }
+
+    
     
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz), normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
     
@@ -420,7 +433,7 @@ void main()
     outFragColor = reflectionColor;
     //outFragColor = vec4(diffuseLight, 1);
     ////outFragColor = customBilinear(InUv - vec2(0) / textureSize(glossyReflections, int(0)), int(5), inMaterialId);
-    outFragColor = vec4(outColor, 1.0);
+    outFragColor = vec4(vec3(outColor), 1.0);
 }
 
 // can i make the entire thing work with bicubic filters instead?

@@ -14,7 +14,7 @@ layout(location = 1) rayPayloadInEXT vec3 reflectionColor;
 void main()
 {
     payload.color = cameraData.clearColor.rgb;
-    payload.hitDistance = 100;
+    payload.hitDistance = 10;
     payload.normal = vec3(0);
     //reflectionColor = vec3(0);
 }

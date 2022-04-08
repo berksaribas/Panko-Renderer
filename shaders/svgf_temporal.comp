@@ -377,6 +377,10 @@ void main()
         vec2 prevMoments2 = vec2(0);
 	    bool success2 = loadPrevData(prevIndirect2, prevMoments2, historyLength2, rayLength, true, mean.rgb, stddev.rgb, weight2);
 
+        if(texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0).b > 0.001) {
+            weight2 = 0;
+        }
+
         success = success1 || success2;
 
         if(weight1 + weight2 > VALID_WEIGHT) {

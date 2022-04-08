@@ -136,9 +136,9 @@ vec4 bilateral4x4(vec2 uv) {
 
 	vec4 lowerNormalDepth = textureLod(normalSource, uv, direction.z + 1);
 
-    float deviation = 1;
 	const float c_halfSamplesX = 2.;
 	const float c_halfSamplesY = 2.;
+    float deviation = 1;
 
     for (float iy = -c_halfSamplesY; iy <= c_halfSamplesY; iy++)
     {
@@ -152,7 +152,7 @@ vec4 bilateral4x4(vec2 uv) {
             vec2 offset = vec2(ix, iy);
 
             vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) ;
-            weight = fx *fy * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
+            weight = fx * fy * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
             col += textureLod(colorSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) * weight;
             accum += weight;
         }
@@ -168,7 +168,7 @@ vec4 bilateral4x4(vec2 uv) {
 
 void main(void) {
 	if(direction.x == 1 ) {
-		outFragColor = bilateralBlur(InUv, textureSize(colorSource, int(direction.z)));
+		//outFragColor = bilateralBlur(InUv, textureSize(colorSource, int(direction.z)));
 		//outFragColor = textureLod(colorSource, InUv, direction.z);
 	}
 	else if(direction.y == 1) {
