@@ -79,7 +79,11 @@ void main()
     float metallic = materials[inMaterialId].metallic_factor;
 
 	if(materials[inMaterialId].texture > -1) {
-        albedo = texture(textures[materials[inMaterialId].texture], inTexCoord).xyz;
+        vec4 text = texture(textures[materials[inMaterialId].texture], inTexCoord);
+        albedo = text.xyz;
+        if(text.a < 0.1) {
+            discard;
+        }
     }
     else {
         albedo = materials[inMaterialId].base_color.xyz;
