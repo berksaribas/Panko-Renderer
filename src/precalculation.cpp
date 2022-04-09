@@ -1106,7 +1106,7 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 	}
 	printf("Largest number of samples for a texel: %d\n", maxSamples);
 
-	
+	/*
 	for (int i = 0; i < lightmapResolution; i++) {
 		for (int j = 0; j < lightmapResolution; j++) {
 			if (!_receivers[j + i * lightmapResolution].exists) {
@@ -1153,7 +1153,7 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 			}
 		}
 	}
-
+	*/
 	char* image = new char[lightmapResolution * lightmapResolution];
 	memset(image, 0, lightmapResolution * lightmapResolution);
 	for (int i = 0; i < lightmapResolution; i++) {

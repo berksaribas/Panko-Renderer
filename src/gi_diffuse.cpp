@@ -738,6 +738,7 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 				}
 			}
 		}
+		/*
 		int lightmapResolution = _precalculationInfo->lightmapResolution;
 		std::unordered_set<int> processedList;
 		for (int i = 0; i < lightmapResolution; i++) {
@@ -802,6 +803,7 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 				}
 			}
 		}
+		*/
 
 		for (int i = 0; i < _precalculationInfo->lightmapResolution * _precalculationInfo->lightmapResolution; i++) {
 			if (lm[i].size() > 0) {
