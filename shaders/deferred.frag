@@ -293,7 +293,7 @@ void main()
                 }
                 else
                 {
-                    float channel = mipChannel - 1;
+                    float channel = mipChannel ;
                     vec4 lowerMip = bilateral4x4(InUv, int(channel), true);
                     vec4 higherMip = bilateral4x4(InUv, int(channel) + 1, true);
 
@@ -312,11 +312,10 @@ void main()
                 
                 if(i == 1 && gb3.b > 0.001) {
                     //tHit *= 0.3;
-                    tHit = 1;
                 }
 
-                float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f))) + 0.02;
-                //coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness)) ;
+                float coneAngle = acos(sqrt(0.11111f / (roughnessSquared * roughnessSquared + 0.11111f))) / 2;
+                coneAngle = specularPowerToConeAngle(roughnessToSpecularPower(roughness));
                 vec3 view = normalize(cameraData.cameraPos.xyz - inWorldPosition.xyz);
                 float cameraDist = distance(cameraData.cameraPos.xyz, inWorldPosition.xyz);
                 float screenSpaceDistance = 0;
@@ -328,11 +327,8 @@ void main()
                     vec3 bitangent = cross(inNormal, tangent);
 
                     float adjacentLength = tHit;
-                    float op_len = 2.0 * tan(coneAngle ) * adjacentLength;
-                    float a = op_len;
-                    float a2 = a * a;
-                    float fh2 = 4.0f * adjacentLength * adjacentLength;
-                    float incircleSize = (a * (sqrt(a2 + fh2) - a)) / (4.0f * adjacentLength);
+                    float op_len = tan(coneAngle) * adjacentLength;
+                    float incircleSize = op_len;
 
                     vec3 virtual_pos_1 = cameraData.cameraPos.xyz - (tHit + cameraDist) * view;
                     vec4 projected_virtual_pos_1 = cameraData.viewproj * vec4(virtual_pos_1, 1.0f);
@@ -349,7 +345,8 @@ void main()
                     projected_virtual_pos_3.xy /= projected_virtual_pos_3.w;
                     vec2 hitSS3 = (projected_virtual_pos_3.xy * 0.5f + 0.5f) * textureSize(glossyReflections, 0);
 
-                    screenSpaceDistance = max(distance(hitSS1, hitSS3), distance(hitSS1, hitSS2)) * 2;
+                    screenSpaceDistance = distance(hitSS1, hitSS3) + distance(hitSS1, hitSS2);
+                    //screenSpaceDistance *= dot(inNormal, view);
                 }
                 else
                 {
@@ -401,9 +398,9 @@ void main()
                 }
             }
             reflectionColor = mix(lowerMip, higherMip, mipChannel - int(mipChannel));
-           reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , (pow(64, mipChannel / 7) - 1) / 63);
+           reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI , (pow(64, mipChannel / 7) - 1) / 63);
            ////////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
-           reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0), roughnessSquared);
+           reflectionColor =  mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) / PI, roughnessSquared);
            //reflectionColor = vec4(mipChannel/16);
         }
         else {
