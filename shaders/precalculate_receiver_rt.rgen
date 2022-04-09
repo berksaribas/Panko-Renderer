@@ -39,7 +39,7 @@ void main()
     vec3 hitLocation;
     int hitObjectId;
     vec3 selectedDirection;
-    vec3 raystartPos;
+    vec3 selectedReceiverPos;
     int counter = 0;
 
     uint randomSeed = initRand(gl_LaunchIDEXT.x, gl_LaunchIDEXT.y);
@@ -51,7 +51,7 @@ void main()
     
         vec3 direction = normalize(getCosHemisphereSample(int(gl_LaunchIDEXT.y), vec2(nextRand(randomSeed), nextRand(randomSeed)) , receiverNormal));
 
-        raystartPos = offset_ray(receiverPos, receiverNormal);
+        vec3 raystartPos = offset_ray(receiverPos, receiverNormal);
 
         traceRayEXT(topLevelAS,     // acceleration structure
                     rayFlags,       // rayFlags
@@ -71,6 +71,7 @@ void main()
             hitLocation = payload.pos;
             hitObjectId = payload.objectId;
             selectedDirection = direction;
+            selectedReceiverPos = receiverPos;
             if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
                 counter++;
                 if(counter > (gl_LaunchIDEXT.y) % recSampleCount) {
@@ -96,30 +97,32 @@ void main()
                 0,              // missIndex
                 probePos.xyz,     // ray origin
                 tMin,           // ray min range
-                normalize(raystartPos - probePos.xyz),  // ray direction
+                normalize(selectedReceiverPos - probePos.xyz),  // ray direction
                 tMax,           // ray max range
                 0               // payload (location = 0)
             );
 
             if(true/*distance(payload.pos,raystartPos) < 0.5*/) {
-                if(hitObjectId == -1 && distance(payload.pos,raystartPos) < 0.01) {
-                    //ray is a miss
-                    //trace a ray from the probe with the same direction
-                    traceRayEXT(topLevelAS,     // acceleration structure
-                            rayFlags,       // rayFlags
-                            0xFF,           // cullMask
-                            0,              // sbtRecordOffset
-                            0,              // sbtRecordStride
-                            0,              // missIndex
-                            probePos.xyz,     // ray origin
-                            tMin,           // ray min range
-                            selectedDirection.xyz,  // ray direction
-                            tMax,           // ray max range
-                            0               // payload (location = 0)
-                    );
-                    //???
-                    if(payload.objectId == -1) {
-                        visibility = 1;
+                if(hitObjectId == -1) {
+                    if(distance(payload.pos,selectedReceiverPos) < 0.05) {
+                        //ray is a miss
+                        //trace a ray from the probe with the same direction
+                        traceRayEXT(topLevelAS,     // acceleration structure
+                                rayFlags,       // rayFlags
+                                0xFF,           // cullMask
+                                0,              // sbtRecordOffset
+                                0,              // sbtRecordStride
+                                0,              // missIndex
+                                probePos.xyz,     // ray origin
+                                tMin,           // ray min range
+                                selectedDirection.xyz,  // ray direction
+                                tMax,           // ray max range
+                                0               // payload (location = 0)
+                        );
+                        //???
+                        if(payload.objectId == -1) {
+                            visibility = 1;
+                        }
                     }
                 }
                 else {
