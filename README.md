@@ -55,6 +55,7 @@ Cornell Box (Diffuse + SVGF Reflections)
 ![Cornell Box](images/cornell.png "Cornell Box")
 Screen-space Roughness Reflections (Blurred reflections)
 ![Screen-space Blurred Reflections](images/ssrreflections.png "Screen-space Blurred Reflections")
+
 ## References
 
 1.  Real-time Global Illumination by Precomputed Local Reconstruction from Sparse Radiance Probes
@@ -63,3 +64,7 @@ Screen-space Roughness Reflections (Blurred reflections)
 4.  Hybrid Rendering for Real-Time Ray Tracing, https://media.contentapi.ea.com/content/dam/ea/seed/presentations/2019-ray-tracing-gems-chapter-25-barre-brisebois-et-al.pdf
 5.  Hybrid Rendering, https://github.com/diharaw/hybrid-rendering
 6.  Vulkan Guide, https://vkguide.dev/
+
+## LICENSE
+
+Assets under this repository might have license that prohibit commercial use. However, the code published here can be used by complying to the LICENSE.
