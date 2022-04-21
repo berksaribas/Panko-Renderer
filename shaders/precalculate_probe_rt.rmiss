@@ -11,5 +11,7 @@ layout(location = 0) rayPayloadInEXT GPUHitPayload payload;
 void main()
 {
     payload.objectId = -1;
+    payload.pos = vec3(-999,-999,-999);
+    payload.normal = vec3(0);
     //debugPrintfEXT("         ->ray miss!\n");
 }

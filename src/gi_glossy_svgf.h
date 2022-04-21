@@ -32,6 +32,7 @@ public:
 	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, GBuffer& gbuffer, GlossyIllumination& glossyIllumination);
 	VkDescriptorSet getDenoisedDescriptor();
 	void cleanup();
+	int num_atrous = 4;
 private:
 	VulkanCompute* _vulkanCompute;
 

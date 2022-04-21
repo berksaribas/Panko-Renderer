@@ -147,7 +147,7 @@ void VulkanEngine::init()
 		precalculationInfo.voxelPadding = 2;
 		precalculationInfo.probeOverlaps = 10;
 		precalculationInfo.raysPerProbe = 1000;
-		precalculationInfo.raysPerReceiver = 8000;
+		precalculationInfo.raysPerReceiver = 40000;
 		precalculationInfo.sphericalHarmonicsOrder = 7;
 		precalculationInfo.clusterCoefficientCount = 32;
 		precalculationInfo.maxReceiversInCluster = 1024;
@@ -361,6 +361,9 @@ void VulkanEngine::draw()
 
 			sprintf_s(buffer, "Ligh Direction");
 			ImGui::DragFloat3(buffer, &_camData.lightPos.x);
+			
+			sprintf_s(buffer, "Light Color");
+			ImGui::ColorEdit3(buffer, &_camData.lightColor.x);
 
 			sprintf_s(buffer, "Factor");
 			ImGui::DragFloat(buffer, &radius);
@@ -402,8 +405,11 @@ void VulkanEngine::draw()
 						_camData.glossyDenoise = enableDenoise;
 					}
 
+
+
 					if (enableDenoise) {
 						ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
+						ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
 					}
 					else {
 						ImGui::Text("Currently using stochastic raytracing");
@@ -1508,22 +1514,14 @@ void VulkanEngine::init_scene()
 {
 	OPTICK_EVENT();
 
-	//std::string file_name = "../../assets/cornellFixed.gltf";
+	std::string file_name = "../../assets/cornellFixed.gltf";
+	//std::string file_name = "../../assets/cornellsuzanne.gltf";
 	//std::string file_name = "../../assets/occluderscene.gltf";
-	std::string file_name = "../../assets/cornellsuzanne.gltf";
-	//std::string file_name = "../../assets/cornell2.gltf";
-	//std::string file_name = "../../assets/cornell3.gltf";
-	
-	//std::string file_name = "../../assets/cornell4.gltf";
-	//std::string file_name = "../../assets/Sponza/glTF/Sponza.gltf";
+	//std::string file_name = "../../assets/reflection_new.gltf";
+	//std::string file_name = "../../assets/shtest.gltf";
+	//std::string file_name = "../../assets/bedroom/bedroom.gltf";
+	//std::string file_name = "../../assets/livingroom/livingroom.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
-	//std::string file_name = "../../assets/observer/scene.gltf";
-	//std::string file_name = "../../assets/VC/glTF/VC.gltf";
-	
-	//std::string file_name = "../../assets/interior_scene/scene.gltf";
-	
-	//std::string file_name = "../../assets/caustics.gltf";
-	//std::string file_name = "../../assets/caustics.gltf";
 
 	tinygltf::Model tmodel;
 	tinygltf::TinyGLTF tcontext;

@@ -141,7 +141,7 @@ void main()
 			direction = TBN * reflect(-(transpose(TBN) * view), microfacet);
 
 			traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.001, tmin, direction, tmax, 0);
-			totalColor = vec4(clamp(payload.color, vec3(0), vec3(0.7)), max(0, payload.hitDistance));
+			totalColor = vec4(clamp(payload.color, vec3(0), vec3(0.7)), clamp(payload.hitDistance, 0, 10));
 			//traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, worldPos + normal * 0.1, tmin, reflect(-view, normal), tmax, 0);
 			imageStore(resultNormalImage, pixel, vec4(normal, linearDepth));
 		}

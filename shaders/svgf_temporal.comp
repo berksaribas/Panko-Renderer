@@ -4,7 +4,6 @@
 
 #include "svgf_edge_functions.glsl"
 #include "common.glsl"
-#include "brdf.glsl"
 
 layout (local_size_x = 8, local_size_y = 8) in;
 
@@ -274,6 +273,7 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
             valid = true;
             prevIndirect /= cnt;
             prevMoments  /= cnt;
+            weight = cnt;
         }
 
     }
@@ -294,12 +294,6 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
     }
 
     return valid;
-}
-
-float luminance_weight(vec3 val) {
-    float luma = luminance(val.xyz);
-    float weight = max(exp(-luma * 0.3), 1.0e-2);
-    return weight;
 }
 
 vec3 fireflyRejectionVariance(vec3 radiance, vec3 variance, vec3 shortMean, vec3 stddev)
@@ -336,11 +330,18 @@ void main()
     vec4 indirect_raylength = texelFetch(raytracingResult, ipos, 0).rgba;
     vec3 indirect = indirect_raylength.rgb;
     float rayLength = indirect_raylength.a;
+    vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
+
+    if(gb3.r < 0.001) {
+        imageStore(currMoments, ivec2(gl_GlobalInvocationID.xy), vec4(0));
+        imageStore(currOutput, ivec2(gl_GlobalInvocationID.xy), vec4(indirect, 0));
+        return;
+    }
 
     // Mean, variance, stddev
     vec4 m1 = vec4(0.0);
 	vec4 m2 = vec4(0.0);
-    int sampleCount = 4;
+    int sampleCount = 6;
 	for (int x = -sampleCount; x <= sampleCount; x++)
 	{
 		for (int y = -sampleCount; y <= sampleCount; y++)
@@ -392,8 +393,8 @@ void main()
 
 
     float roughness = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0).r;
-    float s_max_samples = max(8.0, 32 * ((1.0 - exp(-roughness * 100.0))));
-	historyLength = min(s_max_samples, historyLength + 1.0f);
+    //float s_max_samples = max(8.0, 32 * ((1.0 - exp(-roughness * 100.0))));
+	historyLength = min(32, historyLength + 1.0f);
 
     indirect = fireflyRejectionVariance(indirect, var.rgb, mean.rgb, stddev.rgb);
 
@@ -432,4 +433,62 @@ void main()
     
     imageStore(currMoments, ivec2(gl_GlobalInvocationID.xy), vec4(moments, historyLength, 0.0f));
     imageStore(currOutput, ivec2(gl_GlobalInvocationID.xy), vec4(accumulated_color.xyz, variance));
+
+    barrier();
+
+    if(historyLength < 4) {
+	    const int radius = 3;
+        float sum_weights = 0.0;
+        float sum_moment = 0.0;
+        vec3 sum_accum = vec3(0);
+        ivec2 screenSize = textureSize(raytracingResult, 0);
+        const float gPhiColor = 10.0;
+        const float gPhiNormal = 32.0;
+        const float gPhiDepth = 1.0;
+
+        vec4 gb2 = texelFetch(gbufferNormalMotion, ipos, 0);
+        vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
+        const float lIndirectCenter = luminance(accumulated_color.rgb);
+        vec3 normalCenter = octohedral_to_direction(gb2.xy);
+        float zCenter = gb3.g;
+        const float phiLIndirect = 1.0e1;
+
+	    for(int yy = -radius; yy <= radius; yy++) {
+	        for(int xx = -radius; xx <= radius; xx++) {
+		        const ivec2 p = ipos + ivec2(xx, yy);
+
+		        if(p.x < 0 || p.y < 0 ||
+		           p.x >= screenSize.x || p.y >= screenSize.y) {
+		            continue;
+		        }
+
+                const vec4 indirectP = accumulated_color;
+
+                vec4 gb2_s = texelFetch(gbufferNormalMotion, p, 0);
+                vec4 gb3_s = texelFetch(gbufferRoughnessDepthCurvatureMaterial, p, 0);
+
+                vec3 normalP = octohedral_to_direction(gb2_s.xy);
+                float zP = gb3_s.g;
+                const float lIndirectP = luminance(indirectP.rgb);
+
+                // compute the edge-stopping functions
+                const float w = 1;computeWeight(
+                    zCenter, zP, gPhiDepth,
+					normalCenter, normalP, gPhiNormal,
+                    lIndirectCenter, lIndirectP, phiLIndirect);
+
+		        sum_weights += w;
+		        sum_moment += w * moments.r;
+		        sum_accum += w * indirectP.rgb;
+	        }
+	    }
+
+	    sum_weights = max(sum_weights, 1e-5f);
+	    sum_moment /= sum_weights;
+	    sum_accum /= sum_weights;
+    
+	    variance = sum_moment - pow(luminance(sum_accum), 2);
+	    variance *= 4.0 / historyLength;
+        imageStore(currOutput, ivec2(gl_GlobalInvocationID.xy), vec4(sum_accum.xyz, variance));
+    }
 }

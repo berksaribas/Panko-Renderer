@@ -179,8 +179,8 @@ static float calculate_radius(Receiver* receivers, int receiverSize, std::vector
 
 #pragma omp critical
 		{
-		radius += minheap.top();
-		receiverCount++;
+			radius += minheap.top();
+			receiverCount++;
 		}
 		//previousReceiver = &receivers[r];
 	}
@@ -492,6 +492,12 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene, Precalculat
 	outPrecalculationResult.probeRaycastResult = (GPUProbeRaycastResult*)malloc(precalculationInfo.raysPerProbe * probes.size() * sizeof(GPUProbeRaycastResult));
 	outPrecalculationResult.probeRaycastBasisFunctions = (float*)malloc(precalculationInfo.raysPerProbe * SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
 	probe_raycast(engine, probes, precalculationInfo.raysPerProbe, precalculationInfo.sphericalHarmonicsOrder, outPrecalculationResult.probeRaycastResult, outPrecalculationResult.probeRaycastBasisFunctions);
+
+	//{
+	//	std::string filename = "../../precomputation/precalculation";
+	//	save_binary(filename + ".ProbeRaycastResult", outPrecalculationResult.probeRaycastResult, precalculationInfo.raysPerProbe* probes.size() * sizeof(GPUProbeRaycastResult));
+	//	save_binary(filename + ".ProbeRaycastBasisFunctions", outPrecalculationResult.probeRaycastBasisFunctions, precalculationInfo.raysPerProbe* SPHERICAL_HARMONICS_NUM_COEFF(precalculationInfo.sphericalHarmonicsOrder) * sizeof(float));
+	//}
 
 	//Receiver radius
 	float newRadius = calculate_radius(receivers, precalculationInfo.lightmapResolution * precalculationInfo.lightmapResolution, probes, precalculationInfo.probeOverlaps);

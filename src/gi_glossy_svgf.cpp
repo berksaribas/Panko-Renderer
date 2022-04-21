@@ -247,7 +247,7 @@ void GlossyDenoise::render(VkCommandBuffer cmd, EngineData& engineData, SceneDes
 		0, VK_ACCESS_SHADER_READ_BIT,
 		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 
-	for(int i = 0; i < 4; i++)
+	for(int i = 0; i < num_atrous; i++)
 	{
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipeline);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _atrousFilter.pipelineLayout, 0, 1, &sceneDescriptors.globalDescriptor, 0, nullptr);
@@ -273,7 +273,7 @@ void GlossyDenoise::render(VkCommandBuffer cmd, EngineData& engineData, SceneDes
 
 VkDescriptorSet GlossyDenoise::getDenoisedDescriptor()
 {
-	return _atrousData[0].atrousSampleDescriptor;
+	return _atrousData[num_atrous%2].atrousSampleDescriptor;
 }
 
 void GlossyDenoise::cleanup()

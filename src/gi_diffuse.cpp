@@ -856,6 +856,7 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_pipeline(EngineData& engi
 void DiffuseIllumination::rebuild_shaders(EngineData& engineData, SceneDescriptors& sceneDescriptors)
 {
 	_vulkanCompute->rebuildPipeline(_probeRelight, "../../shaders/gi_probe_projection.comp.spv");
+	_vulkanCompute->rebuildPipeline(_probeRelightRealtime, "../../shaders/gi_probe_projection_realtime.comp.spv");
 	_vulkanCompute->rebuildPipeline(_clusterProjection, "../../shaders/gi_cluster_projection.comp.spv");
 	_vulkanCompute->rebuildPipeline(_receiverReconstruction, "../../shaders/gi_receiver_reconstruction.comp.spv");
 

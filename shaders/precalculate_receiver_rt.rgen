@@ -40,6 +40,7 @@ void main()
     int hitObjectId;
     vec3 selectedDirection;
     vec3 selectedReceiverPos;
+    vec3 selectedReceiverNormal;
     int counter = 0;
 
     uint randomSeed = initRand(gl_LaunchIDEXT.x, gl_LaunchIDEXT.y);
@@ -67,6 +68,7 @@ void main()
         );
         
         if(i == 0 || payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
+            selectedReceiverNormal = receiverNormal;
             hitNormal = payload.normal;
             hitLocation = payload.pos;
             hitObjectId = payload.objectId;
@@ -102,9 +104,9 @@ void main()
                 0               // payload (location = 0)
             );
 
-            if(true/*distance(payload.pos,raystartPos) < 0.5*/) {
+            if(true) {
                 if(hitObjectId == -1) {
-                    if(distance(payload.pos,selectedReceiverPos) < 0.05) {
+                    if(payload.objectId != -1 && distance(payload.pos,selectedReceiverPos) < 0.001 && distance(selectedReceiverNormal, payload.normal) <= 0.01 && dot(payload.normal, normalize(selectedReceiverPos - probePos.xyz)) <= 0.0) {
                         //ray is a miss
                         //trace a ray from the probe with the same direction
                         traceRayEXT(topLevelAS,     // acceleration structure
@@ -143,7 +145,7 @@ void main()
                             0               // payload (location = 0)
                     );
                     //debugPrintfEXT("%f (%d vs %d || %d)\n", distance(hitLocation, payload.pos), hitObjectId, payload.objectId, receivers[receiverId].objectId);
-                    if(payload.objectId == hitObjectId  && distance(hitLocation, payload.pos) < 0.001 /*&& dot(hitNormal, direction) < 0 && dot(payload.normal, probeDir) < 0 && dot(hitNormal, payload.normal) > 0*/) {
+                    if(payload.objectId == hitObjectId  && distance(hitLocation, payload.pos) < 0.001 && distance(hitNormal, payload.normal) <= 0.01 && dot(payload.normal, probeDir) <= 0.0) {
                         //visibility = 1 * pow(clamp(dot(direction, probeDir), 0.05f, 1.0f), 32);
                         visibility = 1;
                     }

@@ -58,7 +58,7 @@ void main()
 	
         if(payload.normal == vec3(0) || dot(payload.normal, direction) <= 0.0) {
         if(payload.normal == vec3(0)) {
-        payload.color /= PI;
+        //payload.color /= PI;
         }
             if(cameraData.frameCount > 1) {
 	            vec3 previousColor = imageLoad(resultImage, receiverUv).rgb;

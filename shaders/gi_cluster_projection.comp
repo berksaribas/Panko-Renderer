@@ -57,12 +57,13 @@ void main()
 			return;
 		}
 
+		int targetBasisSize = 64;
+
 		for(int i = 0; i < clusterProbeCount; i++) {
 			int probeIndex = clusterProbeOffset + i;
 			int currProbe = probes[probeIndex];
 
 			uint index = projectionMatrixOffset + currCoeff * config.basisFunctionCount * clusterProbeCount + i * config.basisFunctionCount;
-			int targetBasisSize = config.basisFunctionCount;
 			float[64] projectionMatrix;
 			for(int k = 0; k < targetBasisSize; k++) {
 				projectionMatrix[k] = clusterProjectionMatrices[index + k];

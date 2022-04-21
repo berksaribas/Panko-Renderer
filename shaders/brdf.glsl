@@ -1,9 +1,5 @@
 const float PI  = 3.14159265358979323846264;
 
-float luminance(vec3 c) {
-    return c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
-}
-
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a      = roughness*roughness;

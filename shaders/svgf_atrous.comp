@@ -53,11 +53,6 @@ float computeVarianceCenter(ivec2 ipos, sampler2D sIndirect)
     return sum;
 }
 
-float luminance(vec3 c) {
-    return c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
-}
-
-
 void main()
 {
     const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);

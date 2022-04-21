@@ -3,6 +3,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "common.glsl"
+#include "svgf_edge_functions.glsl"
 
 layout (location = 0) in vec2 InUv;
 
@@ -129,7 +130,7 @@ float gaussian_weight(float offset, float deviation)
 vec4 bilateral4x4(vec2 uv) {
 	vec4 col = vec4(0.0);
     float accum = 0.0;
-    float weight;
+    float weight = 0;
 
 	vec2 sourceSize = textureSize(colorSource, int(direction.z));
     vec2 texelSize = vec2(1.0) / sourceSize;
@@ -151,15 +152,23 @@ vec4 bilateral4x4(vec2 uv) {
 
             vec2 offset = vec2(ix, iy);
 
-            vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) ;
-            weight = fx * fy * bilateralWeight2(lowerNormalDepth.xyz, normalDepth.xyz, lowerNormalDepth.w, normalDepth.w);
-            col += textureLod(colorSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z) * weight;
+            vec4 normalDepth = textureLod(normalSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z);
+			vec4 newcol = textureLod(colorSource, uv + offset * texelSize - sign(offset) * texelSize / 2, direction.z);
+
+			weight = fx * fy * computeWeight(
+                    lowerNormalDepth.w, normalDepth.w, 1,
+					lowerNormalDepth.xyz, normalDepth.xyz, 32,
+                    1, 1, 1) ;
+			weight += 0.0000002;
+
+            col +=  newcol * weight;
             accum += weight;
         }
     }
 
     if(accum > 0.0000001) {
-		return col / accum;
+		vec4 result = col / accum;
+		return result;
 	}
 	else {
 		return vec4(0); //todo figure this out
@@ -199,32 +208,32 @@ void main(void) {
 		float weights[4] = {0, 0, 0, 0};
 		float allWeights[4][4];
 		{
-			allWeights[0][0] = 0.25 * bilateralWeight2(tl.xyz, tl.xyz, tl.w, tl.w);
-			allWeights[0][1] = 0.25 * bilateralWeight2(tl.xyz, tr.xyz, tl.w, tr.w);
-			allWeights[0][2] = 0.25 * bilateralWeight2(tl.xyz, bl.xyz, tl.w, bl.w);
-			allWeights[0][3] = 0.25 * bilateralWeight2(tl.xyz, br.xyz, tl.w, br.w);
+			allWeights[0][0] = 0.25 * computeWeight(tl.w, tl.w, 1, tl.xyz, tl.xyz, 32, 1, 1, 1);
+			allWeights[0][1] = 0.25 * computeWeight(tl.w, tr.w, 1, tl.xyz, tr.xyz, 32, 1, 1, 1);
+			allWeights[0][2] = 0.25 * computeWeight(tl.w, bl.w, 1, tl.xyz, bl.xyz, 32, 1, 1, 1);
+			allWeights[0][3] = 0.25 * computeWeight(tl.w, br.w, 1, tl.xyz, br.xyz, 32, 1, 1, 1);
 
 			weights[0] = allWeights[0][0] + allWeights[0][1]+ allWeights[0][2] + allWeights[0][3];
 		}
 		{
-			allWeights[1][0] = 0.25 * bilateralWeight2(tr.xyz, tl.xyz, tr.w, tl.w);
-			allWeights[1][1] = 0.25 * bilateralWeight2(tr.xyz, tr.xyz, tr.w, tr.w);
-			allWeights[1][2] = 0.25 * bilateralWeight2(tr.xyz, bl.xyz, tr.w, bl.w);
-			allWeights[1][3] = 0.25 * bilateralWeight2(tr.xyz, br.xyz, tr.w, br.w);
+			allWeights[1][0] = 0.25 * computeWeight(tr.w, tl.w, 1, tr.xyz, tl.xyz, 32, 1, 1, 1);
+			allWeights[1][1] = 0.25 * computeWeight(tr.w, tr.w, 1, tr.xyz, tr.xyz, 32, 1, 1, 1);
+			allWeights[1][2] = 0.25 * computeWeight(tr.w, bl.w, 1, tr.xyz, bl.xyz, 32, 1, 1, 1);
+			allWeights[1][3] = 0.25 * computeWeight(tr.w, br.w, 1, tr.xyz, br.xyz, 32, 1, 1, 1);
 			weights[1] = allWeights[1][0] + allWeights[1][1]+ allWeights[1][2] + allWeights[1][3];
 		}
 		{
-			allWeights[2][0] = 0.25 * bilateralWeight2(bl.xyz, tl.xyz, bl.w, tl.w);
-			allWeights[2][1] = 0.25 * bilateralWeight2(bl.xyz, tr.xyz, bl.w, tr.w);
-			allWeights[2][2] = 0.25 * bilateralWeight2(bl.xyz, bl.xyz, bl.w, bl.w);
-			allWeights[2][3] = 0.25 * bilateralWeight2(bl.xyz, br.xyz, bl.w, br.w);
+			allWeights[2][0] = 0.25 * computeWeight(bl.w, tl.w, 1, bl.xyz, tl.xyz, 32, 1, 1, 1);
+			allWeights[2][1] = 0.25 * computeWeight(bl.w, tr.w, 1, bl.xyz, tr.xyz, 32, 1, 1, 1);
+			allWeights[2][2] = 0.25 * computeWeight(bl.w, bl.w, 1, bl.xyz, bl.xyz, 32, 1, 1, 1);
+			allWeights[2][3] = 0.25 * computeWeight(bl.w, br.w, 1, bl.xyz, br.xyz, 32, 1, 1, 1);
 			weights[2] = allWeights[2][0] + allWeights[2][1]+ allWeights[2][2] + allWeights[2][3];
 		}
 		{
-			allWeights[3][0] = 0.25 * bilateralWeight2(br.xyz, tl.xyz, br.w, tl.w);
-			allWeights[3][1] = 0.25 * bilateralWeight2(br.xyz, tr.xyz, br.w, tr.w);
-			allWeights[3][2] = 0.25 * bilateralWeight2(br.xyz, bl.xyz, br.w, bl.w);
-			allWeights[3][3] = 0.25 * bilateralWeight2(br.xyz, br.xyz, br.w, br.w);
+			allWeights[3][0] = 0.25 * computeWeight(br.w, tl.w, 1, br.xyz, tl.xyz, 32, 1, 1, 1);
+			allWeights[3][1] = 0.25 * computeWeight(br.w, tr.w, 1, br.xyz, tr.xyz, 32, 1, 1, 1);
+			allWeights[3][2] = 0.25 * computeWeight(br.w, bl.w, 1, br.xyz, bl.xyz, 32, 1, 1, 1);
+			allWeights[3][3] = 0.25 * computeWeight(br.w, br.w, 1, br.xyz, br.xyz, 32, 1, 1, 1);
 			weights[3] = allWeights[3][0] + allWeights[3][1]+ allWeights[3][2] + allWeights[3][3];
 		}
 
