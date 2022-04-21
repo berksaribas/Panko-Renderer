@@ -1,4 +1,4 @@
-This repository contains the implementation of real-time global illumination techniques.
+This repository contains the implementation of real-time global illumination techniques for my thesis.
 
 ## Implemented Methods
 1. Real-time Global Illumination by Precomputed Local Reconstruction from Sparse Radiance Probes
