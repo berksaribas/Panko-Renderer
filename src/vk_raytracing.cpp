@@ -459,11 +459,13 @@ void VulkanRaytracing::cmd_create_tlas(VkCommandBuffer cmdBuf, uint32_t countIns
 	vkGetAccelerationStructureBuildSizesKHR(_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo,
 		&countInstance, &sizeInfo);
 
-	VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
-	createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-	createInfo.size = sizeInfo.accelerationStructureSize;
+	if (!update) {
+		VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+		createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		createInfo.size = sizeInfo.accelerationStructureSize;
 
-	tlas = create_acceleration(createInfo);
+		tlas = create_acceleration(createInfo);
+	}
 
 	// Allocate the scratch memory
 	scratchBuffer = vkutils::create_buffer(_allocator, sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -473,7 +475,7 @@ void VulkanRaytracing::cmd_create_tlas(VkCommandBuffer cmdBuf, uint32_t countIns
 	VkDeviceAddress scratchAddress = vkGetBufferDeviceAddress(_device, &bufferInfo);
 
 	// Update build information
-	buildInfo.srcAccelerationStructure = VK_NULL_HANDLE;
+	buildInfo.srcAccelerationStructure = update ? tlas.accel : VK_NULL_HANDLE;
 	buildInfo.dstAccelerationStructure = tlas.accel;
 	buildInfo.scratchData.deviceAddress = scratchAddress;
 

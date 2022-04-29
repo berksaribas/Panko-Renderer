@@ -38,6 +38,12 @@ struct DeletionQueue
 	}
 };
 
+struct CameraConfig {
+	float fov = 45;
+	float speed = 0.1f;
+	float rotationSpeed = 0.05f;
+};
+
 struct Camera {
 	glm::vec3 pos;
 	glm::vec3 rotation;

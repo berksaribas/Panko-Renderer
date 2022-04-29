@@ -54,5 +54,16 @@ void main() {
     );
     
     uint index = gl_LaunchIDEXT.x + gl_LaunchSizeEXT.x * gl_LaunchIDEXT.y;
-    results[index] = vec4(max(payload.color,vec3(0)), 1.0);
+    
+    if(payload.normal == vec3(0)) {
+        results[index] = vec4(max(payload.color,vec3(0)), 1.0);
+        return;
+    }
+
+    if(dot(payload.normal, direction) >= 0) {
+    }
+    else {
+        results[index] = vec4(max(payload.color,vec3(0)), 1.0);
+    }
+
 }

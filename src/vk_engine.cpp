@@ -37,7 +37,7 @@
 #include <file_helper.h>
 #include <filesystem>
 
-const int MAX_TEXTURES = 80; //TODO: Replace this
+const int MAX_TEXTURES = 150; //TODO: Replace this
 constexpr bool bUseValidationLayers = false;
 std::vector<GPUBasicMaterialData> materials;
 
@@ -84,6 +84,7 @@ std::vector<std::string> load_files;
 int selected_file = 0;
 
 bool useSceneCamera = false;
+CameraConfig cameraConfig;
 
 void VulkanEngine::init()
 {
@@ -255,7 +256,7 @@ void VulkanEngine::draw()
 	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
 	auto res = glm::mat4{ 1 };
 
-	float fov = glm::radians(45.0f);
+	float fov = glm::radians(cameraConfig.fov);
 
 	if (useSceneCamera) {
 		res = glm::scale(glm::vec3(_sceneScale)) * gltf_scene.cameras[0].world_matrix;
@@ -370,12 +371,6 @@ void VulkanEngine::draw()
 
 			ImGui::NewLine();
 
-			ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
-			if (gltf_scene.cameras.size() > 0) {
-				ImGui::Checkbox("Use scene camera", &useSceneCamera);
-			}
-			ImGui::NewLine();
-
 			sprintf_s(buffer, "Indirect Diffuse");
 			ImGui::Checkbox(buffer, (bool*)&_camData.indirectDiffuse);
 
@@ -473,6 +468,19 @@ void VulkanEngine::draw()
 			ImGui::End();
 		}
 
+		ImGui::Begin("Camera");
+		{
+			ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
+			if (gltf_scene.cameras.size() > 0) {
+				ImGui::Checkbox("Use scene camera", &useSceneCamera);
+			}
+			ImGui::NewLine();
+
+			ImGui::SliderFloat("Camera Fov", &cameraConfig.fov, 0, 90);
+			ImGui::SliderFloat("Camera Speed", &cameraConfig.speed, 0, 1);
+			ImGui::SliderFloat("Camera Rotation Speed", &cameraConfig.rotationSpeed, 0, 0.5);
+		}
+
 		ImGui::Begin("Textures");
 		{
 			ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
@@ -530,7 +538,19 @@ void VulkanEngine::draw()
 
 			ImGui::End();
 		}
-		
+
+		ImGui::Begin("Objects");
+		{
+			for (int i = 0; i < gltf_scene.nodes.size(); i++)
+			{
+				sprintf_s(buffer, "Object %d", i);
+				glm::vec3 translate = {0, 0, 0};
+				ImGui::DragFloat3(buffer, &translate.x, -1, 1);
+				gltf_scene.nodes[i].world_matrix = glm::translate(translate) * gltf_scene.nodes[i].world_matrix;
+			}
+		}
+		ImGui::End();
+
 		ImGui::Render();
 	}
 
@@ -564,6 +584,7 @@ void VulkanEngine::draw()
 	}
 	vmaUnmapMemory(_engineData.allocator, _objectBuffer._allocation);
 
+	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR, true);
 
 	//naming it cmd for shorter writing
 	VkCommandBuffer cmd = _mainCommandBuffer;
@@ -737,8 +758,8 @@ void VulkanEngine::run()
 			{
 				SDL_MouseMotionEvent motion = e.motion;
 
-				camera.rotation.x += -0.05f * (float)motion.yrel;
-				camera.rotation.y += -0.05f * (float)motion.xrel;
+				camera.rotation.x += -cameraConfig.rotationSpeed * (float)motion.yrel;
+				camera.rotation.y += -cameraConfig.rotationSpeed * (float)motion.xrel;
 				moved = true;
 			}
 			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_LCTRL) {
@@ -753,7 +774,7 @@ void VulkanEngine::run()
 		front.z = cos(glm::radians(camera.rotation.x)) * cos(glm::radians(camera.rotation.y));
 		front = glm::normalize(-front);
 
-		float speed = 0.1f;
+		float speed = cameraConfig.speed;
 
 		if (!onGui) {
 			if (keys[SDL_SCANCODE_LSHIFT]) {
@@ -1522,6 +1543,7 @@ void VulkanEngine::init_scene()
 	//std::string file_name = "../../assets/bedroom/bedroom.gltf";
 	//std::string file_name = "../../assets/livingroom/livingroom.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
+	//std::string file_name = "D:/newsponza/combined/sponza.gltf";
 
 	tinygltf::Model tmodel;
 	tinygltf::TinyGLTF tcontext;
@@ -1644,6 +1666,17 @@ void VulkanEngine::init_scene()
 	xatlas::Destroy(atlas);
 
 	/*
+	--
+	*/
+	materials.push_back(materials[materials.size() - 1]);
+	auto new_node = gltf_scene.nodes[gltf_scene.nodes.size() - 1];
+	auto new_mesh = gltf_scene.prim_meshes[new_node.prim_mesh];
+	new_mesh.material_idx = materials.size() - 1;
+	gltf_scene.prim_meshes.push_back(new_mesh);
+	new_node.prim_mesh = gltf_scene.prim_meshes.size() - 1;
+	gltf_scene.nodes.push_back(new_node);
+
+	/*
 	* TODO: After reading the GLTF scene, what I can do is:
 	* Create the xatlas
 	* Create a new vertex buffer (also normal and tex)
@@ -1754,7 +1787,7 @@ void VulkanEngine::init_scene()
 
 	_vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, vertex_buffer, index_buffer);
 	_vulkanRaytracing.build_blas(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
-	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR, false);
+	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR, false);
 
 	GPUSceneDesc desc = {};
 	VkBufferDeviceAddressInfo info = { };
@@ -1872,8 +1905,10 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd)
 		vkCmdBindIndexBuffer(cmd, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		for (int i = 0; i < gltf_scene.nodes.size(); i++) {
-			auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
-			vkCmdDrawIndexed(cmd, mesh.idx_count, 1, mesh.first_idx, mesh.vtx_offset, i);
+			if (true || gltf_scene.materials[gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh].material_idx].alpha_mode == 0) {
+				auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
+				vkCmdDrawIndexed(cmd, mesh.idx_count, 1, mesh.first_idx, mesh.vtx_offset, i);
+			}
 		}
 	}
 }
