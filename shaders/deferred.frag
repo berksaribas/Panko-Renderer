@@ -144,9 +144,9 @@ vec4 bilateral4x4(vec2 uv, int mip, bool bilateral, vec4 indirectColor, float ro
         }
     }
 
-    //float w = 0.01 * mip;
-    //col += indirectColor * w;
-    //accum += w;
+    float w = 0.01 * mip;
+    col += indirectColor * w;
+    accum += w;
 
     if(accum > 0.0000001) {
 		vec4 result = col / accum;
@@ -362,7 +362,7 @@ void main()
 
             //reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , clamp((sampleMipChannel - 2) / 8, 0, 1));
             //reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , min(1.0, screenSpaceDistance / textureSize(glossyReflections, 0).x));
-            ////////reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
+            reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
             //reflectionColor = vec4(tHit/16);
         }
         else {
