@@ -1,3 +1,4 @@
+/*
 #pragma once
 #include "vk_types.h"
 #include <gi_gbuffer.h>
@@ -52,3 +53,4 @@ private:
 	VkImageView _normalImageView;
 
 };
+*/

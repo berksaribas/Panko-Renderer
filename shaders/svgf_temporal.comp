@@ -299,7 +299,7 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
 vec3 fireflyRejectionVariance(vec3 radiance, vec3 variance, vec3 shortMean, vec3 stddev)
 {
     vec3 dev = sqrt(max(vec3(1.0e-5), variance));
-    vec3 highThreshold = vec3(0.1) + shortMean + stddev * 8.0;
+    vec3 highThreshold = vec3(0.1) + shortMean + stddev * 1.0;
     vec3 overflow = max(vec3(0.0), radiance - highThreshold);
     return radiance - overflow;
 }

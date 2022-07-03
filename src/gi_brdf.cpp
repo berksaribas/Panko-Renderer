@@ -4,17 +4,15 @@
 #include <vk_initializers.h>
 //#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#include "vk_rendergraph.h"
 
 void load_image(EngineData& engineData, void* data, AllocatedImage& image, VkFormat image_format, int width, int height, size_t size) {
 	AllocatedBuffer stagingBuffer = vkutils::create_buffer(engineData.allocator, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	vkutils::cpu_to_gpu(engineData.allocator, stagingBuffer, data, size);
 
 	VkExtent3D imageExtent = { width, height, 1 };
-	VkImageCreateInfo dimg_info = vkinit::image_create_info(image_format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, imageExtent);
-	VmaAllocationCreateInfo dimg_allocinfo = {};
-	dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &image._image, &image._allocation, nullptr);
+
+	image = vkutils::create_image(&engineData, image_format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, imageExtent);
 
 	vkutils::immediate_submit(&engineData, [&](VkCommandBuffer cmd) {
 		VkImageSubresourceRange range;
@@ -66,7 +64,6 @@ void load_image(EngineData& engineData, void* data, AllocatedImage& image, VkFor
 		});
 
 	vmaDestroyBuffer(engineData.allocator, stagingBuffer._buffer, stagingBuffer._allocation);
-
 }
 
 void BRDF::init_images(EngineData& engineData)
@@ -81,8 +78,11 @@ void BRDF::init_images(EngineData& engineData)
 		fclose(ptr);
 
 		load_image(engineData, buffer.data(), _brdfLutImage, VK_FORMAT_R16G16_SFLOAT, 512, 512, size);
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(VK_FORMAT_R16G16_SFLOAT, _brdfLutImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_brdfLutImageView));
+		brdfLutImageBinding = engineData.renderGraph->register_image_view(&_brdfLutImage, {
+			.sampler = Vrg::Sampler::LINEAR,
+			.baseMipLevel = 0,
+			.mipLevelCount = 1
+		}, "BrdfLUTImage");
 	}
 
 	{
@@ -94,10 +94,12 @@ void BRDF::init_images(EngineData& engineData)
 		printf("%d\n", comp);
 
 		load_image(engineData, data, _sobolImage, VK_FORMAT_R8G8B8A8_UNORM, x, y, x * y * comp * sizeof(uint8_t));
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_UNORM, _sobolImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_sobolImageView));
-
 		fclose(ptr);
+		brdfLutImageBinding = engineData.renderGraph->register_image_view(&_sobolImage, {
+			.sampler = Vrg::Sampler::NEAREST,
+			.baseMipLevel = 0,
+			.mipLevelCount = 1
+		}, "SobolImage");
 	}
 
 	{
@@ -109,58 +111,12 @@ void BRDF::init_images(EngineData& engineData)
 		printf("%d\n", comp);
 
 		load_image(engineData, data, _scramblingRanking1sppImage, VK_FORMAT_R8G8B8A8_UNORM, x, y, x * y * 4 * sizeof(uint8_t));
-		VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(VK_FORMAT_R8G8B8A8_UNORM, _scramblingRanking1sppImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-		VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_scramblingRanking1sppImageView));
 
 		fclose(ptr);
+		brdfLutImageBinding = engineData.renderGraph->register_image_view(&_scramblingRanking1sppImage, {
+			.sampler = Vrg::Sampler::NEAREST,
+			.baseMipLevel = 0,
+			.mipLevelCount = 1
+		}, "ScramblingRanking1spp");
 	}
-}
-
-void BRDF::init_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors)
-{
-	{
-		VkDescriptorImageInfo storageImageBufferInfo;
-		storageImageBufferInfo.sampler = engineData.linearSampler;
-		storageImageBufferInfo.imageView = _brdfLutImageView;
-		storageImageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(engineData.descriptorPool, &sceneDescriptors.singleImageSetLayout, 1);
-		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_brdfLutTextureDescriptor);
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _brdfLutTextureDescriptor, &storageImageBufferInfo, 0, 1);
-		vkUpdateDescriptorSets(engineData.device, 1, &textures, 0, nullptr);
-	}
-
-	{
-		VkDescriptorSetLayoutBinding data[2]{ vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0),
-			vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 1) };
-		VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(data, 2);
-		vkCreateDescriptorSetLayout(engineData.device, &setinfo, nullptr, &_blueNoiseDescriptorSetLayout);
-	}
-
-	{
-		VkDescriptorImageInfo sobolBufferInfo = { engineData.nearestSampler, _sobolImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		VkDescriptorImageInfo scramblingBufferInfo = { engineData.nearestSampler, _scramblingRanking1sppImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(engineData.descriptorPool, &_blueNoiseDescriptorSetLayout, 1);
-		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_blueNoiseDescriptor);
-
-		VkWriteDescriptorSet textures[2] = {
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _blueNoiseDescriptor, &sobolBufferInfo, 0, 1),
-			vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _blueNoiseDescriptor, &scramblingBufferInfo, 1, 1),
-		};
-
-		vkUpdateDescriptorSets(engineData.device, 2, textures, 0, nullptr);
-	}
-}
-
-void BRDF::cleanup(EngineData& engineData)
-{
-	vkDestroyImageView(engineData.device, _brdfLutImageView, nullptr);
-	vmaDestroyImage(engineData.allocator, _brdfLutImage._image, _brdfLutImage._allocation);
-
-	vkDestroyImageView(engineData.device, _scramblingRanking1sppImageView, nullptr);
-	vmaDestroyImage(engineData.allocator, _scramblingRanking1sppImage._image, _scramblingRanking1sppImage._allocation);
-
-	vkDestroyImageView(engineData.device, _sobolImageView, nullptr);
-	vmaDestroyImage(engineData.allocator, _sobolImage._image, _sobolImage._allocation);
 }

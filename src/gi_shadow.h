@@ -8,30 +8,16 @@ class Shadow {
 public:
 	void init_images(EngineData& engineData);
 	void init_buffers(EngineData& engineData);
-	void init_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors);
-	void init_pipelines(EngineData& engineData, SceneDescriptors& sceneDescriptors, bool rebuild = false);
 	void prepare_rendering(EngineData& engineData);
-	void render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, std::function<void(VkCommandBuffer cmd)>&& function);
-	void cleanup(EngineData& engineData);
+	void render(EngineData& engineData, SceneData& sceneData, std::function<void(VkCommandBuffer cmd)>&& function);
 
 	AllocatedBuffer _shadowMapDataBuffer;
 	GPUShadowMapData _shadowMapData = {};
-	VkDescriptorSet _shadowMapTextureDescriptor;
+	Vrg::Bindable* _shadowMapDataBinding;
+	Vrg::Bindable* _shadowMapDepthImageBinding;
+	Vrg::Bindable* _shadowMapColorImageBinding;
 private:
-	VkDescriptorSet _shadowMapDataDescriptor;
-
 	VkExtent2D _shadowMapExtent{ 4096 , 4096 };
-
 	AllocatedImage _shadowMapDepthImage;
-	VkImageView _shadowMapDepthImageView;
-
 	AllocatedImage _shadowMapColorImage;
-	VkImageView _shadowMapColorImageView;
-
-	VkFramebuffer _shadowMapFramebuffer;
-
-	VkPipeline _shadowMapPipeline;
-	VkPipelineLayout _shadowMapPipelineLayout;
-
-	VkDescriptorSetLayout _shadowMapDataSetLayout;
 };

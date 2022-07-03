@@ -1,3 +1,4 @@
+/*
 #pragma once
 #include "vk_types.h"
 #include <gi_gbuffer.h>
@@ -49,3 +50,4 @@ private:
 	ComputeInstance _temporalFilter = {};
 	ComputeInstance _atrousFilter = {};
 };
+*/

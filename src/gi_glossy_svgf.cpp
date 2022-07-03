@@ -1,3 +1,4 @@
+/*
 #include "gi_glossy_svgf.h"
 #include <vk_initializers.h>
 #include <vk_utils.h>
@@ -228,6 +229,8 @@ void GlossyDenoise::render(VkCommandBuffer cmd, EngineData& engineData, SceneDes
 	imageCopyRegion.extent.height = _imageSize.height;
 	imageCopyRegion.extent.depth = 1;
 
+	
+
 	vkCmdCopyImage(
 		cmd,
 		_temporalData[(_currFrame) % 2].colorImage._image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -279,3 +282,4 @@ VkDescriptorSet GlossyDenoise::getDenoisedDescriptor()
 void GlossyDenoise::cleanup()
 {
 }
+*/

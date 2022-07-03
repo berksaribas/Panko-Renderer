@@ -17,6 +17,8 @@ public:
 	void build_proberaycast_descriptors(EngineData& engineData, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
 	void build_realtime_proberaycast_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
 
+	void build_radiance_coefficients_descriptor(EngineData& engineData);
+
 	void build_groundtruth_gi_raycast_descriptors(EngineData& engineData, GltfScene& scene, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer);
 	void build_groundtruth_gi_raycast_pipeline(EngineData& engineData, SceneDescriptors& sceneDescriptors);
 
@@ -30,6 +32,10 @@ public:
 	VkDescriptorSet _giIndirectLightTextureDescriptor;
 	VkDescriptorSet _dilatedGiIndirectLightTextureDescriptor;
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
+
+	//Test: new sh
+	VkDescriptorSetLayout _radianceCoefficientsDescriptorSetLayout;
+	VkDescriptorSet _radianceCoefficientsDescriptorSet;
 private:
 	VkDevice _device;
 	VmaAllocator _allocator;
@@ -56,8 +62,6 @@ private:
 	AllocatedBuffer _clusterProjectionOutputBuffer;
 
 	VkExtent2D _giLightmapExtent{ 0 , 0 };
-
-	/* LIGHTMAP VARIABLES */
 
 	AllocatedImage _lightmapColorImage;
 	VkImageView _lightmapColorImageView;

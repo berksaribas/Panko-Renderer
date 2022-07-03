@@ -12,7 +12,7 @@ public:
 	VkPipelineMultisampleStateCreateInfo _multisampling;
 	VkPipelineDepthStencilStateCreateInfo _depthStencil;
 	VkPipelineLayout _pipelineLayout;
-	VkPipeline build_pipeline(VkDevice device, VkRenderPass pass);
+	VkPipeline build_pipeline(VkDevice device, VkRenderPass pass, VkPipelineRenderingCreateInfoKHR* dynamicRendering = nullptr);
 };
 
 

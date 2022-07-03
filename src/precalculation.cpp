@@ -5,7 +5,6 @@
 
 #include "triangle_box_intersection.h"
 #include <fstream>
-#include <optick.h>
 #include <queue>
 #include <vk_initializers.h>
 #include <vk_utils.h>
@@ -934,8 +933,6 @@ uint8_t* Precalculation::voxelize(GltfScene& scene, float voxelSize, int padding
 
 void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& probes, int targetProbeCount, float spacing)
 {
-	OPTICK_EVENT()
-
 #if USE_COMPUTE_PROBE_DENSITY_CALCULATION
 	ComputeInstance instance = {};
 	engine._vulkanCompute.create_buffer(instance, UNIFORM, VMA_MEMORY_USAGE_CPU_TO_GPU, sizeof(GPUProbeDensityUniformData));
@@ -1179,7 +1176,7 @@ Receiver* Precalculation::generate_receivers_cpu(VulkanEngine& engine, GltfScene
 	return _receivers;
 }
 
-
+/*
 Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& scene, int lightmapResolution)
 {
 	//OPTICK_EVENT();
@@ -1622,6 +1619,7 @@ Receiver* Precalculation::generate_receivers(VulkanEngine& engine, GltfScene& sc
 
 	return _receivers;
 }
+*/
 
 //Maybe instead of doing this, do that:
 //Do this in runtime (cast rays from each probe)
@@ -1695,19 +1693,19 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 		VkBufferDeviceAddressInfo info = { };
 		info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 
-		info.buffer = engine.vertex_buffer._buffer;
+		info.buffer = engine._sceneData.vertexBuffer._buffer;
 		desc.vertexAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.normal_buffer._buffer;
+		info.buffer = engine._sceneData.normalBuffer._buffer;
 		desc.normalAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.tex_buffer._buffer;
+		info.buffer = engine._sceneData.texBuffer._buffer;
 		desc.uvAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.index_buffer._buffer;
+		info.buffer = engine._sceneData.indexBuffer._buffer;
 		desc.indexAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.lightmap_tex_buffer._buffer;
+		info.buffer = engine._sceneData.lightmapTexBuffer._buffer;
 		desc.lightmapUvAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
 		vkutils::cpu_to_gpu(engine._engineData.allocator, sceneDescBuffer, &desc, sizeof(GPUSceneDesc));
@@ -1869,19 +1867,19 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 		VkBufferDeviceAddressInfo info = { };
 		info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 
-		info.buffer = engine.vertex_buffer._buffer;
+		info.buffer = engine._sceneData.vertexBuffer._buffer;
 		desc.vertexAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.normal_buffer._buffer;
+		info.buffer = engine._sceneData.normalBuffer._buffer;
 		desc.normalAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.tex_buffer._buffer;
+		info.buffer = engine._sceneData.texBuffer._buffer;
 		desc.uvAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.index_buffer._buffer;
+		info.buffer = engine._sceneData.indexBuffer._buffer;
 		desc.indexAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
-		info.buffer = engine.lightmap_tex_buffer._buffer;
+		info.buffer = engine._sceneData.lightmapTexBuffer._buffer;
 		desc.lightmapUvAddress = vkGetBufferDeviceAddress(engine._engineData.device, &info);
 
 		vkutils::cpu_to_gpu(engine._engineData.allocator, sceneDescBuffer, &desc, sizeof(GPUSceneDesc));

@@ -1,24 +1,16 @@
-﻿// vulkan_guide.h : Include file for standard system include files,
-// or project specific include files.
-
-#pragma once
+﻿#pragma once
 
 #include <vk_types.h>
 #include <vector>
-#include <deque>
-#include <functional>
-#include "vk_mesh.h"
 #include <glm/glm.hpp>
-#include <unordered_map>
 #include <gltf_scene.hpp>
 #include <vk_compute.h>
-#include "vk_mem_alloc.h"
-#include "VkBootstrap.h"
 #include <vk_raytracing.h>
 #define RAYTRACING
 #include "../shaders/common.glsl"
+#include <deque>
+#include "vk_debug_renderer.h"
 #undef RAYTRACING
-#include <vk_debug_renderer.h>
 
 struct DeletionQueue
 {
@@ -57,9 +49,13 @@ struct ScreenshotSaveData {
 class VulkanEngine {
 public:
 	EngineData _engineData;
+	SceneData _sceneData;
+
 	VulkanCompute _vulkanCompute;
 	VulkanRaytracing _vulkanRaytracing;
 	VulkanDebugRenderer _vulkanDebugRenderer;
+
+	DeletionQueue _mainDeletionQueue;
 
 	bool _isInitialized{ false };
 	int _frameNumber{ 0 };
@@ -83,14 +79,11 @@ public:
 	std::vector<VkFramebuffer> _framebuffers;
 	std::vector<VkImage> _swapchainImages;
 	std::vector<VkImageView> _swapchainImageViews;
-
-	DeletionQueue _mainDeletionQueue;
+	std::vector<AllocatedImage> _swapchainAllocatedImage;
+	std::vector<Vrg::Bindable*> _swapchainBindings;
 
 	GltfScene gltf_scene;
 	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
-
-	AllocatedBuffer vertex_buffer, index_buffer, normal_buffer, tex_buffer, material_buffer, lightmap_tex_buffer, tangent_buffer;
-	AllocatedBuffer sceneDescBuffer, meshInfoBuffer;
 
 	/* DEFAULT RENDERING VARIABLES */
 
@@ -100,24 +93,11 @@ public:
 	VkCommandPool commandPool;
 	VkCommandBuffer _mainCommandBuffer;
 
-	VkRenderPass _renderPass;
-
-	VkImageView _depthImageView;
-	AllocatedImage _depthImage;
-
-	AllocatedBuffer _cameraBuffer, _objectBuffer;
-	SceneDescriptors _sceneDescriptors;
-
 	GPUCameraData _camData = {};
+
 	float _sceneScale = 0.3f;
 
-
-	/* Post processing pipelines */
-	VkPipeline _dilationPipeline;
-	VkPipelineLayout _dilationPipelineLayout;
-
-	VkPipeline _gammaPipeline;
-	VkPipelineLayout _gammaPipelineLayout;
+	VkRenderPass _renderPass;
 
 	//initializes everything in the engine
 	void init();
@@ -139,14 +119,6 @@ private:
 
 	void init_swapchain();
 
-	void init_default_renderpass();
-
-	void init_colordepth_renderpass();
-
-	void init_color_renderpass();
-
-	void init_framebuffers();
-
 	void init_commands();
 
 	void init_sync_structures();
@@ -155,11 +127,13 @@ private:
 
 	void init_descriptors();
 
-	void init_pipelines(bool rebuild = false);
-
 	void init_scene();
 
 	void init_imgui();
 
 	void init_query_pool();
+
+	void init_default_renderpass();
+
+	void prepare_gui();
 };

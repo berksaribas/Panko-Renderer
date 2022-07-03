@@ -11,7 +11,7 @@ float normal_edge_stopping_weight(vec3 center_normal, vec3 sample_normal, float 
 
 float depth_edge_stopping_weight(float center_depth, float sample_depth, float phi)
 {
-    return exp(-abs(center_depth - sample_depth) / phi);
+    return -abs(center_depth - sample_depth) / phi;
 }
 
 // ------------------------------------------------------------------

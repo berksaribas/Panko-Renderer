@@ -43,60 +43,9 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 			1
 		};
 
-		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(engineData.allocator, &dimg_info, &dimg_allocinfo, &_lightmapColorImage._image, &_lightmapColorImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _lightmapColorImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(engineData.device, &imageViewInfo, nullptr, &_lightmapColorImageView));
-		}
-
-		VkImageView attachments[1] = { _lightmapColorImageView };
-
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(engineData.colorRenderPass, _lightmapExtent);
-		fb_info.pAttachments = attachments;
-		fb_info.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(engineData.device, &fb_info, nullptr, &_lightmapFramebuffer));
+		_lightmapColorImage = vkutils::create_image(&engineData, COLOR_32_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
 	}
 
-	//Lightmap texture descriptor
-	{
-		VkDescriptorImageInfo imageBufferInfo;
-		imageBufferInfo.sampler = engineData.linearSampler;
-		imageBufferInfo.imageView = _lightmapColorImageView;
-		imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkDescriptorSetAllocateInfo allocInfo = vkinit::descriptorset_allocate_info(engineData.descriptorPool, &sceneDescriptors.singleImageSetLayout, 1);
-
-		vkAllocateDescriptorSets(engineData.device, &allocInfo, &_lightmapTextureDescriptor);
-
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _lightmapTextureDescriptor, &imageBufferInfo, 0, 1);
-
-		vkUpdateDescriptorSets(engineData.device, 1, &textures, 0, nullptr);
-	}
-
-	{
-		//LIGHTMAP PIPELINE LAYOUT INFO
-		{
-			VkDescriptorSetLayout setLayouts[] = { sceneDescriptors.globalSetLayout, sceneDescriptors.objectSetLayout, sceneDescriptors.textureSetLayout, sceneDescriptors.materialSetLayout, sceneDescriptors.singleImageSetLayout, sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 6);
-			VK_CHECK(vkCreatePipelineLayout(engineData.device, &pipeline_layout_info, nullptr, &_lightmapPipelineLayout));
-		}
-		vkutils::setObjectName(engineData.device, _lightmapPipelineLayout, "LightmapPipelineLayout");
-
-		build_lightmap_pipeline(engineData);
-	}
-
-	_device = engineData.device;
-	_allocator = engineData.allocator;
-	_descriptorPool = engineData.descriptorPool;
-	_colorRenderPass = engineData.colorRenderPass;
-
-	_vulkanCompute = vulkanCompute;
-	_vulkanRaytracing = vulkanRaytracing;
 	_precalculationInfo = precalculationInfo;
 	_precalculationLoadData = precalculationLoadData;
 	_precalculationResult = precalculationResult;
@@ -121,14 +70,13 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 
 	{
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_giIndirectLightImage._image, &_giIndirectLightImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _giIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_giIndirectLightImageView));
+			_giIndirectLightImage = vkutils::create_image(&engineData, engineData.color32Format, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			_giIndirectLightImageView = vkutils::create_image_view(&engineData, _giIndirectLightImage, engineData.color32Format);
+			vkutils::immediate_submit(&engineData, [&](VkCommandBuffer cmd) {
+				vkutils::image_barrier(cmd, _giIndirectLightImage._image, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_GENERAL, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }, 
+					0, VK_ACCESS_SHADER_WRITE_BIT);
+			});
 		}
 
 		{
@@ -147,38 +95,10 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 		}
 	}
 
-	vkutils::immediate_submit(&engineData, [&](VkCommandBuffer cmd) {
-		VkImageMemoryBarrier imageMemoryBarrier = {};
-		imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-		imageMemoryBarrier.image = _giIndirectLightImage._image;
-		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		imageMemoryBarrier.srcAccessMask = 0;
-		imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &imageMemoryBarrier);
-		});
-
 	{
 		{
-			VkImageCreateInfo dimg_info = vkinit::image_create_info(engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
-			VmaAllocationCreateInfo dimg_allocinfo = {};
-			dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-			dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vmaCreateImage(_allocator, &dimg_info, &dimg_allocinfo, &_dilatedGiIndirectLightImage._image, &_dilatedGiIndirectLightImage._allocation, nullptr);
-
-			VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(engineData.color32Format, _dilatedGiIndirectLightImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-			VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_dilatedGiIndirectLightImageView));
+			_dilatedGiIndirectLightImage = vkutils::create_image(&engineData, engineData.color32Format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, lightmapImageExtent3D);
+			_dilatedGiIndirectLightImageView = vkutils::create_image_view(&engineData, _giIndirectLightImage, engineData.color32Format);
 		}
 
 		VkImageView attachments[1] = { _dilatedGiIndirectLightImageView };
@@ -257,18 +177,6 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 	_vulkanCompute->add_buffer_binding(_receiverReconstruction, ComputeBufferType::STORAGE, clusterReceiverUvs);
 	_vulkanCompute->add_texture_binding(_receiverReconstruction, ComputeBufferType::TEXTURE_STORAGE, 0, _giIndirectLightImageView);
 	_vulkanCompute->build(_receiverReconstruction, _descriptorPool, "../../shaders/gi_receiver_reconstruction.comp.spv");
-	
-	vkutils::setObjectName(engineData.device, _receiverReconstruction.pipeline, "DiffuseReceiverReconstructionPipeline");
-	vkutils::setObjectName(engineData.device, _receiverReconstruction.pipelineLayout, "DiffuseReceiverReconstructionPipelineLayout");
-
-	vkutils::setObjectName(engineData.device, _clusterProjection.pipeline, "DiffuseClusterProjectionPipeline");
-	vkutils::setObjectName(engineData.device, _clusterProjection.pipelineLayout, "DiffuseClusterProjectionPipelineLayout");
-
-	vkutils::setObjectName(engineData.device, _probeRelight.pipeline, "DiffuseProbeRelightPipeline");
-	vkutils::setObjectName(engineData.device, _probeRelight.pipelineLayout, "DiffuseProbeRelightPipelineLayout");
-
-	vkutils::setObjectName(engineData.device, _giIndirectLightImage._image, "DiffuseIndirectLightImage");
-	vkutils::setObjectName(engineData.device, _giIndirectLightImageView, "DiffuseIndirectLightImageView");
 }
 
 void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, SceneDescriptors& sceneDescriptors, Shadow& shadow, BRDF& brdfUtils, std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast, VkPipeline dilationPipeline, VkPipelineLayout dilationPipelineLayout)
@@ -631,6 +539,27 @@ void DiffuseIllumination::build_realtime_proberaycast_pipeline(EngineData& engin
 	vkutils::setObjectName(engineData.device, _probeRTPipeline.pipelineLayout, "ProbeRTPipelineLayout");
 }
 
+void DiffuseIllumination::build_radiance_coefficients_descriptor(EngineData& engineData)
+{
+	VkDescriptorSetLayoutBinding probeLocationsBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding outColorBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1);
+	VkDescriptorSetLayoutBinding bindings[2] = { probeLocationsBind, outColorBind };
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 2);
+	vkCreateDescriptorSetLayout(engineData.device, &setinfo, nullptr, &_radianceCoefficientsDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocateInfo =
+		vkinit::descriptorset_allocate_info(engineData.descriptorPool, &_radianceCoefficientsDescriptorSetLayout, 1);
+
+	vkAllocateDescriptorSets(engineData.device, &allocateInfo, &_radianceCoefficientsDescriptorSet);
+
+	std::vector<VkWriteDescriptorSet> writes;
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _radianceCoefficientsDescriptorSet, &_probeLocationsBuffer._descriptorBufferInfo, 0));
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _radianceCoefficientsDescriptorSet, &_probeRelightOutputBuffer._descriptorBufferInfo, 1));
+
+	vkUpdateDescriptorSets(engineData.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+}
+
 void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& engineData, GltfScene& scene, SceneDescriptors& sceneDescriptors, AllocatedBuffer sceneDescBuffer, AllocatedBuffer meshInfoBuffer)
 {
 	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
@@ -738,72 +667,6 @@ void DiffuseIllumination::build_groundtruth_gi_raycast_descriptors(EngineData& e
 				}
 			}
 		}
-		/*
-		int lightmapResolution = _precalculationInfo->lightmapResolution;
-		std::unordered_set<int> processedList;
-		for (int i = 0; i < lightmapResolution; i++) {
-			for (int j = 0; j < lightmapResolution; j++) {
-				if (!lm[j + i * lightmapResolution].size() > 0) {
-					if (j + 1 < lightmapResolution && lm[j + 1 + i * lightmapResolution].size() > 0 && processedList.find(j + 1 + i * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j + 1 + i * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = {j ,i, 0, 0};
-						}
-					}
-					else if (j - 1 >= 0 && lm[j - 1 + i * lightmapResolution].size() > 0 && processedList.find(j - 1 + i * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j - 1 + i * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-					else if (i + 1 < lightmapResolution && lm[j + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j + (i + 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j + (i + 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-					else if (i - 1 >= 0 && lm[j + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j + (i - 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j + (i - 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-					else if (j + 1 < lightmapResolution && i + 1 < lightmapResolution && lm[j + 1 + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j + 1 + (i + 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j + 1 + (i + 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-					else if (j + 1 < lightmapResolution && i - 1 >= 0 && lm[j + 1 + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j + 1 + (i - 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j + 1 + (i - 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = {j ,i, 0, 0};
-						}
-					}
-					else if (j - 1 >= 0 && i + 1 < lightmapResolution && lm[j - 1 + (i + 1) * lightmapResolution].size() > 0 && processedList.find(j - 1 + (i + 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j - 1 + (i + 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-					else if (j - 1 >= 0 && i - 1 >= 0 && lm[j - 1 + (i - 1) * lightmapResolution].size() > 0 && processedList.find(j - 1 + (i - 1) * lightmapResolution) == processedList.end()) {
-						lm[j + i * lightmapResolution] = lm[j - 1 + (i - 1) * lightmapResolution];
-						processedList.insert(j + i * lightmapResolution);
-						for (int k = 0; k < lm[j + i * lightmapResolution].size(); k++) {
-							lm[j + i * lightmapResolution][k].uvPad = { j ,i, 0, 0 };
-						}
-					}
-				}
-			}
-		}
-		*/
 
 		for (int i = 0; i < _precalculationInfo->lightmapResolution * _precalculationInfo->lightmapResolution; i++) {
 			if (lm[i].size() > 0) {

@@ -17,7 +17,6 @@
 #include "imgui_impl_sdl.h"
 #include "imgui_impl_vulkan.h"
 #include <precalculation.h>
-#include <optick.h>
 #include <vk_utils.h>
 #include <vk_extensions.h>
 #include <xatlas.h>
@@ -33,12 +32,18 @@
 
 #include <ctime>
 
+#include <functional>
+#include <vk_debug_renderer.h>
+#include "VkBootstrap.h"
+
+
 #define FILE_HELPER_IMPL
 #include <file_helper.h>
 #include <filesystem>
 
-const int MAX_TEXTURES = 150; //TODO: Replace this
-constexpr bool bUseValidationLayers = false;
+#include "vk_rendergraph.h"
+
+constexpr bool bUseValidationLayers = true;
 std::vector<GPUBasicMaterialData> materials;
 
 //Precalculation
@@ -49,12 +54,12 @@ PrecalculationResult precalculationResult = {};
 
 //GI Models
 GBuffer gbuffer;
-DiffuseIllumination diffuseIllumination;
+//DiffuseIllumination diffuseIllumination;
 Shadow shadow;
-Deferred deferred;
-GlossyIllumination glossyIllumination;
+//Deferred deferred;
+//GlossyIllumination glossyIllumination;
 BRDF brdfUtils;
-GlossyDenoise glossyDenoise;
+//GlossyDenoise glossyDenoise;
 
 VulkanTimer vkTimer;
 
@@ -88,8 +93,6 @@ CameraConfig cameraConfig;
 
 void VulkanEngine::init()
 {
-	OPTICK_START_CAPTURE();
-
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
 
@@ -107,39 +110,17 @@ void VulkanEngine::init()
 	_engineData = {};
 
 	init_vulkan();
+	_engineData.renderGraph = new Vrg::RenderGraph(&_engineData);
+
 	init_swapchain();
-
-	init_default_renderpass();
-	init_colordepth_renderpass();
-	init_color_renderpass();
-	gbuffer.init_render_pass(_engineData);
-
-	init_framebuffers();
-	shadow.init_images(_engineData);
-	gbuffer.init_images(_engineData, _windowExtent);
-	deferred.init_images(_engineData, _windowExtent);
-
 	init_commands();
 	init_sync_structures();
 	init_descriptor_pool();
 
-	shadow.init_buffers(_engineData);
-	init_descriptors();
-	brdfUtils.init_images(_engineData);
-	brdfUtils.init_descriptors(_engineData, _sceneDescriptors);
-	shadow.init_descriptors(_engineData, _sceneDescriptors);
-	gbuffer.init_descriptors(_engineData);
-	deferred.init_descriptors(_engineData, _sceneDescriptors);
-
-	gbuffer.init_pipelines(_engineData, _sceneDescriptors);
-	init_pipelines();
-	shadow.init_pipelines(_engineData, _sceneDescriptors);
-	deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
-
-	_vulkanCompute.init(_engineData);
 	_vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
-	_vulkanDebugRenderer.init(_engineData.device, _engineData.allocator, _renderPass, _sceneDescriptors.globalSetLayout);
 
+	init_descriptors();
+	init_default_renderpass();
 	init_imgui();
 
 	bool loadPrecomputedData = true;
@@ -162,37 +143,17 @@ void VulkanEngine::init()
 
 	init_scene();
 
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.materialDescriptor, "MaterialDescriptor");
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.materialSetLayout, "MaterialDescriptorSetLayout");
-
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureDescriptor, "TextureDescriptor");
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.textureSetLayout, "TextureDescriptorSetLayout");
-
 	if (!loadPrecomputedData) {
 		precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult);
 		//precalculation.prepare(*this, gltf_scene, precalculationInfo, precalculationLoadData, precalculationResult, "../../precomputation/precalculation.Probes");
 		exit(0);
 	}
-
-	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, &_vulkanCompute, &_vulkanRaytracing, gltf_scene, _sceneDescriptors);
-	diffuseIllumination.build_proberaycast_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
-	diffuseIllumination.build_realtime_proberaycast_pipeline(_engineData, _sceneDescriptors);
-
-	diffuseIllumination.build_groundtruth_gi_raycast_descriptors(_engineData, gltf_scene, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
-	diffuseIllumination.build_groundtruth_gi_raycast_pipeline(_engineData, _sceneDescriptors);
-
-	glossyIllumination.init(_vulkanRaytracing);
-	glossyIllumination.init_images(_engineData, _windowExtent);
-	glossyIllumination.init_descriptors(_engineData, _sceneDescriptors, sceneDescBuffer, meshInfoBuffer);
-	glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils);
-
-	glossyDenoise.init(&_vulkanCompute);
-	glossyDenoise.init_images(_engineData, _windowExtent);
-	glossyDenoise.init_descriptors(_engineData, _sceneDescriptors);
-	glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer);
 	
 	init_query_pool();
 
+	shadow.init_buffers(_engineData);
+	shadow.init_images(_engineData);
+	gbuffer.init_images(_engineData, _windowExtent);
 
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
@@ -215,12 +176,11 @@ void VulkanEngine::init()
 void VulkanEngine::cleanup()
 {
 	if (_isInitialized) {
-
 		//make sure the GPU has stopped doing its things
 		vkDeviceWaitIdle(_engineData.device);
 
-		shadow.cleanup(_engineData);
-
+		//TODO
+		//_engineData.renderGraph->clear();
 		_mainDeletionQueue.flush();
 
 		vmaDestroyAllocator(_engineData.allocator);
@@ -234,116 +194,16 @@ void VulkanEngine::cleanup()
 	}
 }
 
-void VulkanEngine::draw()
-{
-	printf("\n\n\n\n\n");
-	OPTICK_EVENT();
+static char buffer[256];
 
-	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
-	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
-	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
-
-	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
-	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
-
-	//request image from the swapchain
-	uint32_t swapchainImageIndex;
-	VK_CHECK(vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex));
-
-
-	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
-	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
-	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
-	auto res = glm::mat4{ 1 };
-
-	float fov = glm::radians(cameraConfig.fov);
-
-	if (useSceneCamera) {
-		res = glm::scale(glm::vec3(_sceneScale)) * gltf_scene.cameras[0].world_matrix;
-		camera.pos = gltf_scene.cameras[0].eye * _sceneScale;
-		fov = gltf_scene.cameras[0].cam.perspective.yfov;
-	}
-	else {
-		res = glm::translate(res, camera.pos);
-		res = glm::rotate(res, glm::radians(camera.rotation.y), UP);
-		res = glm::rotate(res, glm::radians(camera.rotation.x), RIGHT);
-		res = glm::rotate(res, glm::radians(camera.rotation.z), FORWARD);
-	}
-
-	auto view = glm::inverse(res);
-	glm::mat4 projection = glm::perspective(fov, ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
-	projection[1][1] *= -1;
-
-	//fill a GPU camera data struct
-	_camData.prevViewproj = _camData.viewproj;
-	_camData.viewproj = projection * view;
-	_camData.viewprojInverse = glm::inverse(_camData.viewproj);
-	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
-
-	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
-	_camData.lightmapTargetSize = {diffuseIllumination._lightmapExtent.width, diffuseIllumination._lightmapExtent.height};
-
-	_camData.frameCount = _frameNumber;
-
-	glm::vec3 lightInvDir = glm::vec3(_camData.lightPos); 
-	float radius = gltf_scene.m_dimensions.max.x > gltf_scene.m_dimensions.max.y ? gltf_scene.m_dimensions.max.x : gltf_scene.m_dimensions.max.y;
-	radius = radius > gltf_scene.m_dimensions.max.z ? radius : gltf_scene.m_dimensions.max.z;
-	//radius *= sqrt(2);
-	glm::mat4 depthViewMatrix = glm::lookAt(gltf_scene.m_dimensions.center * _sceneScale + lightInvDir * radius, gltf_scene.m_dimensions.center * _sceneScale, glm::vec3(0, 1, 0));
-	float maxX = gltf_scene.m_dimensions.min.x * _sceneScale, maxY = gltf_scene.m_dimensions.min.y * _sceneScale, maxZ = gltf_scene.m_dimensions.min.z * _sceneScale;
-	float minX = gltf_scene.m_dimensions.max.x * _sceneScale, minY = gltf_scene.m_dimensions.max.y * _sceneScale, minZ = gltf_scene.m_dimensions.max.z * _sceneScale;
-
-	for (int x = 0; x < 2; x++) {
-		for (int y = 0; y < 2; y++) {
-			for (int z = 0; z < 2; z++) {
-				float xCoord = x == 0 ? gltf_scene.m_dimensions.min.x* _sceneScale : gltf_scene.m_dimensions.max.x* _sceneScale;
-				float yCoord = y == 0 ? gltf_scene.m_dimensions.min.y* _sceneScale : gltf_scene.m_dimensions.max.y* _sceneScale;
-				float zCoord = z == 0 ? gltf_scene.m_dimensions.min.z* _sceneScale : gltf_scene.m_dimensions.max.z* _sceneScale;
-				auto tempCoords = depthViewMatrix * glm::vec4(xCoord, yCoord, zCoord, 1.0);
-				tempCoords = tempCoords / tempCoords.w;
-				if (tempCoords.x < minX) {
-					minX = tempCoords.x;
-				}
-				if (tempCoords.x > maxX) {
-					maxX = tempCoords.x;
-				}
-
-				if (tempCoords.y < minY) {
-					minY = tempCoords.y;
-				}
-				if (tempCoords.y > maxY) {
-					maxY = tempCoords.y;
-				}
-
-				if (tempCoords.z < minZ) {
-					minZ = tempCoords.z;
-				}
-				if (tempCoords.z > maxZ) {
-					maxZ = tempCoords.z;
-				}
-			}
-		}
-	}
-
-	glm::mat4 depthProjectionMatrix = glm::ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
-
-	shadow._shadowMapData.depthMVP = depthProjectionMatrix * depthViewMatrix;
-
-	static char buffer[128];
+void VulkanEngine::prepare_gui() {
 	{
 		//todo: imgui stuff
 		ImGui::Begin("Engine Config");
 		{
 			sprintf_s(buffer, "Rebuild Shaders");
 			if (ImGui::Button(buffer)) {
-				diffuseIllumination.rebuild_shaders(_engineData, _sceneDescriptors);
-				init_pipelines(true);
-				shadow.init_pipelines(_engineData, _sceneDescriptors, true);
-				gbuffer.init_pipelines(_engineData, _sceneDescriptors, true);
-				deferred.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
-				glossyIllumination.init_pipelines(_engineData, _sceneDescriptors, gbuffer, brdfUtils, true);
-				glossyDenoise.init_pipelines(_engineData, _sceneDescriptors, gbuffer, true);
-
+				//TODO
 			}
 
 			ImGui::NewLine();
@@ -357,17 +217,11 @@ void VulkanEngine::draw()
 			sprintf_s(buffer, "VSM Bias");
 			ImGui::DragFloat(buffer, &shadow._shadowMapData.VSMBias);
 
-			glm::vec3 mins = { minX, minY, minZ };
-			glm::vec3 maxs = { maxX, maxY, maxZ };
-
 			sprintf_s(buffer, "Ligh Direction");
 			ImGui::DragFloat3(buffer, &_camData.lightPos.x);
-			
+
 			sprintf_s(buffer, "Light Color");
 			ImGui::ColorEdit3(buffer, &_camData.lightColor.x);
-
-			sprintf_s(buffer, "Factor");
-			ImGui::DragFloat(buffer, &radius);
 
 			ImGui::NewLine();
 
@@ -404,7 +258,8 @@ void VulkanEngine::draw()
 
 					if (enableDenoise) {
 						ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
-						ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
+						//todo uncomment
+						//ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
 					}
 					else {
 						ImGui::Text("Currently using stochastic raytracing");
@@ -479,14 +334,16 @@ void VulkanEngine::draw()
 			ImGui::SliderFloat("Camera Fov", &cameraConfig.fov, 0, 90);
 			ImGui::SliderFloat("Camera Speed", &cameraConfig.speed, 0, 1);
 			ImGui::SliderFloat("Camera Rotation Speed", &cameraConfig.rotationSpeed, 0, 0.5);
+
+			ImGui::End();
 		}
 
 		ImGui::Begin("Textures");
 		{
-			ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
-			ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
-			ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
-			ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
+			//ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
+			//ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
+			//ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
+			//ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
 			ImGui::End();
 		}
 
@@ -519,7 +376,7 @@ void VulkanEngine::draw()
 		{
 			bool materialsChanged = false;
 			for (int i = 0; i < materials.size(); i++) {
-				sprintf_s(buffer, "Material %d - %s", i, gltf_scene.materials[i].name.c_str());
+				sprintf_s(buffer, "Material %d - %s", i, "todo");
 				ImGui::LabelText(buffer, buffer);
 				sprintf_s(buffer, "Base color %d", i);
 				materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
@@ -532,8 +389,7 @@ void VulkanEngine::draw()
 			}
 
 			if (materialsChanged) {
-				vkutils::cpu_to_gpu(_engineData.allocator, material_buffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
-				///_frameNumber = 0;
+				vkutils::cpu_to_gpu(_engineData.allocator, _sceneData.materialBuffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
 			}
 
 			ImGui::End();
@@ -544,7 +400,7 @@ void VulkanEngine::draw()
 			for (int i = 0; i < gltf_scene.nodes.size(); i++)
 			{
 				sprintf_s(buffer, "Object %d", i);
-				glm::vec3 translate = {0, 0, 0};
+				glm::vec3 translate = { 0, 0, 0 };
 				ImGui::DragFloat3(buffer, &translate.x, -1, 1);
 				gltf_scene.nodes[i].world_matrix = glm::translate(translate) * gltf_scene.nodes[i].world_matrix;
 			}
@@ -553,8 +409,103 @@ void VulkanEngine::draw()
 
 		ImGui::Render();
 	}
+}
 
-	
+void VulkanEngine::draw()
+{
+	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
+	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
+	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
+
+	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
+	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
+
+	//request image from the swapchain
+	uint32_t swapchainImageIndex;
+	VK_CHECK(vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex));
+
+	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
+	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
+	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
+	auto res = glm::mat4{ 1 };
+
+	float fov = glm::radians(cameraConfig.fov);
+
+	if (useSceneCamera) {
+		res = glm::scale(glm::vec3(_sceneScale)) * gltf_scene.cameras[0].world_matrix;
+		camera.pos = gltf_scene.cameras[0].eye * _sceneScale;
+		fov = gltf_scene.cameras[0].cam.perspective.yfov;
+	}
+	else {
+		res = glm::translate(res, camera.pos);
+		res = glm::rotate(res, glm::radians(camera.rotation.y), UP);
+		res = glm::rotate(res, glm::radians(camera.rotation.x), RIGHT);
+		res = glm::rotate(res, glm::radians(camera.rotation.z), FORWARD);
+	}
+
+	auto view = glm::inverse(res);
+	glm::mat4 projection = glm::perspective(fov, ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
+	projection[1][1] *= -1;
+
+	_camData.prevViewproj = _camData.viewproj;
+	_camData.viewproj = projection * view;
+	_camData.viewprojInverse = glm::inverse(_camData.viewproj);
+	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
+
+	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
+	//todo uncomment
+	//_camData.lightmapTargetSize = {diffuseIllumination._lightmapExtent.width, diffuseIllumination._lightmapExtent.height};
+
+	_camData.frameCount = _frameNumber;
+
+	glm::vec3 lightInvDir = glm::vec3(_camData.lightPos); 
+	float radius = gltf_scene.m_dimensions.max.x > gltf_scene.m_dimensions.max.y ? gltf_scene.m_dimensions.max.x : gltf_scene.m_dimensions.max.y;
+	radius = radius > gltf_scene.m_dimensions.max.z ? radius : gltf_scene.m_dimensions.max.z;
+	//radius *= sqrt(2);
+	glm::mat4 depthViewMatrix = glm::lookAt(gltf_scene.m_dimensions.center * _sceneScale + lightInvDir * radius, gltf_scene.m_dimensions.center * _sceneScale, glm::vec3(0, 1, 0));
+	float maxX = gltf_scene.m_dimensions.min.x * _sceneScale, maxY = gltf_scene.m_dimensions.min.y * _sceneScale, maxZ = gltf_scene.m_dimensions.min.z * _sceneScale;
+	float minX = gltf_scene.m_dimensions.max.x * _sceneScale, minY = gltf_scene.m_dimensions.max.y * _sceneScale, minZ = gltf_scene.m_dimensions.max.z * _sceneScale;
+
+	for (int x = 0; x < 2; x++) {
+		for (int y = 0; y < 2; y++) {
+			for (int z = 0; z < 2; z++) {
+				float xCoord = x == 0 ? gltf_scene.m_dimensions.min.x* _sceneScale : gltf_scene.m_dimensions.max.x* _sceneScale;
+				float yCoord = y == 0 ? gltf_scene.m_dimensions.min.y* _sceneScale : gltf_scene.m_dimensions.max.y* _sceneScale;
+				float zCoord = z == 0 ? gltf_scene.m_dimensions.min.z* _sceneScale : gltf_scene.m_dimensions.max.z* _sceneScale;
+				auto tempCoords = depthViewMatrix * glm::vec4(xCoord, yCoord, zCoord, 1.0);
+				tempCoords = tempCoords / tempCoords.w;
+				if (tempCoords.x < minX) {
+					minX = tempCoords.x;
+				}
+				if (tempCoords.x > maxX) {
+					maxX = tempCoords.x;
+				}
+
+				if (tempCoords.y < minY) {
+					minY = tempCoords.y;
+				}
+				if (tempCoords.y > maxY) {
+					maxY = tempCoords.y;
+				}
+
+				if (tempCoords.z < minZ) {
+					minZ = tempCoords.z;
+				}
+				if (tempCoords.z > maxZ) {
+					maxZ = tempCoords.z;
+				}
+			}
+		}
+	}
+
+	glm::mat4 depthProjectionMatrix = glm::ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
+
+	shadow._shadowMapData.depthMVP = depthProjectionMatrix * depthViewMatrix;
+
+	prepare_gui();
+
+	//TODO UNCOMMENT
+	/*
 	if (showProbes) {
 		diffuseIllumination.debug_draw_probes(_vulkanDebugRenderer, showProbeRays, _sceneScale);
 	}
@@ -566,12 +517,13 @@ void VulkanEngine::draw()
 	if (showSpecificReceiver) {
 		diffuseIllumination.debug_draw_specific_receiver(_vulkanDebugRenderer, specificCluster, specificReceiver, specificReceiverRaySampleCount, probesEnabled, showSpecificProbeRays, _sceneScale);
 	}
+	*/
 
-	vkutils::cpu_to_gpu(_engineData.allocator, _cameraBuffer, &_camData, sizeof(GPUCameraData));
+	vkutils::cpu_to_gpu(_engineData.allocator, _sceneData.cameraBuffer, &_camData, sizeof(GPUCameraData));
 	shadow.prepare_rendering(_engineData);
 
 	void* objectData;
-	vmaMapMemory(_engineData.allocator, _objectBuffer._allocation, &objectData);
+	vmaMapMemory(_engineData.allocator, _sceneData.objectBuffer._allocation, &objectData);
 	GPUObjectData* objectSSBO = (GPUObjectData*)objectData;
 
 	for (int i = 0; i < gltf_scene.nodes.size(); i++)
@@ -582,24 +534,63 @@ void VulkanEngine::draw()
 		objectSSBO[i].model = scale * gltf_scene.nodes[i].world_matrix;
 		objectSSBO[i].material_id = mesh.material_idx;
 	}
-	vmaUnmapMemory(_engineData.allocator, _objectBuffer._allocation);
+	vmaUnmapMemory(_engineData.allocator, _sceneData.objectBuffer._allocation);
 
 	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR, true);
 
-	//naming it cmd for shorter writing
 	VkCommandBuffer cmd = _mainCommandBuffer;
-
-	//begin the command buffer recording. We will use this command buffer exactly once, so we want to let vulkan know that
 	VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	{
+		shadow.render(_engineData, _sceneData, [&](VkCommandBuffer cmd) {
+			draw_objects(cmd);
+		});
+		gbuffer.render(_engineData, _sceneData, [&](VkCommandBuffer cmd) {
+			draw_objects(cmd);
+		});
+		
+		VkClearValue clearValue;
+		clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
+
+		_engineData.renderGraph->add_render_pass(
+			{
+				.name = "PresentPass",
+				.pipelineType = Vrg::PipelineType::RASTER_TYPE,
+				.rasterPipeline = {
+					.vertexShader = "../../shaders/fullscreen.vert.spv",
+					.fragmentShader = "../../shaders/gamma.frag.spv",
+					.size = _windowExtent,
+					.depthState = { false, false, VK_COMPARE_OP_NEVER },
+					.cullMode = Vrg::CullMode::NONE,
+					.blendAttachmentStates = {
+						vkinit::color_blend_attachment_state(),
+					},
+					.colorOutputs = {
+						{_swapchainBindings[swapchainImageIndex], clearValue, true},
+					},
+
+				},
+				.reads = {
+					{0, gbuffer.get_current_frame_data()->albedoMetallicBinding}
+				},
+				.execute = [&](VkCommandBuffer cmd) {
+					vkCmdDraw(cmd, 3, 1, 0, 0);
+					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+				}
+			}
+		);
+	}
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 	{
-		vkTimer.start_recording(_engineData, cmd, "Gbuffer");
-		gbuffer.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
-			draw_objects(cmd);
-		});
-		vkTimer.stop_recording(_engineData, cmd);
+		_engineData.renderGraph->execute(cmd);
 
+		//vkTimer.start_recording(_engineData, cmd, "Gbuffer");
+		
+
+		//vkTimer.stop_recording(_engineData, cmd);
+
+		/*
 		// SHADOW MAP RENDERING
 		vkTimer.start_recording(_engineData, cmd, "Shadow Map");
 		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
@@ -672,7 +663,7 @@ void VulkanEngine::draw()
 			vkCmdEndRenderPass(cmd);
 			vkTimer.stop_recording(_engineData, cmd);
 			printf("%d\n", _frameNumber);
-		}
+		}*/
 	}
 	
 	VK_CHECK(vkEndCommandBuffer(cmd));
@@ -727,13 +718,12 @@ void VulkanEngine::draw()
 	_frameNumber++;
 	_camData.glossyFrameCount++;
 
-	vkTimer.get_results(_engineData);
+	//TODO: Enable
+	//vkTimer.get_results(_engineData);
 }
 
 void VulkanEngine::run()
 {
-	OPTICK_EVENT();
-
 	SDL_Event e;
 	bool bQuit = false;
 	bool onGui = true;
@@ -742,7 +732,6 @@ void VulkanEngine::run()
 	while (!bQuit)
 	{
 		bool moved = false;
-		OPTICK_FRAME("MainThread");
 
 		const Uint8* keys = SDL_GetKeyboardState(NULL);
 
@@ -812,8 +801,6 @@ void VulkanEngine::run()
 
 void VulkanEngine::init_vulkan()
 {
-	OPTICK_EVENT();
-
 	vkb::InstanceBuilder builder;
 
 	//make the vulkan instance, with basic debug features
@@ -840,6 +827,7 @@ void VulkanEngine::init_vulkan()
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR featureAccel = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
 	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 	VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_feature = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
 
 	features11.shaderDrawParameters = VK_TRUE;
 	features11.pNext = &features12;
@@ -855,6 +843,9 @@ void VulkanEngine::init_vulkan()
 	featureRt.pNext = &featureAccel;
 
 	featureAccel.accelerationStructure = true;
+	featureAccel.pNext = &dynamic_rendering_feature;
+
+	dynamic_rendering_feature.dynamicRendering = true;
 
 	//use vkbootstrap to select a gpu. 
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
@@ -869,6 +860,7 @@ void VulkanEngine::init_vulkan()
 		.add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
 		.add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
+		.add_required_extension(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
 		.select();
 	
 	//printf(physicalDeviceSelectionResult.error().message().c_str());
@@ -913,16 +905,13 @@ void VulkanEngine::init_vulkan()
 
 void VulkanEngine::init_swapchain()
 {
-	OPTICK_EVENT();
-
 	vkb::SwapchainBuilder swapchainBuilder{ _chosenGPU,_engineData.device,_surface };
-
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		.use_default_format_selection()
 		//use vsync present mode
 		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
 		.set_desired_extent(_windowExtent.width, _windowExtent.height)
-		.set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+		//.set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 		.build()
 		.value();
 
@@ -930,6 +919,23 @@ void VulkanEngine::init_swapchain()
 	_swapchain = vkbSwapchain.swapchain;
 	_swapchainImages = vkbSwapchain.get_images().value();
 	_swapchainImageViews = vkbSwapchain.get_image_views().value();
+
+	for (int i = 0; i < _swapchainImages.size(); i++) {
+		AllocatedImage allocatedImage;
+		allocatedImage.format = vkbSwapchain.image_format;
+		allocatedImage._image = _swapchainImages[i];
+		_swapchainAllocatedImage.push_back(allocatedImage);
+	}
+
+	_swapchainBindings.resize(3);
+
+	for (int i = 0; i < _swapchainImages.size(); i++) {
+		_swapchainBindings[i] = _engineData.renderGraph->register_image_view(&_swapchainAllocatedImage[i], {
+		.sampler = Vrg::Sampler::NEAREST,
+		.baseMipLevel = 0,
+		.mipLevelCount = 1
+		}, "Swapchain" + std::to_string(i));
+	}
 
 	_swachainImageFormat = vkbSwapchain.image_format;
 
@@ -942,297 +948,10 @@ void VulkanEngine::init_swapchain()
 		_windowExtent.height,
 		1
 	};
-	
-	VkImageCreateInfo dimg_info = vkinit::image_create_info(_engineData.depth32Format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
-
-	VmaAllocationCreateInfo dimg_allocinfo = {};
-	dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	//allocate and create the image
-	vmaCreateImage(_engineData.allocator, &dimg_info, &dimg_allocinfo, &_depthImage._image, &_depthImage._allocation, nullptr);
-
-	//build an image-view for the depth image to use for rendering
-	VkImageViewCreateInfo dview_info = vkinit::imageview_create_info(_engineData.depth32Format, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-	VK_CHECK(vkCreateImageView(_engineData.device, &dview_info, nullptr, &_depthImageView));
-
-	//add to deletion queues
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroyImageView(_engineData.device, _depthImageView, nullptr);
-		vmaDestroyImage(_engineData.allocator, _depthImage._image, _depthImage._allocation);
-	});
-}
-
-void VulkanEngine::init_default_renderpass()
-{
-	OPTICK_EVENT();
-
-	//we define an attachment description for our main color image
-	//the attachment is loaded as "clear" when renderpass start
-	//the attachment is stored when renderpass ends
-	//the attachment layout starts as "undefined", and transitions to "Present" so its possible to display it
-	//we dont care about stencil, and dont use multisampling
-
-	VkAttachmentDescription color_attachment = {};
-	color_attachment.format = _swachainImageFormat;
-	color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkAttachmentReference color_attachment_ref = {};
-	color_attachment_ref.attachment = 0;
-	color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentDescription depth_attachment = {};
-	// Depth attachment
-	depth_attachment.flags = 0;
-	depth_attachment.format = _engineData.depth32Format;
-	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentReference depth_attachment_ref = {};
-	depth_attachment_ref.attachment = 1;
-	depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	//we are going to create 1 subpass, which is the minimum you can do
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &color_attachment_ref;
-	subpass.pDepthStencilAttachment = &depth_attachment_ref;
-
-	// Subpass dependencies for layout transitions
-	VkSubpassDependency dependencies[2];
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	//array of 2 attachments, one for the color, and other for depth
-	VkAttachmentDescription attachments[2] = { color_attachment,depth_attachment };
-
-	VkRenderPassCreateInfo render_pass_info = {};
-	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	render_pass_info.attachmentCount = 2;
-	render_pass_info.pAttachments = attachments;
-	render_pass_info.subpassCount = 1;
-	render_pass_info.pSubpasses = &subpass;
-	render_pass_info.dependencyCount = 2;
-	render_pass_info.pDependencies = dependencies;
-
-	VK_CHECK(vkCreateRenderPass(_engineData.device, &render_pass_info, nullptr, &_renderPass));
-
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroyRenderPass(_engineData.device, _renderPass, nullptr);
-	});
-}
-
-void VulkanEngine::init_colordepth_renderpass()
-{
-	OPTICK_EVENT();
-
-	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = _engineData.color32Format;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	VkAttachmentReference colorReference = {};
-	colorReference.attachment = 0;
-	colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentDescription depthAttachment{};
-	depthAttachment.format = _engineData.depth32Format;
-	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;							// Clear depth at beginning of the render pass
-	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;						// We will read from depth, so it's important to store the depth attachment results
-	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;					// We don't care about initial layout of the attachment
-	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;// Attachment will be transitioned to shader read at render pass end
-
-	VkAttachmentReference depthReference = {};
-	depthReference.attachment = 1;
-	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;			// Attachment will be used as depth/stencil during render pass
-
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorReference;
-	subpass.pDepthStencilAttachment = &depthReference;									// Reference to our depth attachment
-
-	// Use subpass dependencies for layout transitions
-	std::array<VkSubpassDependency, 2> dependencies;
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	VkAttachmentDescription attachments[2] = { colorAttachment,depthAttachment };
-
-	VkRenderPassCreateInfo renderPassCreateInfo = {};
-	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.attachmentCount = 2;
-	renderPassCreateInfo.pAttachments = attachments;
-	renderPassCreateInfo.subpassCount = 1;
-	renderPassCreateInfo.pSubpasses = &subpass;
-	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
-	renderPassCreateInfo.pDependencies = dependencies.data();
-
-	VK_CHECK(vkCreateRenderPass(_engineData.device, &renderPassCreateInfo, nullptr, &_engineData.colorDepthRenderPass));
-}
-
-void VulkanEngine::init_color_renderpass()
-{
-	OPTICK_EVENT();
-
-	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = _engineData.color32Format;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	VkAttachmentReference colorReference = {};
-	colorReference.attachment = 0;
-	colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorReference;
-
-	// Use subpass dependencies for layout transitions
-	std::array<VkSubpassDependency, 2> dependencies;
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	VkAttachmentDescription attachments[1] = { colorAttachment };
-
-	VkRenderPassCreateInfo renderPassCreateInfo = {};
-	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.attachmentCount = 1;
-	renderPassCreateInfo.pAttachments = attachments;
-	renderPassCreateInfo.subpassCount = 1;
-	renderPassCreateInfo.pSubpasses = &subpass;
-	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
-	renderPassCreateInfo.pDependencies = dependencies.data();
-
-	VK_CHECK(vkCreateRenderPass(_engineData.device, &renderPassCreateInfo, nullptr, &_engineData.colorRenderPass));
-}
-
-void VulkanEngine::init_framebuffers()
-{
-	OPTICK_EVENT();
-
-	// Create default framebuffers
-	{
-		VkFramebufferCreateInfo fb_info = vkinit::framebuffer_create_info(_renderPass, _windowExtent);
-
-		const uint32_t swapchain_imagecount = _swapchainImages.size();
-		_framebuffers = std::vector<VkFramebuffer>(swapchain_imagecount);
-
-		for (int i = 0; i < swapchain_imagecount; i++)
-		{
-			VkImageView attachments[2];
-			attachments[0] = _swapchainImageViews[i];
-			attachments[1] = _depthImageView;
-
-			fb_info.pAttachments = attachments;
-			fb_info.attachmentCount = 2;
-
-			VK_CHECK(vkCreateFramebuffer(_engineData.device, &fb_info, nullptr, &_framebuffers[i]));
-
-			_mainDeletionQueue.push_function([=]() {
-				vkDestroyFramebuffer(_engineData.device, _framebuffers[i], nullptr);
-				vkDestroyImageView(_engineData.device, _swapchainImageViews[i], nullptr);
-				});
-		}
-	}
-
-	//Create a linear sampler
-	VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
-	samplerInfo.mipLodBias = 0.0f;
-	samplerInfo.maxAnisotropy = 1.0f;
-	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = 1.0f;
-	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo, nullptr, &_engineData.linearSampler));
-
-	//Create a nearest sampler
-	VkSamplerCreateInfo samplerInfo2 = vkinit::sampler_create_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
-	samplerInfo2.mipLodBias = 0.0f;
-	samplerInfo2.maxAnisotropy = 1.0f;
-	samplerInfo2.minLod = 0.0f;
-	samplerInfo2.maxLod = 1.0f;
-	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo2, nullptr, &_engineData.nearestSampler));
-
-	VkSamplerCreateInfo samplerInfo3 = vkinit::sampler_create_info(VK_FILTER_CUBIC_IMG, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
-	samplerInfo3.mipLodBias = 0.0f;
-	samplerInfo3.maxAnisotropy = 1.0f;
-	samplerInfo3.minLod = 0.0f;
-	samplerInfo3.maxLod = 1.0f;
-	VK_CHECK(vkCreateSampler(_engineData.device, &samplerInfo3, nullptr, &_engineData.cubicSampler));
 }
 
 void VulkanEngine::init_commands()
 {
-	OPTICK_EVENT();
-
 	//create a command pool for commands submitted to the graphics queue.
 	//we also want the pool to allow for resetting of individual command buffers
 	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_engineData.graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
@@ -1259,8 +978,6 @@ void VulkanEngine::init_commands()
 
 void VulkanEngine::init_sync_structures()
 {
-	OPTICK_EVENT();
-
 	//create syncronization structures
 	//one fence to control when the gpu has finished rendering the frame,
 	//and 2 semaphores to syncronize rendering with swapchain
@@ -1297,8 +1014,6 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptor_pool()
 {
-	OPTICK_EVENT();
-
 	std::vector<VkDescriptorPoolSize> sizes =
 	{
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
@@ -1316,233 +1031,172 @@ void VulkanEngine::init_descriptor_pool()
 	pool_info.pPoolSizes = sizes.data();
 	vkCreateDescriptorPool(_engineData.device, &pool_info, nullptr, &_engineData.descriptorPool);
 
+	_mainDeletionQueue.push_function([&]() {
+		vkDestroyDescriptorPool(_engineData.device, _engineData.descriptorPool, nullptr);
+		});
 }
 
 void VulkanEngine::init_descriptors()
 {
-	OPTICK_EVENT();
-
-	VkDescriptorSetLayoutCreateInfo setinfo = {};
-
-	//binding set for camera data + shadow map data
-	VkDescriptorSetLayoutBinding bindings[2] = { 
-		// camera
-		vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_MISS_BIT_KHR, 0),
-		// shadow map data
-		 vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_MISS_BIT_KHR, 1)
-	};
-	setinfo = vkinit::descriptorset_layout_create_info(bindings, 2);
-	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.globalSetLayout);
-
-	//binding set for object data
-	VkDescriptorSetLayoutBinding objectBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	setinfo = vkinit::descriptorset_layout_create_info(&objectBind, 1);
-	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.objectSetLayout);
-
-	//binding set for texture data
-	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	textureBind.descriptorCount = MAX_TEXTURES;
-	setinfo = vkinit::descriptorset_layout_create_info(&textureBind, 1);
-	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.textureSetLayout);
-
-	//binding set for materials
-	VkDescriptorSetLayoutBinding materialBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	setinfo = vkinit::descriptorset_layout_create_info(&materialBind, 1);
-	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.materialSetLayout);
-
-	//binding set fragment shader single texture
-	VkDescriptorSetLayoutBinding fragmentTextureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	setinfo = vkinit::descriptorset_layout_create_info(&fragmentTextureBind, 1);
-	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneDescriptors.singleImageSetLayout);
-
-	{
-		const int MAX_OBJECTS = 10000;
-		_objectBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		_cameraBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	const int MAX_OBJECTS = 10000;
 	
-		VkDescriptorSetAllocateInfo allocInfo = {};
+	_sceneData.objectBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_sceneData.cameraBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-		allocInfo = vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.globalSetLayout, 1);
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_sceneDescriptors.globalDescriptor);
 
-		allocInfo = vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.objectSetLayout, 1);
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_sceneDescriptors.objectDescriptor);
-		
-		VkWriteDescriptorSet cameraWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _sceneDescriptors.globalDescriptor, &_cameraBuffer._descriptorBufferInfo, 0);
-		VkWriteDescriptorSet shadowMapDataDefaultWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _sceneDescriptors.globalDescriptor, &shadow._shadowMapDataBuffer._descriptorBufferInfo, 1);
-		
-		VkWriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _sceneDescriptors.objectDescriptor, &_objectBuffer._descriptorBufferInfo, 0);
-
-		VkWriteDescriptorSet setWrites[] = { cameraWrite, shadowMapDataDefaultWrite, objectWrite };
-
-		vkUpdateDescriptorSets(_engineData.device, 3, setWrites, 0, nullptr);
-	}
-
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalDescriptor, "GlobalDescriptor");
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.globalSetLayout, "GlobalDescriptorSetLayout");
-
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.objectDescriptor, "ObjectDescriptor");
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.objectSetLayout, "ObjectDescriptorSetLayout");
-
-	vkutils::setObjectName(_engineData.device, _sceneDescriptors.singleImageSetLayout, "SingleImageSetLayout");
-
-	_mainDeletionQueue.push_function([&]() {
-		vkDestroyDescriptorPool(_engineData.device, _engineData.descriptorPool, nullptr);
-		//TODO: destroy buffers, layouts
-	});
+	_sceneData.objectBufferBinding = _engineData.renderGraph->register_storage_buffer(&_sceneData.objectBuffer, "ObjectBuffer");
+	_sceneData.cameraBufferBinding = _engineData.renderGraph->register_uniform_buffer(&_sceneData.cameraBuffer, "CameraBuffer");
 }
 
-void VulkanEngine::init_pipelines(bool rebuild) {
-	OPTICK_EVENT();
-
-	VkShaderModule fullscreenVertShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/fullscreen.vert.spv", &fullscreenVertShader))
-	{
-		assert("Fullscreen vertex Shader Loading Issue");
-	}
-	
-	VkShaderModule dilationFragShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/dilate.frag.spv", &dilationFragShader))
-	{
-		assert("Dilation Fragment Shader Loading Issue");
-	}
-
-	VkShaderModule gammaFragShader;
-	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/gamma.frag.spv", &gammaFragShader))
-	{
-		assert("Gamma Fragment Shader Loading Issue");
-	}
-
-	if (!rebuild) {
-		//DILATION PIPELINE LAYOUT INFO
-		{
-			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
-
-			VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_FRAGMENT_BIT , 0, sizeof(glm::ivec2) };
-			pipeline_layout_info.pushConstantRangeCount = 1;
-			pipeline_layout_info.pPushConstantRanges = &pushConstantRanges;
-
-			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_dilationPipelineLayout));
-		}
-
-		//GAMMA PIPELINE LAYOUT INFO
-		{
-			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
-			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
-			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
-		}
-
-		vkutils::setObjectName(_engineData.device, _dilationPipelineLayout, "DilationPipelineLayout");
-		vkutils::setObjectName(_engineData.device, _gammaPipelineLayout, "GammaPipelineLayout");
-
-	}
-	else {
-		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
-		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
-	}
-
-	//build the stage-create-info for both vertex and fragment stages. This lets the pipeline know the shader modules per stage
-	PipelineBuilder pipelineBuilder;
-
-	//vertex input controls how to read vertices from vertex buffers. We aren't using it yet
-	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
-
-	//input assembly is the configuration for drawing triangle lists, strips, or individual points.
-	//we are just going to draw triangle list
-	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-
-	//configure the rasterizer to draw filled triangles
-	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
-	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
-
-	//we don't use multisampling, so just run the default one
-	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
-
-	//a single blend attachment with no blending and writing to RGBA
-
-	auto blendState = vkinit::color_blend_attachment_state();
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendState);
-
-	//build the mesh pipeline
-	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
-	pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
-	pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
-
-	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
-	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
-
-	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
-
-	VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
-	conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
-	conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
-	conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
-	pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
-
-	/*
-	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
-	*/
-	pipelineBuilder._rasterizer.pNext = nullptr;
-
-	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, dilationFragShader));
-	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-	pipelineBuilder._rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	VkPipelineVertexInputStateCreateInfo emptyInputState = {};
-	emptyInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	emptyInputState.vertexAttributeDescriptionCount = 0;
-	emptyInputState.pVertexAttributeDescriptions = nullptr;
-	emptyInputState.vertexBindingDescriptionCount = 0;
-	emptyInputState.pVertexBindingDescriptions = nullptr;
-	pipelineBuilder._vertexInputInfo = emptyInputState;
-	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, VK_COMPARE_OP_LESS_OR_EQUAL);
-	pipelineBuilder._pipelineLayout = _dilationPipelineLayout;
-
-	_dilationPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
-	/*
-	* / VVVVVVVVVVVVV GAMMA PIPELINE VVVVVVVVVVVVV
-	*/
-	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, gammaFragShader));
-	pipelineBuilder._pipelineLayout = _gammaPipelineLayout;
-
-	_gammaPipeline = pipelineBuilder.build_pipeline(_engineData.device, _renderPass);
-
-	vkutils::setObjectName(_engineData.device, _dilationPipeline, "DilationPipeline");
-	vkutils::setObjectName(_engineData.device, _gammaPipeline, "GammaPipeline");
-
-	vkDestroyShaderModule(_engineData.device, fullscreenVertShader, nullptr);
-	vkDestroyShaderModule(_engineData.device, dilationFragShader, nullptr);
-	vkDestroyShaderModule(_engineData.device, gammaFragShader, nullptr);
-
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
-		vkDestroyPipelineLayout(_engineData.device, _dilationPipelineLayout, nullptr);
-
-		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
-		vkDestroyPipelineLayout(_engineData.device, _gammaPipelineLayout, nullptr);
-	});
-}
+//void VulkanEngine::init_pipelines(bool rebuild) {
+//	OPTICK_EVENT();
+//
+//	VkShaderModule fullscreenVertShader;
+//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/fullscreen.vert.spv", &fullscreenVertShader))
+//	{
+//		assert("Fullscreen vertex Shader Loading Issue");
+//	}
+//	
+//	VkShaderModule dilationFragShader;
+//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/dilate.frag.spv", &dilationFragShader))
+//	{
+//		assert("Dilation Fragment Shader Loading Issue");
+//	}
+//
+//	VkShaderModule gammaFragShader;
+//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/gamma.frag.spv", &gammaFragShader))
+//	{
+//		assert("Gamma Fragment Shader Loading Issue");
+//	}
+//
+//	if (!rebuild) {
+//		//DILATION PIPELINE LAYOUT INFO
+//		{
+//			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
+//			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
+//
+//			VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_FRAGMENT_BIT , 0, sizeof(glm::ivec2) };
+//			pipeline_layout_info.pushConstantRangeCount = 1;
+//			pipeline_layout_info.pPushConstantRanges = &pushConstantRanges;
+//
+//			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_dilationPipelineLayout));
+//		}
+//
+//		//GAMMA PIPELINE LAYOUT INFO
+//		{
+//			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
+//			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
+//			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
+//		}
+//
+//		vkutils::setObjectName(_engineData.device, _dilationPipelineLayout, "DilationPipelineLayout");
+//		vkutils::setObjectName(_engineData.device, _gammaPipelineLayout, "GammaPipelineLayout");
+//
+//	}
+//	else {
+//		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
+//		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
+//	}
+//
+//	//build the stage-create-info for both vertex and fragment stages. This lets the pipeline know the shader modules per stage
+//	PipelineBuilder pipelineBuilder;
+//
+//	//vertex input controls how to read vertices from vertex buffers. We aren't using it yet
+//	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
+//
+//	//input assembly is the configuration for drawing triangle lists, strips, or individual points.
+//	//we are just going to draw triangle list
+//	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+//
+//	//configure the rasterizer to draw filled triangles
+//	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
+//	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
+//
+//	//we don't use multisampling, so just run the default one
+//	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
+//
+//	//a single blend attachment with no blending and writing to RGBA
+//
+//	auto blendState = vkinit::color_blend_attachment_state();
+//	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendState);
+//
+//	//build the mesh pipeline
+//	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
+//	pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
+//	pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
+//
+//	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
+//	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
+//
+//	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, //VK_COMPARE_OP_LESS_OR_EQUAL);
+//
+//	VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
+//	conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+//	conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+//	conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
+//	pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
+//
+//	/*
+//	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
+//	*/
+//	pipelineBuilder._rasterizer.pNext = nullptr;
+//
+//	pipelineBuilder._shaderStages.clear();
+//	pipelineBuilder._shaderStages.push_back(
+//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
+//	pipelineBuilder._shaderStages.push_back(
+//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, dilationFragShader));
+//	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+//	pipelineBuilder._rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+//	VkPipelineVertexInputStateCreateInfo emptyInputState = {};
+//	emptyInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+//	emptyInputState.vertexAttributeDescriptionCount = 0;
+//	emptyInputState.pVertexAttributeDescriptions = nullptr;
+//	emptyInputState.vertexBindingDescriptionCount = 0;
+//	emptyInputState.pVertexBindingDescriptions = nullptr;
+//	pipelineBuilder._vertexInputInfo = emptyInputState;
+//	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, //VK_COMPARE_OP_LESS_OR_EQUAL);
+//	pipelineBuilder._pipelineLayout = _dilationPipelineLayout;
+//
+//	_dilationPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
+//	/*
+//	* / VVVVVVVVVVVVV GAMMA PIPELINE VVVVVVVVVVVVV
+//	*/
+//	pipelineBuilder._shaderStages.clear();
+//	pipelineBuilder._shaderStages.push_back(
+//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
+//	pipelineBuilder._shaderStages.push_back(
+//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, gammaFragShader));
+//	pipelineBuilder._pipelineLayout = _gammaPipelineLayout;
+//
+//	_gammaPipeline = pipelineBuilder.build_pipeline(_engineData.device, _renderPass);
+//
+//	vkutils::setObjectName(_engineData.device, _dilationPipeline, "DilationPipeline");
+//	vkutils::setObjectName(_engineData.device, _gammaPipeline, "GammaPipeline");
+//
+//	vkDestroyShaderModule(_engineData.device, fullscreenVertShader, nullptr);
+//	vkDestroyShaderModule(_engineData.device, dilationFragShader, nullptr);
+//	vkDestroyShaderModule(_engineData.device, gammaFragShader, nullptr);
+//
+//	_mainDeletionQueue.push_function([=]() {
+//		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
+//		vkDestroyPipelineLayout(_engineData.device, _dilationPipelineLayout, nullptr);
+//
+//		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
+//		vkDestroyPipelineLayout(_engineData.device, _gammaPipelineLayout, nullptr);
+//	});
+//}
 
 void VulkanEngine::init_scene()
 {
-	OPTICK_EVENT();
-
-	std::string file_name = "../../assets/cornellFixed.gltf";
+	//std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/cornellsuzanne.gltf";
 	//std::string file_name = "../../assets/occluderscene.gltf";
 	//std::string file_name = "../../assets/reflection_new.gltf";
 	//std::string file_name = "../../assets/shtest.gltf";
 	//std::string file_name = "../../assets/bedroom/bedroom.gltf";
 	//std::string file_name = "../../assets/livingroom/livingroom.gltf";
-	//std::string file_name = "../../assets/picapica/scene.gltf";
+	std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "D:/newsponza/combined/sponza.gltf";
 
 	tinygltf::Model tmodel;
@@ -1668,13 +1322,13 @@ void VulkanEngine::init_scene()
 	/*
 	--
 	*/
-	materials.push_back(materials[materials.size() - 1]);
-	auto new_node = gltf_scene.nodes[gltf_scene.nodes.size() - 1];
-	auto new_mesh = gltf_scene.prim_meshes[new_node.prim_mesh];
-	new_mesh.material_idx = materials.size() - 1;
-	gltf_scene.prim_meshes.push_back(new_mesh);
-	new_node.prim_mesh = gltf_scene.prim_meshes.size() - 1;
-	gltf_scene.nodes.push_back(new_node);
+	//materials.push_back(materials[materials.size() - 1]);
+	//auto new_node = gltf_scene.nodes[gltf_scene.nodes.size() - 1];
+	//auto new_mesh = gltf_scene.prim_meshes[new_node.prim_mesh];
+	//new_mesh.material_idx = materials.size() - 1;
+	//gltf_scene.prim_meshes.push_back(new_mesh);
+	//new_node.prim_mesh = gltf_scene.prim_meshes.size() - 1;
+	//gltf_scene.nodes.push_back(new_node);
 
 	/*
 	* TODO: After reading the GLTF scene, what I can do is:
@@ -1683,38 +1337,35 @@ void VulkanEngine::init_scene()
 	* Correct the node data
 	*/
 
-	vertex_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.positions.data(), gltf_scene.positions.size() * sizeof(glm::vec3),
+	_sceneData.vertexBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.positions.data(), gltf_scene.positions.size() * sizeof(glm::vec3),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	index_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.indices.data(), gltf_scene.indices.size() * sizeof(uint32_t),
+	_sceneData.indexBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.indices.data(), gltf_scene.indices.size() * sizeof(uint32_t),
 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	normal_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.normals.data(), gltf_scene.normals.size() * sizeof(glm::vec3),
+	_sceneData.normalBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.normals.data(), gltf_scene.normals.size() * sizeof(glm::vec3),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	tangent_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.tangents.data(), gltf_scene.tangents.size() * sizeof(glm::vec4),
+	_sceneData.tangentBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.tangents.data(), gltf_scene.tangents.size() * sizeof(glm::vec4),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-
-	tex_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
+	_sceneData.texBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.texcoords0.data(), gltf_scene.texcoords0.size() * sizeof(glm::vec2),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	lightmap_tex_buffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.lightmapUVs.data(), gltf_scene.lightmapUVs.size() * sizeof(glm::vec2),
+	_sceneData.lightmapTexBuffer = vkutils::create_upload_buffer(&_engineData, gltf_scene.lightmapUVs.data(), gltf_scene.lightmapUVs.size() * sizeof(glm::vec2),
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-	material_buffer = vkutils::create_upload_buffer(&_engineData, materials.data(), materials.size() * sizeof(GPUBasicMaterialData),
+	_sceneData.materialBuffer = vkutils::create_upload_buffer(&_engineData, materials.data(), materials.size() * sizeof(GPUBasicMaterialData),
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-	// MATERIAL DESCRIPTOR
-	{
-		VkDescriptorSetAllocateInfo materialSetAlloc =
-			vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.materialSetLayout, 1);
+	_sceneData.vertexBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_sceneData.vertexBuffer, VK_FORMAT_R32G32B32_SFLOAT, "VertexBuffer");
+	_sceneData.indexBufferBinding = _engineData.renderGraph->register_index_buffer(&_sceneData.indexBuffer, VK_FORMAT_R32_UINT, "IndexBuffer");
+	_sceneData.normalBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_sceneData.normalBuffer, VK_FORMAT_R32G32B32_SFLOAT, "NormalBuffer");
+	_sceneData.tangentBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_sceneData.tangentBuffer, VK_FORMAT_R32G32B32A32_SFLOAT, "TangentBuffer");
+	_sceneData.texBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_sceneData.texBuffer, VK_FORMAT_R32G32_SFLOAT, "TexBuffer");
+	_sceneData.lightmapTexBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_sceneData.lightmapTexBuffer, VK_FORMAT_R32G32_SFLOAT, "LightmapTexBuffer");
+	_sceneData.materialBufferBinding = _engineData.renderGraph->register_storage_buffer(&_sceneData.materialBuffer, "MaterialBuffer");
 
-		vkAllocateDescriptorSets(_engineData.device, &materialSetAlloc, &_sceneDescriptors.materialDescriptor);
-
-		VkWriteDescriptorSet materialWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _sceneDescriptors.materialDescriptor, &material_buffer._descriptorBufferInfo, 0);
-		vkUpdateDescriptorSets(_engineData.device, 1, &materialWrite, 0, nullptr);
-	}
 	std::vector<VkDescriptorImageInfo> image_infos;
 
 	VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_LINEAR);
@@ -1775,17 +1426,22 @@ void VulkanEngine::init_scene()
 
 	// TEXTURE DESCRIPTOR
 	{
+		VkDescriptorSetLayoutBinding textureBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+		textureBind.descriptorCount = image_infos.size();
+		VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(&textureBind, 1);
+		vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneData.textureSetLayout);
+
 		VkDescriptorSetAllocateInfo allocInfo =
-			vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneDescriptors.textureSetLayout, 1);
+			vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneData.textureSetLayout, 1);
 
-		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_sceneDescriptors.textureDescriptor);
+		vkAllocateDescriptorSets(_engineData.device, &allocInfo, &_sceneData.textureDescriptor);
 
-		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _sceneDescriptors.textureDescriptor, image_infos.data(), 0, image_infos.size());
+		VkWriteDescriptorSet textures = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, _sceneData.textureDescriptor, image_infos.data(), 0, image_infos.size());
 
 		vkUpdateDescriptorSets(_engineData.device, 1, &textures, 0, nullptr);
 	}
 
-	_vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, vertex_buffer, index_buffer);
+	_vulkanRaytracing.convert_scene_to_vk_geometry(gltf_scene, _sceneData.vertexBuffer, _sceneData.indexBuffer);
 	_vulkanRaytracing.build_blas(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
 	_vulkanRaytracing.build_tlas(gltf_scene, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR, false);
 
@@ -1793,19 +1449,19 @@ void VulkanEngine::init_scene()
 	VkBufferDeviceAddressInfo info = { };
 	info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 
-	info.buffer = vertex_buffer._buffer;
+	info.buffer = _sceneData.vertexBuffer._buffer;
 	desc.vertexAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
 
-	info.buffer = normal_buffer._buffer;
+	info.buffer = _sceneData.normalBuffer._buffer;
 	desc.normalAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
 
-	info.buffer = tex_buffer._buffer;
+	info.buffer = _sceneData.texBuffer._buffer;
 	desc.uvAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
 
-	info.buffer = index_buffer._buffer;
+	info.buffer = _sceneData.indexBuffer._buffer;
 	desc.indexAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
 
-	info.buffer = lightmap_tex_buffer._buffer;
+	info.buffer = _sceneData.lightmapTexBuffer._buffer;
 	desc.lightmapUvAddress = vkGetBufferDeviceAddress(_engineData.device, &info);
 
 	GPUMeshInfo* dataMesh = new GPUMeshInfo[gltf_scene.prim_meshes.size()];
@@ -1815,16 +1471,14 @@ void VulkanEngine::init_scene()
 		dataMesh[i].materialIndex = gltf_scene.prim_meshes[i].material_idx;
 	}
 
-	sceneDescBuffer = vkutils::create_upload_buffer(&_engineData, &desc, sizeof(GPUSceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-	meshInfoBuffer = vkutils::create_upload_buffer(&_engineData, dataMesh, sizeof(GPUMeshInfo) * gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	_sceneData.sceneDescBuffer = vkutils::create_upload_buffer(&_engineData, &desc, sizeof(GPUSceneDesc), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	_sceneData.meshInfoBuffer = vkutils::create_upload_buffer(&_engineData, dataMesh, sizeof(GPUMeshInfo) * gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	delete[] dataMesh;
 }
 
 void VulkanEngine::init_imgui()
 {
-	OPTICK_EVENT();
-
 	//1: create descriptor pool for IMGUI
 	// the size of the pool is very oversize, but it's copied from imgui demo itself.
 	VkDescriptorPoolSize pool_sizes[] =
@@ -1881,7 +1535,7 @@ void VulkanEngine::init_imgui()
 	//execute a gpu command to upload imgui font textures
 	vkutils::immediate_submit(&_engineData, [&](VkCommandBuffer cmd) {
 		ImGui_ImplVulkan_CreateFontsTexture(cmd);
-		});
+	});
 
 	//clear font textures from cpu data
 	ImGui_ImplVulkan_DestroyFontUploadObjects();
@@ -1896,19 +1550,10 @@ void VulkanEngine::init_imgui()
 
 void VulkanEngine::draw_objects(VkCommandBuffer cmd)
 {
-	OPTICK_EVENT();
-
-	{
-		VkDeviceSize offsets[] = { 0, 0, 0, 0, 0 };
-		VkBuffer buffers[] = { vertex_buffer._buffer, normal_buffer._buffer, tex_buffer._buffer, lightmap_tex_buffer._buffer, tangent_buffer._buffer };
-		vkCmdBindVertexBuffers(cmd, 0, 5, buffers, offsets);
-		vkCmdBindIndexBuffer(cmd, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
-
-		for (int i = 0; i < gltf_scene.nodes.size(); i++) {
-			if (true || gltf_scene.materials[gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh].material_idx].alpha_mode == 0) {
-				auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
-				vkCmdDrawIndexed(cmd, mesh.idx_count, 1, mesh.first_idx, mesh.vtx_offset, i);
-			}
+	for (int i = 0; i < gltf_scene.nodes.size(); i++) {
+		if (true || gltf_scene.materials[gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh].material_idx].alpha_mode == 0) {
+			auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
+			vkCmdDrawIndexed(cmd, mesh.idx_count, 1, mesh.first_idx, mesh.vtx_offset, i);
 		}
 	}
 }
@@ -1924,4 +1569,81 @@ void VulkanEngine::init_query_pool()
 	createInfo.queryCount = 255; // REVIEW
 
 	VK_CHECK(vkCreateQueryPool(_engineData.device, &createInfo, nullptr, &_engineData.queryPool));
+}
+
+void VulkanEngine::init_default_renderpass()
+{
+	VkAttachmentDescription color_attachment = {};
+	color_attachment.format = _swachainImageFormat;
+	color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference color_attachment_ref = {};
+	color_attachment_ref.attachment = 0;
+	color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentDescription depth_attachment = {};
+	// Depth attachment
+	depth_attachment.flags = 0;
+	depth_attachment.format = DEPTH_32_FORMAT;
+	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depth_attachment_ref = {};
+	depth_attachment_ref.attachment = 1;
+	depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	//we are going to create 1 subpass, which is the minimum you can do
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &color_attachment_ref;
+	subpass.pDepthStencilAttachment = &depth_attachment_ref;
+
+	// Subpass dependencies for layout transitions
+	VkSubpassDependency dependencies[2];
+
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	//array of 2 attachments, one for the color, and other for depth
+	VkAttachmentDescription attachments[2] = { color_attachment,depth_attachment };
+
+	VkRenderPassCreateInfo render_pass_info = {};
+	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	render_pass_info.attachmentCount = 2;
+	render_pass_info.pAttachments = attachments;
+	render_pass_info.subpassCount = 1;
+	render_pass_info.pSubpasses = &subpass;
+	render_pass_info.dependencyCount = 2;
+	render_pass_info.pDependencies = dependencies;
+
+	VK_CHECK(vkCreateRenderPass(_engineData.device, &render_pass_info, nullptr, &_renderPass));
+
+	_mainDeletionQueue.push_function([=]() {
+		vkDestroyRenderPass(_engineData.device, _renderPass, nullptr);
+	});
 }

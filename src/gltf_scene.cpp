@@ -601,6 +601,86 @@ void GltfScene::process_mesh(const tinygltf::Model& tmodel,
 			}
 		}
 
+		// TEXCOORD_1
+		if ((attributes & GltfAttributes::Texcoord_1) ==
+			GltfAttributes::Texcoord_1) {
+			if (!get_attribute<glm::vec2>(tmodel, tmesh, texcoords1,
+				"TEXCOORD_1")) {
+				// Set them all to zero
+				//      m_texcoords0.insert(m_texcoords0.end(),
+				//      resultMesh.vertexCount, nvmath::vec2f(0, 0));
+
+				// Cube map projection
+				for (uint32_t i = 0; i < result_mesh.vtx_count; i++) {
+					const auto& pos = positions[result_mesh.vtx_offset + i];
+					float absx = fabs(pos.x);
+					float absy = fabs(pos.y);
+					float absz = fabs(pos.z);
+
+					int is_x_positive = pos.x > 0 ? 1 : 0;
+					int is_y_positive = pos.y > 0 ? 1 : 0;
+					int is_z_positive = pos.z > 0 ? 1 : 0;
+
+					float maxAxis, uc, vc;
+
+					// POSITIVE X
+					if (is_x_positive && absx >= absy && absx >= absz) {
+						// u (0 to 1) goes from +z to -z
+						// v (0 to 1) goes from -y to +y
+						maxAxis = absx;
+						uc = -pos.z;
+						vc = pos.y;
+					}
+					// NEGATIVE X
+					if (!is_x_positive && absx >= absy && absx >= absz) {
+						// u (0 to 1) goes from -z to +z
+						// v (0 to 1) goes from -y to +y
+						maxAxis = absx;
+						uc = pos.z;
+						vc = pos.y;
+					}
+					// POSITIVE Y
+					if (is_y_positive && absy >= absx && absy >= absz) {
+						// u (0 to 1) goes from -x to +x
+						// v (0 to 1) goes from +z to -z
+						maxAxis = absy;
+						uc = pos.x;
+						vc = -pos.z;
+					}
+					// NEGATIVE Y
+					if (!is_y_positive && absy >= absx && absy >= absz) {
+						// u (0 to 1) goes from -x to +x
+						// v (0 to 1) goes from -z to +z
+						maxAxis = absy;
+						uc = pos.x;
+						vc = pos.z;
+					}
+					// POSITIVE Z
+					if (is_z_positive && absz >= absx && absz >= absy) {
+						// u (0 to 1) goes from -x to +x
+						// v (0 to 1) goes from -y to +y
+						maxAxis = absz;
+						uc = pos.x;
+						vc = pos.y;
+					}
+					// NEGATIVE Z
+					if (!is_z_positive && absz >= absx && absz >= absy) {
+						// u (0 to 1) goes from +x to -x
+						// v (0 to 1) goes from -y to +y
+						maxAxis = absz;
+						uc = -pos.x;
+						vc = pos.y;
+					}
+
+					// Convert range from -1 to 1 to 0 to 1
+					float u = 0.5f * (uc / maxAxis + 1.0f);
+					float v = 0.5f * (vc / maxAxis + 1.0f);
+
+					texcoords1.emplace_back(u, v);
+				}
+			}
+		}
+
 		// TANGENT
 		if ((attributes & GltfAttributes::Tangent) == GltfAttributes::Tangent) {
 			if (!get_attribute<glm::vec4>(tmodel, tmesh, tangents, "TANGENT")) {

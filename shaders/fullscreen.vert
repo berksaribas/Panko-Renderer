@@ -1,7 +1,5 @@
 #version 460
 
-layout (location = 0) in vec2 vPosition;
-
 layout (location = 0) out vec2 outUV;
 
 void main(void)

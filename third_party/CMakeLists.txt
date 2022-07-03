@@ -16,8 +16,6 @@ add_library(tinyobjloader STATIC)
 
 add_library(stb_image INTERFACE)
 
-add_library(optick STATIC)
-
 add_library(spherical_harmonics STATIC)
 
 add_library(eigen INTERFACE)
@@ -29,26 +27,14 @@ target_sources(vkbootstrap PRIVATE
     vkbootstrap/VkBootstrap.cpp
     )
 
-file(GLOB SRC_FILES_OPTICK    
-    "optick/*.cpp"
-    "optick/*.h"
-)
-
 file(GLOB SRC_FILES_SPHERICAL  
     "spherical_harmonics/*.cc"
     "spherical_harmonics/*.h"
 )
 
-target_sources(optick PRIVATE 
-    ${SRC_FILES_OPTICK}
-    )
-
 target_sources(spherical_harmonics PRIVATE 
     ${SRC_FILES_SPHERICAL}
 )
-
-target_include_directories(optick PUBLIC optick)
-target_link_libraries(optick PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
 
 target_include_directories(vkbootstrap PUBLIC vkbootstrap)
 target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)

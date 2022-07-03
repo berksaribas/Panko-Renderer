@@ -1,3 +1,4 @@
+/*
 #pragma once
 
 #include "vk_types.h"
@@ -27,3 +28,4 @@ private:
 
 	VkExtent2D _imageSize;
 };
+*/

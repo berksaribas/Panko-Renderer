@@ -381,6 +381,30 @@ void vkutils::immediate_submit(EngineData* engineData, std::function<void(VkComm
 	vkResetCommandPool(engineData->device, engineData->uploadContext.commandPool, 0);
 }
 
+AllocatedImage vkutils::create_image(EngineData* engineData, VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels)
+{
+	AllocatedImage allocatedImage;
+
+	VkImageCreateInfo dimg_info = vkinit::image_create_info(format, usageFlags, extent, mipLevels);
+	VmaAllocationCreateInfo dimg_allocinfo = {};
+	dimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	dimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VK_CHECK(vmaCreateImage(engineData->allocator, &dimg_info, &dimg_allocinfo, &allocatedImage._image, &allocatedImage._allocation, nullptr));
+
+	allocatedImage.mips = mipLevels;
+	allocatedImage.format = format;
+
+	return allocatedImage;
+}
+
+VkImageView vkutils::create_image_view(EngineData* engineData, AllocatedImage& allocatedImage, VkFormat format, VkImageAspectFlagBits aspectFlags, uint32_t mipLevels)
+{
+	VkImageView imageView;
+	VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(format, allocatedImage._image, aspectFlags, mipLevels);
+	VK_CHECK(vkCreateImageView(engineData->device, &imageViewInfo, nullptr, &imageView));
+	return imageView;
+}
+
 void vkutils::image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange imageSubresourceRange, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage)
 {
 	VkImageMemoryBarrier imageMemoryBarrier = {};
@@ -402,6 +426,27 @@ void vkutils::image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout ol
 		0, nullptr,
 		0, nullptr,
 		1, &imageMemoryBarrier);
+}
+
+void vkutils::memory_barrier(VkCommandBuffer cmd, VkBuffer buffer, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage)
+{
+	VkBufferMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	barrier.size = VK_WHOLE_SIZE;
+	barrier.srcAccessMask = srcAccess;
+	barrier.dstAccessMask = dstStage;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.buffer = buffer;
+
+	vkCmdPipelineBarrier(
+		cmd,
+		srcStage,
+		dstStage,
+		0,
+		0, nullptr,
+		1, &barrier,
+		0, nullptr);
 }
 
 void vkutils::setObjectName(VkDevice device, const uint64_t object, const std::string& name, VkObjectType t)

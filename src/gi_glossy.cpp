@@ -1,3 +1,4 @@
+/*
 #include <gi_glossy.h>
 #include <vk_initializers.h>
 #include <vk_utils.h>
@@ -382,3 +383,4 @@ void GlossyIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sce
 		}
 	}
 }
+*/
