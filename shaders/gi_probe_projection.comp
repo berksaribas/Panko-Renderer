@@ -11,8 +11,8 @@ layout (local_size_x = 64) in;
 layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
 layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { GPUProbeRaycastResult probeRaycasts[]; };
 layout(std140, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
-layout(std140, set = 0, binding = 3) buffer _OutputBuffer { vec4 outColors[]; };
-layout(set = 0, binding = 4) uniform sampler2D lightmap;
+layout(set = 0, binding = 3) uniform sampler2D lightmap;
+layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
 
 void main()
 {

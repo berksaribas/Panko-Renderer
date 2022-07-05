@@ -7,11 +7,13 @@
 #include <initializer_list>
 #include "vk_cache.h"
 #include "memory.h"
+#include "vk_raytracing.h"
 
 namespace Vrg {
 	class RenderGraph {
 	public:
 		RenderGraph(EngineData* _engineData);
+		void enable_raytracing(VulkanRaytracing* _vulkanRaytracing);
 		void add_render_pass(RenderPass renderPass);
 		Bindable* register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName);
 		Bindable* register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName);
@@ -23,6 +25,7 @@ namespace Vrg {
 		void execute(VkCommandBuffer cmd);
 	private:
 		VkPipeline get_pipeline(RenderPass& renderPass);
+		RaytracingPipeline* get_raytracing_pipeline(RenderPass& renderPass);
 		VkPipelineLayout get_pipeline_layout(RenderPass& renderPass);
 		VkDescriptorSet get_descriptor_set(RenderPass& renderPass, int set);
 		VkDescriptorSetLayout get_descriptor_set_layout(RenderPass& renderPass, int set);
@@ -32,6 +35,7 @@ namespace Vrg {
 
 		//
 		EngineData* engineData;
+		VulkanRaytracing* vulkanRaytracing;
 		FrameAllocator frameAllocator;
 
 		//render passes
@@ -47,6 +51,7 @@ namespace Vrg {
 
 		//caches
 		std::unordered_map<std::string, VkPipeline> pipelineCache;
+		std::unordered_map<std::string, RaytracingPipeline> raytracingPipelineCache;
 		std::unordered_map<ImageViewCache, VkImageView, ImageViewCache_hash> imageViewCache;
 		std::unordered_map<DescriptorSetCache, VkDescriptorSet, DescriptorSetCache_hash> descriptorSetCache;
 		std::unordered_map<DescriptorSetLayoutCache, VkDescriptorSetLayout, DescriptorSetLayoutCache_hash> descriptorSetLayoutCache;

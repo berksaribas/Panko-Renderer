@@ -21,10 +21,10 @@ layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
 layout(set = 0, binding = 1) uniform _SceneDesc { GPUSceneDesc sceneDesc; };
 layout(std140, set = 0, binding = 2) readonly buffer _MeshInfo { GPUMeshInfo meshInfos[]; };
 
-layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
-layout(set = 1, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMapData; };
+layout(set = 2, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+layout(set = 2, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMapData; };
 
-layout(std140, set = 2, binding = 0) readonly buffer _ObjectBuffer{ GPUObjectData objects[]; };
+layout(std140, set = 3, binding = 0) readonly buffer _ObjectBuffer{ GPUObjectData objects[]; };
 
 layout(set = 4, binding = 0) uniform sampler2D[] textures;
 

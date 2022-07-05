@@ -77,4 +77,7 @@ struct SceneData {
 
     VkDescriptorSet textureDescriptor;
     VkDescriptorSetLayout textureSetLayout;
+
+    VkDescriptorSet raytracingDescriptor;
+    VkDescriptorSetLayout raytracingSetLayout;
 };

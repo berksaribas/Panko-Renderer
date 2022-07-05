@@ -10,8 +10,6 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 	_imageSize = imageSize;
 	VkExtent3D extent3D = {_imageSize.width, _imageSize.height, 1};
 
-	printf("GBUFFER start\n\n");
-
 	for(int i = 0; i < 2; i++)
 	{
 		_gbufferdata[i].gbufferAlbedoMetallicImage = vkutils::create_image(&engineData, COLOR_8_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
@@ -52,8 +50,6 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			.mipLevelCount = 1
 		}, "GbufferDepthImage" + index);
 	}
-
-	printf("GBUFFER end\n\n");
 }
 
 void GBuffer::render(EngineData& engineData, SceneData& sceneData, std::function<void(VkCommandBuffer cmd)>&& function)

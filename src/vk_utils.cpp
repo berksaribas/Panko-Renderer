@@ -434,7 +434,7 @@ void vkutils::memory_barrier(VkCommandBuffer cmd, VkBuffer buffer, VkAccessFlags
 	barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
 	barrier.size = VK_WHOLE_SIZE;
 	barrier.srcAccessMask = srcAccess;
-	barrier.dstAccessMask = dstStage;
+	barrier.dstAccessMask = dstAccess;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.buffer = buffer;

@@ -6,7 +6,7 @@
 
 #include "common.glsl"
 
-layout(set = 1, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+layout(set = 2, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 
 layout(location = 0) rayPayloadInEXT ReflectionPayload payload;
 layout(location = 1) rayPayloadInEXT vec3 reflectionColor;

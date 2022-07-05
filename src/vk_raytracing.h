@@ -32,7 +32,6 @@ struct BuildAccelerationStructure {
 
 struct RaytracingPipeline {
 	VkPipeline pipeline;
-	VkPipelineLayout pipelineLayout;
 	std::vector<VkRayTracingShaderGroupCreateInfoKHR> shaderGroups;
 
 	AllocatedBuffer rtSBTBuffer;
@@ -50,7 +49,7 @@ public:
 	void build_blas(VkBuildAccelerationStructureFlagsKHR flags);
 	void build_tlas(GltfScene& scene, VkBuildAccelerationStructureFlagsKHR flags, bool update);
 	//Per pipeline
-	void create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo, const char* rgenPath, const char* missPath, const char* hitPath, int recursionDepth = 1, VkSpecializationInfo* rgenSpecialization = nullptr, VkSpecializationInfo* missSpecialization = nullptr, VkSpecializationInfo* hitSpecialization = nullptr);
+	void create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayout pipelineLayout, const char* rgenPath, const char* missPath, const char* hitPath, int recursionDepth = 1, VkSpecializationInfo* rgenSpecialization = nullptr, VkSpecializationInfo* missSpecialization = nullptr, VkSpecializationInfo* hitSpecialization = nullptr);
 	void destroy_raytracing_pipeline(RaytracingPipeline& raytracingPipeline);
 	AccelKHR tlas;
 	CommandContext _raytracingContext;

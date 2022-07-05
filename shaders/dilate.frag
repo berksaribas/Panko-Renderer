@@ -9,7 +9,6 @@ layout (location = 0) in vec2 InUv;
 layout (location = 0) out vec4 outFragColor;
 
 layout(set = 0, binding = 0) uniform sampler2D source;
-layout(push_constant) uniform _PushConstantRay { ivec2 size; };
 
 void main(void) {
     vec4 c = texture(source, InUv);

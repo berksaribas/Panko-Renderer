@@ -221,7 +221,7 @@ void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructure
 	vmaDestroyBuffer(_allocator, instancesBuffer._buffer, instancesBuffer._allocation);
 }
 
-void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo, const char* rgenPath, const char* missPath, const char* hitPath, int recursionDepth, VkSpecializationInfo* rgenSpecialization, VkSpecializationInfo* missSpecialization, VkSpecializationInfo* hitSpecialization)
+void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipeline, VkPipelineLayout pipelineLayout, const char* rgenPath, const char* missPath, const char* hitPath, int recursionDepth, VkSpecializationInfo* rgenSpecialization, VkSpecializationInfo* missSpecialization, VkSpecializationInfo* hitSpecialization)
 {
 	enum StageIndices
 	{
@@ -273,8 +273,6 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 	group.closestHitShader = eClosestHit;
 	raytracingPipeline.shaderGroups.push_back(group);
 
-	vkCreatePipelineLayout(_device, &pipelineLayoutCreateInfo, nullptr, &raytracingPipeline.pipelineLayout);
-
 	// Assemble the shader stages and recursion depth info into the ray tracing pipeline
 	VkRayTracingPipelineCreateInfoKHR rayPipelineInfo{ VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR };
 	rayPipelineInfo.stageCount = static_cast<uint32_t>(eShaderGroupCount);  // Stages are shaders
@@ -285,7 +283,7 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 	rayPipelineInfo.groupCount = static_cast<uint32_t>(raytracingPipeline.shaderGroups.size());
 	rayPipelineInfo.pGroups = raytracingPipeline.shaderGroups.data();
 	rayPipelineInfo.maxPipelineRayRecursionDepth = recursionDepth;  // Ray depth
-	rayPipelineInfo.layout = raytracingPipeline.pipelineLayout;
+	rayPipelineInfo.layout = pipelineLayout;
 
 	vkCreateRayTracingPipelinesKHR(_device, {}, {}, 1, & rayPipelineInfo, nullptr, &raytracingPipeline.pipeline);
 
@@ -364,7 +362,6 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
 void VulkanRaytracing::destroy_raytracing_pipeline(RaytracingPipeline& raytracingPipeline)
 {
 	vkDestroyPipeline(_device, raytracingPipeline.pipeline, nullptr);
-	vkDestroyPipelineLayout(_device, raytracingPipeline.pipelineLayout, nullptr);
 	vmaDestroyBuffer(_allocator, raytracingPipeline.rtSBTBuffer._buffer, raytracingPipeline.rtSBTBuffer._allocation);
 }
 

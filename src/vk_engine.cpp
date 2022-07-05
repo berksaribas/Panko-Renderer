@@ -54,7 +54,7 @@ PrecalculationResult precalculationResult = {};
 
 //GI Models
 GBuffer gbuffer;
-//DiffuseIllumination diffuseIllumination;
+DiffuseIllumination diffuseIllumination;
 Shadow shadow;
 //Deferred deferred;
 //GlossyIllumination glossyIllumination;
@@ -118,8 +118,8 @@ void VulkanEngine::init()
 	init_descriptor_pool();
 
 	_vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
+	_engineData.renderGraph->enable_raytracing(&_vulkanRaytracing);
 
-	init_descriptors();
 	init_default_renderpass();
 	init_imgui();
 
@@ -150,10 +150,13 @@ void VulkanEngine::init()
 	}
 	
 	init_query_pool();
+	init_descriptors();
 
+	brdfUtils.init_images(_engineData);
 	shadow.init_buffers(_engineData);
 	shadow.init_images(_engineData);
 	gbuffer.init_images(_engineData, _windowExtent);
+	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, gltf_scene);
 
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
@@ -503,9 +506,7 @@ void VulkanEngine::draw()
 	shadow._shadowMapData.depthMVP = depthProjectionMatrix * depthViewMatrix;
 
 	prepare_gui();
-
-	//TODO UNCOMMENT
-	/*
+	
 	if (showProbes) {
 		diffuseIllumination.debug_draw_probes(_vulkanDebugRenderer, showProbeRays, _sceneScale);
 	}
@@ -517,7 +518,6 @@ void VulkanEngine::draw()
 	if (showSpecificReceiver) {
 		diffuseIllumination.debug_draw_specific_receiver(_vulkanDebugRenderer, specificCluster, specificReceiver, specificReceiverRaySampleCount, probesEnabled, showSpecificProbeRays, _sceneScale);
 	}
-	*/
 
 	vkutils::cpu_to_gpu(_engineData.allocator, _sceneData.cameraBuffer, &_camData, sizeof(GPUCameraData));
 	shadow.prepare_rendering(_engineData);
@@ -548,6 +548,14 @@ void VulkanEngine::draw()
 		gbuffer.render(_engineData, _sceneData, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
+		if (enableGroundTruthDiffuse) {
+			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneData, shadow, brdfUtils);
+		}
+		else {
+			diffuseIllumination.render(cmd, _engineData, _sceneData, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
+				draw_objects(cmd);
+			}, useRealtimeRaycast);
+		}
 		
 		VkClearValue clearValue;
 		clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
@@ -1042,150 +1050,44 @@ void VulkanEngine::init_descriptors()
 	
 	_sceneData.objectBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	_sceneData.cameraBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-
 	_sceneData.objectBufferBinding = _engineData.renderGraph->register_storage_buffer(&_sceneData.objectBuffer, "ObjectBuffer");
 	_sceneData.cameraBufferBinding = _engineData.renderGraph->register_uniform_buffer(&_sceneData.cameraBuffer, "CameraBuffer");
-}
 
-//void VulkanEngine::init_pipelines(bool rebuild) {
-//	OPTICK_EVENT();
-//
-//	VkShaderModule fullscreenVertShader;
-//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/fullscreen.vert.spv", &fullscreenVertShader))
-//	{
-//		assert("Fullscreen vertex Shader Loading Issue");
-//	}
-//	
-//	VkShaderModule dilationFragShader;
-//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/dilate.frag.spv", &dilationFragShader))
-//	{
-//		assert("Dilation Fragment Shader Loading Issue");
-//	}
-//
-//	VkShaderModule gammaFragShader;
-//	if (!vkutils::load_shader_module(_engineData.device, "../../shaders/gamma.frag.spv", &gammaFragShader))
-//	{
-//		assert("Gamma Fragment Shader Loading Issue");
-//	}
-//
-//	if (!rebuild) {
-//		//DILATION PIPELINE LAYOUT INFO
-//		{
-//			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
-//			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
-//
-//			VkPushConstantRange pushConstantRanges = { VK_SHADER_STAGE_FRAGMENT_BIT , 0, sizeof(glm::ivec2) };
-//			pipeline_layout_info.pushConstantRangeCount = 1;
-//			pipeline_layout_info.pPushConstantRanges = &pushConstantRanges;
-//
-//			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_dilationPipelineLayout));
-//		}
-//
-//		//GAMMA PIPELINE LAYOUT INFO
-//		{
-//			VkDescriptorSetLayout setLayouts[] = { _sceneDescriptors.singleImageSetLayout };
-//			VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(setLayouts, 1);
-//			VK_CHECK(vkCreatePipelineLayout(_engineData.device, &pipeline_layout_info, nullptr, &_gammaPipelineLayout));
-//		}
-//
-//		vkutils::setObjectName(_engineData.device, _dilationPipelineLayout, "DilationPipelineLayout");
-//		vkutils::setObjectName(_engineData.device, _gammaPipelineLayout, "GammaPipelineLayout");
-//
-//	}
-//	else {
-//		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
-//		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
-//	}
-//
-//	//build the stage-create-info for both vertex and fragment stages. This lets the pipeline know the shader modules per stage
-//	PipelineBuilder pipelineBuilder;
-//
-//	//vertex input controls how to read vertices from vertex buffers. We aren't using it yet
-//	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
-//
-//	//input assembly is the configuration for drawing triangle lists, strips, or individual points.
-//	//we are just going to draw triangle list
-//	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-//
-//	//configure the rasterizer to draw filled triangles
-//	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
-//	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_NONE;
-//
-//	//we don't use multisampling, so just run the default one
-//	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
-//
-//	//a single blend attachment with no blending and writing to RGBA
-//
-//	auto blendState = vkinit::color_blend_attachment_state();
-//	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &blendState);
-//
-//	//build the mesh pipeline
-//	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
-//	pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
-//	pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
-//
-//	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
-//	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
-//
-//	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, //VK_COMPARE_OP_LESS_OR_EQUAL);
-//
-//	VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterStateCI{};
-//	conservativeRasterStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
-//	conservativeRasterStateCI.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
-//	conservativeRasterStateCI.extraPrimitiveOverestimationSize = 1.0;
-//	pipelineBuilder._rasterizer.pNext = &conservativeRasterStateCI;
-//
-//	/*
-//	* / VVVVVVVVVVVVV DILATION PIPELINE VVVVVVVVVVVVV
-//	*/
-//	pipelineBuilder._rasterizer.pNext = nullptr;
-//
-//	pipelineBuilder._shaderStages.clear();
-//	pipelineBuilder._shaderStages.push_back(
-//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
-//	pipelineBuilder._shaderStages.push_back(
-//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, dilationFragShader));
-//	pipelineBuilder._rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-//	pipelineBuilder._rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-//	VkPipelineVertexInputStateCreateInfo emptyInputState = {};
-//	emptyInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-//	emptyInputState.vertexAttributeDescriptionCount = 0;
-//	emptyInputState.pVertexAttributeDescriptions = nullptr;
-//	emptyInputState.vertexBindingDescriptionCount = 0;
-//	emptyInputState.pVertexBindingDescriptions = nullptr;
-//	pipelineBuilder._vertexInputInfo = emptyInputState;
-//	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(false, false, //VK_COMPARE_OP_LESS_OR_EQUAL);
-//	pipelineBuilder._pipelineLayout = _dilationPipelineLayout;
-//
-//	_dilationPipeline = pipelineBuilder.build_pipeline(_engineData.device, _engineData.colorRenderPass);
-//	/*
-//	* / VVVVVVVVVVVVV GAMMA PIPELINE VVVVVVVVVVVVV
-//	*/
-//	pipelineBuilder._shaderStages.clear();
-//	pipelineBuilder._shaderStages.push_back(
-//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, fullscreenVertShader));
-//	pipelineBuilder._shaderStages.push_back(
-//		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, gammaFragShader));
-//	pipelineBuilder._pipelineLayout = _gammaPipelineLayout;
-//
-//	_gammaPipeline = pipelineBuilder.build_pipeline(_engineData.device, _renderPass);
-//
-//	vkutils::setObjectName(_engineData.device, _dilationPipeline, "DilationPipeline");
-//	vkutils::setObjectName(_engineData.device, _gammaPipeline, "GammaPipeline");
-//
-//	vkDestroyShaderModule(_engineData.device, fullscreenVertShader, nullptr);
-//	vkDestroyShaderModule(_engineData.device, dilationFragShader, nullptr);
-//	vkDestroyShaderModule(_engineData.device, gammaFragShader, nullptr);
-//
-//	_mainDeletionQueue.push_function([=]() {
-//		vkDestroyPipeline(_engineData.device, _dilationPipeline, nullptr);
-//		vkDestroyPipelineLayout(_engineData.device, _dilationPipelineLayout, nullptr);
-//
-//		vkDestroyPipeline(_engineData.device, _gammaPipeline, nullptr);
-//		vkDestroyPipelineLayout(_engineData.device, _gammaPipelineLayout, nullptr);
-//	});
-//}
+	VkDescriptorSetLayoutBinding tlasBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+	VkDescriptorSetLayoutBinding sceneDescBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+		VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 1);
+	VkDescriptorSetLayoutBinding meshInfoBind = vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 2);
+
+	VkDescriptorSetLayoutBinding bindings[3] = { tlasBind, sceneDescBind, meshInfoBind };
+	VkDescriptorSetLayoutCreateInfo setinfo = vkinit::descriptorset_layout_create_info(bindings, 3);
+	vkCreateDescriptorSetLayout(_engineData.device, &setinfo, nullptr, &_sceneData.raytracingSetLayout);
+
+	VkDescriptorSetAllocateInfo allocateInfo =
+		vkinit::descriptorset_allocate_info(_engineData.descriptorPool, &_sceneData.raytracingSetLayout, 1);
+
+	vkAllocateDescriptorSets(_engineData.device, &allocateInfo, &_sceneData.raytracingDescriptor);
+
+	std::vector<VkWriteDescriptorSet> writes;
+
+	VkWriteDescriptorSetAccelerationStructureKHR descASInfo{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+	descASInfo.accelerationStructureCount = 1;
+	descASInfo.pAccelerationStructures = &_vulkanRaytracing.tlas.accel;
+	VkWriteDescriptorSet accelerationStructureWrite{};
+	accelerationStructureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	// The specialized acceleration structure descriptor has to be chained
+	accelerationStructureWrite.pNext = &descASInfo;
+	accelerationStructureWrite.dstSet = _sceneData.raytracingDescriptor;
+	accelerationStructureWrite.dstBinding = 0;
+	accelerationStructureWrite.descriptorCount = 1;
+	accelerationStructureWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+
+	writes.emplace_back(accelerationStructureWrite);
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _sceneData.raytracingDescriptor, &_sceneData.sceneDescBuffer._descriptorBufferInfo, 1));
+	writes.emplace_back(vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _sceneData.raytracingDescriptor, &_sceneData.meshInfoBuffer._descriptorBufferInfo, 2));
+
+	vkUpdateDescriptorSets(_engineData.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+}
 
 void VulkanEngine::init_scene()
 {

@@ -1681,9 +1681,11 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 
 	vkUpdateDescriptorSets(engine._engineData.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 	
+	VkPipelineLayout pipelineLayout;
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vkinit::pipeline_layout_create_info(&rtDescriptorSetLayout, 1);
+	vkCreatePipelineLayout(engine._engineData.device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
 
-	engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayoutCreateInfo,
+	engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayout,
 		"../../shaders/precalculate_probe_rt.rgen.spv",
 		"../../shaders/precalculate_probe_rt.rmiss.spv",
 		"../../shaders/precalculate_probe_rt.rchit.spv");
@@ -1731,7 +1733,7 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
 		VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._engineData.device, engine._vulkanRaytracing._raytracingContext.commandPool, true);
 		std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
 		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
-		vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
+		vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelineLayout, 0,
 			(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 		vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, rays, probes.size(), 1);
 		vkutils::submit_and_free_command_buffer(engine._engineData.device, engine._vulkanRaytracing._raytracingContext.commandPool, cmdBuf, engine._vulkanRaytracing._queue, engine._vulkanRaytracing._raytracingContext.fence);
@@ -1849,7 +1851,10 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRanges;
 
-	engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayoutCreateInfo,
+	VkPipelineLayout pipelineLayout;
+	vkCreatePipelineLayout(engine._engineData.device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
+
+	engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayout,
 		"../../shaders/precalculate_receiver_rt.rgen.spv",
 		"../../shaders/precalculate_probe_rt.rmiss.spv",
 		"../../shaders/precalculate_probe_rt.rchit.spv");
@@ -1954,12 +1959,12 @@ void Precalculation::receiver_raycast(VulkanEngine& engine, std::vector<AABB>& a
 				VkCommandBuffer cmdBuf = vkutils::create_command_buffer(engine._engineData.device, engine._vulkanRaytracing._raytracingContext.commandPool, true);
 				std::vector<VkDescriptorSet> descSets{ rtDescriptorSet };
 				vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipeline);
-				vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline.pipelineLayout, 0,
+				vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelineLayout, 0,
 					(uint32_t)descSets.size(), descSets.data(), 0, nullptr);
 
 				int pushConstantVariables[3] = { aabbClusters[nodeIndex].probes.size(), i, receiverOffset };
 
-				vkCmdPushConstants(cmdBuf, rtPipeline.pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
+				vkCmdPushConstants(cmdBuf, pipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
 					sizeof(int) * 3, pushConstantVariables);
 				vkCmdTraceRaysKHR(cmdBuf, &rtPipeline.rgenRegion, &rtPipeline.missRegion, &rtPipeline.hitRegion, &rtPipeline.callRegion, maxReceiverInABatch, rays, 1);
 				{

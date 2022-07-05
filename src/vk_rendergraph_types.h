@@ -16,7 +16,7 @@ namespace Vrg {
 	};
 
 	enum class BindType {
-		UNIFORM, STORAGE, IMAGE, TEXTURE_SAMPLED, VERTEX, INDEX
+		UNIFORM, STORAGE, IMAGE_VIEW, VERTEX, INDEX
 	};
 
 	enum class Sampler {
@@ -100,6 +100,7 @@ namespace Vrg {
 		PolygonMode polygonMode = PolygonMode::FILL;
 		DepthState depthState = { true, true, VK_COMPARE_OP_LESS_OR_EQUAL };
 		CullMode cullMode = CullMode::COUNTER_CLOCK_WISE;
+		bool enableConservativeRasterization = false;
 		Slice<VkPipelineColorBlendAttachmentState> blendAttachmentStates;
 		Slice<Bindable*> vertexBuffers;
 		Bindable* indexBuffer;
@@ -109,21 +110,22 @@ namespace Vrg {
 
 	struct ComputePipeline {
 		std::string shader;
-		int dimX;
-		int dimY;
-		int dimZ;
+		uint32_t dimX;
+		uint32_t dimY;
+		uint32_t dimZ;
 	};
 
-	struct RaytracingPipeline {
+	struct RayPipeline {
 		std::string rgenShader;
 		std::string missShader;
 		std::string hitShader;
-		int recursionDepth;
-		VkSpecializationInfo* rgenSpecialization;
-		VkSpecializationInfo* missSpecialization;
-		VkSpecializationInfo* hitSpecialization;
-		int dimX;
-		int dimY;
+		int recursionDepth = 1;
+		VkSpecializationInfo rgenSpecialization;
+		VkSpecializationInfo missSpecialization;
+		VkSpecializationInfo hitSpecialization;
+		uint32_t width = 1;
+		uint32_t height = 1;
+		uint32_t depth = 1;
 	};
 
 	struct RenderPass {
@@ -131,7 +133,7 @@ namespace Vrg {
 		PipelineType pipelineType;
 		ComputePipeline computePipeline = {}; //type 0
 		RasterPipeline rasterPipeline = {}; //type 1
-		RaytracingPipeline raytracingPipeline = {}; //type 2
+		RayPipeline raytracingPipeline = {}; //type 2
 		Slice<DescriptorBinding> writes;
 		Slice<DescriptorBinding> reads;
 		Slice<VkPushConstantRange> pushConstantRanges;
