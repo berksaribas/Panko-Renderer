@@ -1,3 +1,7 @@
+## UPDATE
+I have been working on a Render Graph implementation to handle barriers as well as pipeline and descriptor creation fully automatically. Most of the implementation is finished but not throughoutly tested yet. See the render-graph branch for the implementation.
+
+## Introduction
 This repository contains the implementation of real-time global illumination techniques for my thesis.
 
 ## Implemented Methods
