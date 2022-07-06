@@ -3,8 +3,11 @@
 #include <random>
 #include <vk_utils.h>
 #include <vk_pipeline.h>
-#include <unordered_set>
 #include <vk_rendergraph.h>
+#include <vk_debug_renderer.h>
+#include <gi_shadow.h>
+#include <gi_brdf.h>
+#include "gltf_scene.hpp"
 
 glm::vec3 calculate_barycentric(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c);
 glm::vec3 apply_barycentric(glm::vec3 barycentricCoordinates, glm::vec3 a, glm::vec3 b, glm::vec3 c);

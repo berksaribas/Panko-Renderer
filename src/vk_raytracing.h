@@ -1,7 +1,8 @@
 #pragma once
 #include <vk_types.h>
 #include <vector>
-#include <gltf_scene.hpp>
+
+class GltfScene;
 
 template <class T> constexpr T align_up(T x, size_t a) noexcept {
 	return T((x + (T(a) - 1)) & ~T(a - 1));

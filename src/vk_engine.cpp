@@ -53,13 +53,13 @@ PrecalculationLoadData precalculationLoadData = {};
 PrecalculationResult precalculationResult = {};
 
 //GI Models
+BRDF brdfUtils;
 GBuffer gbuffer;
 DiffuseIllumination diffuseIllumination;
 Shadow shadow;
-//Deferred deferred;
-//GlossyIllumination glossyIllumination;
-BRDF brdfUtils;
-//GlossyDenoise glossyDenoise;
+GlossyIllumination glossyIllumination;
+GlossyDenoise glossyDenoise;
+Deferred deferred;
 
 VulkanTimer vkTimer;
 
@@ -157,6 +157,9 @@ void VulkanEngine::init()
 	shadow.init_images(_engineData);
 	gbuffer.init_images(_engineData, _windowExtent);
 	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, gltf_scene);
+	glossyIllumination.init_images(_engineData, _windowExtent);
+	glossyDenoise.init_images(_engineData, _windowExtent);
+	deferred.init_images(_engineData, _windowExtent);
 
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
@@ -556,7 +559,22 @@ void VulkanEngine::draw()
 				draw_objects(cmd);
 			}, useRealtimeRaycast);
 		}
-		
+		glossyIllumination.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, brdfUtils);
+
+		if (_camData.useStochasticSpecular) {
+			glossyDenoise.render(_engineData, _sceneData, gbuffer, glossyIllumination);
+
+			if (enableDenoise) {
+				deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise.get_denoised_binding());
+			}
+			else {
+				deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyIllumination._glossyReflectionsColorImageBinding);
+			}
+		}
+		else {
+			deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyIllumination._glossyReflectionsColorImageBinding);
+		}
+
 		VkClearValue clearValue;
 		clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
 
@@ -579,7 +597,7 @@ void VulkanEngine::draw()
 
 				},
 				.reads = {
-					{0, gbuffer.get_current_frame_data()->albedoMetallicBinding}
+					{0, deferred._deferredColorImageBinding}
 				},
 				.execute = [&](VkCommandBuffer cmd) {
 					vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -1096,9 +1114,9 @@ void VulkanEngine::init_scene()
 	//std::string file_name = "../../assets/occluderscene.gltf";
 	//std::string file_name = "../../assets/reflection_new.gltf";
 	//std::string file_name = "../../assets/shtest.gltf";
-	//std::string file_name = "../../assets/bedroom/bedroom.gltf";
+	std::string file_name = "../../assets/bedroom/bedroom.gltf";
 	//std::string file_name = "../../assets/livingroom/livingroom.gltf";
-	std::string file_name = "../../assets/picapica/scene.gltf";
+	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "D:/newsponza/combined/sponza.gltf";
 
 	tinygltf::Model tmodel;

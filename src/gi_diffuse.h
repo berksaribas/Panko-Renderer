@@ -1,12 +1,13 @@
 #pragma once
 
-#include <vk_compute.h>
-#include <vk_raytracing.h>
 #include <precalculation_types.h>
-#include <vk_debug_renderer.h>
-#include <gi_shadow.h>
-#include <gi_brdf.h>
 #include <vk_types.h>
+#include <functional>
+
+class Shadow;
+class BRDF;
+class VulkanDebugRenderer;
+class GltfScene;
 
 class DiffuseIllumination {
 public:
@@ -58,12 +59,6 @@ public:
 
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
 private:
-	VkDevice _device;
-	VmaAllocator _allocator;
-	VkDescriptorPool _descriptorPool;
-	VulkanCompute* _vulkanCompute;
-	VulkanRaytracing* _vulkanRaytracing;
-	VkRenderPass _colorRenderPass;
 	PrecalculationInfo* _precalculationInfo;
 	PrecalculationLoadData* _precalculationLoadData;
 	PrecalculationResult* _precalculationResult;

@@ -31,8 +31,8 @@ namespace Vrg {
 	};
 	struct ImageView {
 		Sampler sampler;
-		int baseMipLevel;
-		int mipLevelCount;
+		uint32_t baseMipLevel;
+		uint32_t mipLevelCount;
 		bool operator==(ImageView const& rhs) const noexcept {
 			return sampler == rhs.sampler && baseMipLevel == rhs.baseMipLevel && mipLevelCount == rhs.mipLevelCount;
 		}
@@ -63,6 +63,11 @@ namespace Vrg {
 		Bindable* binding;
 		VkClearValue clearValue;
 		bool isSwapChain;
+	};
+
+	struct PushConstant {
+		void* data;
+		size_t size;
 	};
 
 	enum class InputAssembly {
@@ -136,7 +141,7 @@ namespace Vrg {
 		RayPipeline raytracingPipeline = {}; //type 2
 		Slice<DescriptorBinding> writes;
 		Slice<DescriptorBinding> reads;
-		Slice<VkPushConstantRange> pushConstantRanges;
+		Slice<PushConstant> constants;
 		Slice<DescriptorSetBinding> extraDescriptorSets;
 		uint32_t descriptorSetCount;
 		std::function<void(VkCommandBuffer cmd)> execute;

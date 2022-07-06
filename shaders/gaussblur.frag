@@ -12,7 +12,7 @@ layout (location = 0) out vec4 outFragColor;
 layout(push_constant) uniform _PushConstantRay { vec3 direction; }; //x, y -> direction, z -> miplevel
 
 layout(set = 0, binding = 0) uniform sampler2D colorSource;
-layout(set = 1, binding = 0) uniform sampler2D normalSource;
+layout(set = 0, binding = 1) uniform sampler2D normalSource;
 
 const float EPSILON = 0.001;
 

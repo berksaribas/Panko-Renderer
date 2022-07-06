@@ -22,6 +22,7 @@ namespace Vrg {
 		Bindable* register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
 		Bindable* get_resource(std::string resourceName); //TODO: Implement if needed. Right now, not needed.
 		void compile();
+		
 		void execute(VkCommandBuffer cmd);
 	private:
 		VkPipeline get_pipeline(RenderPass& renderPass);
@@ -30,8 +31,8 @@ namespace Vrg {
 		VkDescriptorSet get_descriptor_set(RenderPass& renderPass, int set);
 		VkDescriptorSetLayout get_descriptor_set_layout(RenderPass& renderPass, int set);
 		VkImageView get_image_view(VkImage image, ImageView& imageView, VkFormat format, bool isDepth = false);
-
-		VkImageLayout get_current_image_layout(VkImage image);
+		void insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip = 0);
+		VkImageLayout get_current_image_layout(VkImage image, uint32_t mip);
 
 		//
 		EngineData* engineData;
@@ -45,9 +46,9 @@ namespace Vrg {
 		uint32_t bindingCount = 0;
 		std::vector<Bindable> bindings;
 		std::unordered_map<std::string, uint32_t> bindingNames;
-		std::unordered_map<VkImage, ResourceAccessType> imageBindingAccessType;
 		std::unordered_map<VkBuffer, ResourceAccessType> bufferBindingAccessType;
-		std::unordered_map<VkImage, VkImageLayout> bindingImageLayout;
+		std::unordered_map<ImageMipCache, ResourceAccessType, ImageMipCache_hash> imageBindingAccessType;
+		std::unordered_map<ImageMipCache, VkImageLayout, ImageMipCache_hash> bindingImageLayout;
 
 		//caches
 		std::unordered_map<std::string, VkPipeline> pipelineCache;

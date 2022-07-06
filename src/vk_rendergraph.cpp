@@ -2,6 +2,7 @@
 #include <vk_initializers.h>
 #include <vk_utils.h>
 #include "vk_pipeline.h"
+#include "gltf_scene.hpp"
 
 using namespace Vrg;
 
@@ -91,7 +92,7 @@ RenderGraph::RenderGraph(EngineData* _engineData)
 	bindings.reserve(256);
 	engineData = _engineData;
 
-	frameAllocator.initialize(1024 * 1024 * 32); //32mb
+	frameAllocator.initialize(1024 * 1024 * 64); //64mb
 
 
 	//Create a linear sampler
@@ -123,6 +124,14 @@ void RenderGraph::add_render_pass(RenderPass renderPass)
 	copy_memory(newPass.writes, frameAllocator);
 	copy_memory(newPass.reads, frameAllocator);
 	copy_memory(newPass.extraDescriptorSets, frameAllocator);
+
+	copy_memory(newPass.constants, frameAllocator);
+
+	for (int i = 0; i < newPass.constants.size(); i++) {
+		void* newPtr = frameAllocator.allocate(newPass.constants[i].size, 8);
+		memcpy(newPtr, newPass.constants[i].data, newPass.constants[i].size);
+		newPass.constants[i].data = newPtr;
+	}
 
 	if (newPass.pipelineType == PipelineType::RASTER_TYPE) {
 		copy_memory(newPass.rasterPipeline.blendAttachmentStates, frameAllocator);
@@ -224,6 +233,97 @@ Bindable* RenderGraph::register_index_buffer(AllocatedBuffer* buffer, VkFormat f
 	return &bindings[bindings.size() - 1];
 }
 
+
+void RenderGraph::insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip) {
+	ResourceAccessType prevAccessType = ResourceAccessType::NONE;
+
+	if (is_buffer_binding(binding->type)) {
+		if (bufferBindingAccessType.find(binding->buffer->_buffer) != bufferBindingAccessType.end()) {
+			prevAccessType = bufferBindingAccessType[binding->buffer->_buffer];
+		}
+	}
+	if (is_image_binding(binding->type)) {
+		if (imageBindingAccessType.find({ binding->image->_image, mip }) != imageBindingAccessType.end()) {
+			prevAccessType = imageBindingAccessType[{ binding->image->_image, mip }];
+		}
+	}
+
+	VkAccessFlags dstAccess = get_access_flags(ResourceAccessType::NONE);
+	VkPipelineStageFlags dstStage = get_stage_flags(ResourceAccessType::NONE);
+	VkImageLayout dstLayout = get_image_layout(ResourceAccessType::NONE);
+
+	ResourceAccessType newAccessType;
+
+	if (isWrite) {
+		if (pipelineType == PipelineType::COMPUTE_TYPE) {
+			newAccessType = ResourceAccessType::COMPUTE_WRITE;
+		}
+		else if (pipelineType == PipelineType::RASTER_TYPE) {
+			//undefined behaviour
+		}
+		else if (pipelineType == PipelineType::RAYTRACING_TYPE) {
+			newAccessType = ResourceAccessType::RAYTRACING_WRITE;
+		}
+	}
+	else {
+		if (pipelineType == PipelineType::COMPUTE_TYPE) {
+			newAccessType = ResourceAccessType::COMPUTE_READ;
+		}
+		else if (pipelineType == PipelineType::RASTER_TYPE) {
+			newAccessType = ResourceAccessType::FRAGMENT_READ;
+		}
+		else if (pipelineType == PipelineType::RAYTRACING_TYPE) {
+			newAccessType = ResourceAccessType::RAYTRACING_READ;
+		}
+	}
+
+	dstAccess = get_access_flags(newAccessType);
+	dstStage = get_stage_flags(newAccessType);
+	dstLayout = get_image_layout(newAccessType);
+
+	bool isImageLayoutDifferent = false;
+	VkImageLayout srcLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if (binding->type == BindType::IMAGE_VIEW) {
+		srcLayout = get_current_image_layout(binding->image->_image, mip);
+		if (srcLayout != dstLayout) {
+			isImageLayoutDifferent = true;
+		}
+	}
+
+	bool condition = prevAccessType != ResourceAccessType::NONE || isImageLayoutDifferent;
+	if (!isWrite) {
+		condition = (prevAccessType != ResourceAccessType::NONE && !is_read_access(prevAccessType)) || isImageLayoutDifferent;
+	}
+
+	if (condition)
+	{
+		VkAccessFlags srcAccess = get_access_flags(prevAccessType);
+		VkPipelineStageFlags srcStage = get_stage_flags(prevAccessType);
+
+		if (binding->type == BindType::IMAGE_VIEW) {
+			//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
+			VkImageAspectFlags aspectFlag = VK_IMAGE_ASPECT_COLOR_BIT;
+
+			if (binding->image->format == VK_FORMAT_D32_SFLOAT) {
+				aspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT;
+			}
+
+			vkutils::image_barrier(cmd, binding->image->_image, srcLayout, dstLayout, { aspectFlag, mip, 1, 0, 1 }, srcAccess, dstAccess, srcStage, dstStage);
+		}
+		else {
+			vkutils::memory_barrier(cmd, binding->buffer->_buffer, srcAccess, dstAccess, srcStage, dstStage);
+		}
+	}
+
+	if (is_buffer_binding(binding->type)) {
+		bufferBindingAccessType[binding->buffer->_buffer] = newAccessType;
+	}
+	if (is_image_binding(binding->type)) {
+		imageBindingAccessType[{binding->image->_image, mip}] = newAccessType;
+		bindingImageLayout[{binding->image->_image, mip}] = dstLayout;
+	}
+}
+
 void RenderGraph::execute(VkCommandBuffer cmd)
 {
 	for (int r = 0; r < renderPasses.size(); r++) {
@@ -232,135 +332,27 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 		//WRITE BARRIERS
 		for (int i = 0; i < renderPass.writes.size(); i++) {
 			auto binding = renderPass.writes[i].binding;
-			uint32_t bindingId = binding->id;
-			ResourceAccessType prevAccessType = ResourceAccessType::NONE;
-			if (is_buffer_binding(binding->type)) {
-				if (bufferBindingAccessType.find(binding->buffer->_buffer) != bufferBindingAccessType.end()) {
-					prevAccessType = bufferBindingAccessType[binding->buffer->_buffer];
-				}
-			}
-			if (is_image_binding(binding->type)) {
-				if (imageBindingAccessType.find(binding->image->_image) != imageBindingAccessType.end()) {
-					prevAccessType = imageBindingAccessType[binding->image->_image];
-				}
-			}
-
-			VkAccessFlags dstAccess = get_access_flags(ResourceAccessType::NONE);
-			VkPipelineStageFlags dstStage = get_stage_flags(ResourceAccessType::NONE);
-			VkImageLayout dstLayout = get_image_layout(ResourceAccessType::NONE);
 			
-			ResourceAccessType newAccessType;
-
-			if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
-				newAccessType = ResourceAccessType::COMPUTE_WRITE;
-			}
-			else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
-				//undefined behaviour
-			}
-			else if (renderPass.pipelineType == PipelineType::RAYTRACING_TYPE) {
-				newAccessType = ResourceAccessType::RAYTRACING_WRITE;
-			}
-
-			dstAccess = get_access_flags(newAccessType);
-			dstStage = get_stage_flags(newAccessType);
-			dstLayout = get_image_layout(newAccessType);
-
-			bool isImageLayoutDifferent = false;
-			VkImageLayout srcLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			if (binding->type == BindType::IMAGE_VIEW) {
-				srcLayout = get_current_image_layout(binding->image->_image);
-				if (srcLayout != dstLayout) {
-					isImageLayoutDifferent = true;
-				}
-			}
-
-			if (prevAccessType != ResourceAccessType::NONE || isImageLayoutDifferent)
-			{
-				VkAccessFlags srcAccess = get_access_flags(prevAccessType);
-				VkPipelineStageFlags srcStage = get_stage_flags(prevAccessType);
-
-				if (binding->type == BindType::IMAGE_VIEW) {
-					//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
-					vkutils::image_barrier(cmd, binding->image->_image, srcLayout, dstLayout, { VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1 }, srcAccess, dstAccess, srcStage, dstStage);
-				}
-				else {
-					vkutils::memory_barrier(cmd, binding->buffer->_buffer, srcAccess, dstAccess, srcStage, dstStage);
-				}
-			}
-
 			if (is_buffer_binding(binding->type)) {
-				bufferBindingAccessType[binding->buffer->_buffer] = newAccessType;
+				insert_barrier(cmd, binding, renderPass.pipelineType, true);
 			}
-			if (is_image_binding(binding->type)) {
-				imageBindingAccessType[binding->image->_image] = newAccessType;
-				bindingImageLayout[binding->image->_image] = dstLayout;
+			else if (is_image_binding(binding->type)) {
+				for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
+					insert_barrier(cmd, binding, renderPass.pipelineType, true, k);
+				}
 			}
 		}
 		//READ BARRIERS
 		for (int i = 0; i < renderPass.reads.size(); i++) {
 			auto binding = renderPass.reads[i].binding;
-			uint32_t bindingId = binding->id;
-			ResourceAccessType prevAccessType = ResourceAccessType::NONE;
-			if (is_buffer_binding(binding->type)) {
-				if (bufferBindingAccessType.find(binding->buffer->_buffer) != bufferBindingAccessType.end()) {
-					prevAccessType = bufferBindingAccessType[binding->buffer->_buffer];
-				}
-			}
-			if (is_image_binding(binding->type)) {
-				if (imageBindingAccessType.find(binding->image->_image) != imageBindingAccessType.end()) {
-					prevAccessType = imageBindingAccessType[binding->image->_image];
-				}
-			}
-
-			VkAccessFlags dstAccess = get_access_flags(ResourceAccessType::NONE);
-			VkPipelineStageFlags dstStage = get_stage_flags(ResourceAccessType::NONE);
-			VkImageLayout dstLayout = get_image_layout(ResourceAccessType::NONE);
-
-			ResourceAccessType newAccessType;
-
-			if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
-				newAccessType = ResourceAccessType::COMPUTE_READ;
-			}
-			else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
-				newAccessType = ResourceAccessType::FRAGMENT_READ;
-			}
-			else if (renderPass.pipelineType == PipelineType::RAYTRACING_TYPE) {
-				newAccessType = ResourceAccessType::RAYTRACING_READ;
-			}
-
-			dstAccess = get_access_flags(newAccessType);
-			dstStage = get_stage_flags(newAccessType);
-			dstLayout = get_image_layout(newAccessType);
-
-			bool isImageLayoutDifferent = false;
-			VkImageLayout srcLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			if (binding->type == BindType::IMAGE_VIEW) {
-				srcLayout = get_current_image_layout(binding->image->_image);
-				if (srcLayout != dstLayout) {
-					isImageLayoutDifferent = true;
-				}
-			}
-
-			if ((prevAccessType != ResourceAccessType::NONE && !is_read_access(prevAccessType)) || isImageLayoutDifferent)
-			{
-				VkAccessFlags srcAccess = get_access_flags(prevAccessType);
-				VkPipelineStageFlags srcStage = get_stage_flags(prevAccessType);
-
-				if (binding->type == BindType::IMAGE_VIEW) {
-					//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
-					vkutils::image_barrier(cmd, binding->image->_image, srcLayout, dstLayout, { VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1 }, srcAccess, dstAccess, srcStage, dstStage);
-				}
-				else {
-					vkutils::memory_barrier(cmd, binding->buffer->_buffer, srcAccess, dstAccess, srcStage, dstStage);
-				}
-			}
 
 			if (is_buffer_binding(binding->type)) {
-				bufferBindingAccessType[binding->buffer->_buffer] = newAccessType;
+				insert_barrier(cmd, binding, renderPass.pipelineType, false);
 			}
-			if (is_image_binding(binding->type)) {
-				imageBindingAccessType[binding->image->_image] = newAccessType;
-				bindingImageLayout[binding->image->_image] = dstLayout;
+			else if (is_image_binding(binding->type)) {
+				for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
+					insert_barrier(cmd, binding, renderPass.pipelineType, false, k);
+				}
 			}
 		}
 
@@ -371,9 +363,14 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			for (int i = 0; i < renderPass.descriptorSetCount; i++) {
 				descriptorSet[i] = get_descriptor_set(renderPass, i);
 			}
+			auto pipelineLayout = get_pipeline_layout(renderPass);
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, get_pipeline(renderPass));
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, get_pipeline_layout(renderPass), 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+			if (renderPass.constants.size() > 0) {
+				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
+					renderPass.constants[0].size, renderPass.constants[0].data);
+			}
 			vkCmdDispatch(cmd, renderPass.computePipeline.dimX, renderPass.computePipeline.dimY, renderPass.computePipeline.dimZ);
 		}
 		else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
@@ -423,17 +420,20 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			//Color output barrier
 			for (int i = 0; i < colorAttachmentCount; i++) {
 				auto& colorAttachment = rasterPipeline.colorOutputs[0];
-				vkutils::image_barrier(cmd, colorAttachment.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1 }, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+				uint32_t mipLevel = colorAttachment.binding->imageView.baseMipLevel;
+				vkutils::image_barrier(cmd, colorAttachment.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1, 0, 1 }, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-				imageBindingAccessType[colorAttachment.binding->image->_image] = ResourceAccessType::COLOR_WRITE;
-				bindingImageLayout[colorAttachment.binding->image->_image] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				imageBindingAccessType[{colorAttachment.binding->image->_image, mipLevel}] = ResourceAccessType::COLOR_WRITE;
+				bindingImageLayout[{colorAttachment.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			}
 			//Depth output barrier
 			if (rasterPipeline.depthOutput.binding != nullptr) {
-				vkutils::image_barrier(cmd, rasterPipeline.depthOutput.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, 1}, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+				uint32_t mipLevel = rasterPipeline.depthOutput.binding->imageView.baseMipLevel;
 
-				imageBindingAccessType[rasterPipeline.depthOutput.binding->image->_image] = ResourceAccessType::DEPTH_WRITE;
-				bindingImageLayout[rasterPipeline.depthOutput.binding->image->_image] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+				vkutils::image_barrier(cmd, rasterPipeline.depthOutput.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel, 1, 0, 1}, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+
+				imageBindingAccessType[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = ResourceAccessType::DEPTH_WRITE;
+				bindingImageLayout[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 			}
 
 			vkCmdBeginRenderingKHR(cmd, &render_info);
@@ -448,8 +448,14 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			for (int i = 0; i < renderPass.descriptorSetCount; i++) {
 				descriptorSet[i] = get_descriptor_set(renderPass, i);
 			}
+			auto pipelineLayout = get_pipeline_layout(renderPass);
 
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, get_pipeline_layout(renderPass), 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+
+			if (renderPass.constants.size() > 0) {
+				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
+					renderPass.constants[0].size, renderPass.constants[0].data);
+			}
 
 			//TODO: Get rid of std::vectors
 			std::vector<VkDeviceSize> offsets;
@@ -489,9 +495,16 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			}
 
 			auto raytracingPipeline = get_raytracing_pipeline(renderPass);
+			auto pipelineLayout = get_pipeline_layout(renderPass);
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, raytracingPipeline->pipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, get_pipeline_layout(renderPass), 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+			
+			if (renderPass.constants.size() > 0) {
+				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
+					renderPass.constants[0].size, renderPass.constants[0].data);
+			}
+
 			vkCmdTraceRaysKHR(cmd, &raytracingPipeline->rgenRegion, &raytracingPipeline->missRegion, &raytracingPipeline->hitRegion, &raytracingPipeline->callRegion, renderPass.raytracingPipeline.width, renderPass.raytracingPipeline.height, renderPass.raytracingPipeline.depth);
 		}
 	}
@@ -758,8 +771,13 @@ VkPipelineLayout RenderGraph::get_pipeline_layout(RenderPass& renderPass)
 	}
 
 	std::vector<VkPushConstantRange> pushRanges;
-	for (int i = 0; i < renderPass.pushConstantRanges.size(); i++) {
-		pushRanges.push_back(renderPass.pushConstantRanges[i]);
+	for (int i = 0; i < renderPass.constants.size(); i++) {
+		VkPushConstantRange range = {
+			.stageFlags = VK_SHADER_STAGE_ALL,
+			.offset = 0,
+			.size = (uint32_t) renderPass.constants[i].size
+		};
+		pushRanges.push_back(range);
 	}
 	
 	PipelineLayoutCache cache1 = { descriptorSetLayouts, pushRanges };
@@ -770,9 +788,9 @@ VkPipelineLayout RenderGraph::get_pipeline_layout(RenderPass& renderPass)
 
 	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(descriptorSetLayouts.data(), descriptorSetLayouts.size());
 
-	if (renderPass.pushConstantRanges.size() > 0) {
-		pipeline_layout_info.pushConstantRangeCount = renderPass.pushConstantRanges.size();
-		pipeline_layout_info.pPushConstantRanges = renderPass.pushConstantRanges.m_data;
+	if (pushRanges.size() > 0) {
+		pipeline_layout_info.pushConstantRangeCount = pushRanges.size();
+		pipeline_layout_info.pPushConstantRanges = pushRanges.data();
 	}
 
 	VkPipelineLayout newLayout;
@@ -942,7 +960,7 @@ VkImageView Vrg::RenderGraph::get_image_view(VkImage image, ImageView& imageView
 
 	VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(format, image, isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT  : VK_IMAGE_ASPECT_COLOR_BIT);
 	imageViewInfo.subresourceRange.baseMipLevel = imageView.baseMipLevel;
-	imageViewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+	imageViewInfo.subresourceRange.levelCount = imageView.mipLevelCount;
 	VkImageView newImageView;
 
 	VK_CHECK(vkCreateImageView(engineData->device, &imageViewInfo, nullptr, &newImageView));
@@ -952,10 +970,10 @@ VkImageView Vrg::RenderGraph::get_image_view(VkImage image, ImageView& imageView
 	//vkutils::setObjectName(engineData->device, newImageView, );
 }
 
-VkImageLayout Vrg::RenderGraph::get_current_image_layout(VkImage image)
+VkImageLayout Vrg::RenderGraph::get_current_image_layout(VkImage image, uint32_t mip)
 {
-	if (bindingImageLayout.find(image) != bindingImageLayout.end()) {
-		return bindingImageLayout[image];
+	if (bindingImageLayout.find({image, mip}) != bindingImageLayout.end()) {
+		return bindingImageLayout[{image, mip}];
 	}
 
 	return VK_IMAGE_LAYOUT_UNDEFINED;

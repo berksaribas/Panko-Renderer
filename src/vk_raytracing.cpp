@@ -1,7 +1,7 @@
 #include "vk_raytracing.h"
 #include <vk_initializers.h>
-#include <vk_engine.h>
 #include <vk_utils.h>
+#include <gltf_scene.hpp>
 
 static bool hasFlag(VkFlags item, VkFlags flag) {
 	return (item & flag) == flag;

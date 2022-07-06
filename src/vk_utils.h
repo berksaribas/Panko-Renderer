@@ -1,7 +1,8 @@
 #pragma once
 
 #include <vk_types.h>
-#include "vk_engine.h"
+#include <string>
+#include <functional>
 
 #define VK_CHECK(x)                                                 \
 	do                                                              \

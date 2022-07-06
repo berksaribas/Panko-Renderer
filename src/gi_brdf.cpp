@@ -95,7 +95,7 @@ void BRDF::init_images(EngineData& engineData)
 
 		load_image(engineData, data, _sobolImage, VK_FORMAT_R8G8B8A8_UNORM, x, y, x * y * comp * sizeof(uint8_t));
 		fclose(ptr);
-		brdfLutImageBinding = engineData.renderGraph->register_image_view(&_sobolImage, {
+		sobolImageBinding = engineData.renderGraph->register_image_view(&_sobolImage, {
 			.sampler = Vrg::Sampler::NEAREST,
 			.baseMipLevel = 0,
 			.mipLevelCount = 1
@@ -113,7 +113,7 @@ void BRDF::init_images(EngineData& engineData)
 		load_image(engineData, data, _scramblingRanking1sppImage, VK_FORMAT_R8G8B8A8_UNORM, x, y, x * y * 4 * sizeof(uint8_t));
 
 		fclose(ptr);
-		brdfLutImageBinding = engineData.renderGraph->register_image_view(&_scramblingRanking1sppImage, {
+		scramblingRanking1sppImageBinding = engineData.renderGraph->register_image_view(&_scramblingRanking1sppImage, {
 			.sampler = Vrg::Sampler::NEAREST,
 			.baseMipLevel = 0,
 			.mipLevelCount = 1

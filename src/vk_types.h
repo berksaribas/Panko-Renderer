@@ -1,11 +1,7 @@
-﻿// vulkan_guide.h : Include file for standard system include files,
-// or project specific include files.
-
-#pragma once
+﻿#pragma once
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
-#include <glm/glm.hpp>
 
 const VkFormat COLOR_32_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
 const VkFormat COLOR_16_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;

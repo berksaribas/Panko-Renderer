@@ -75,7 +75,7 @@
                 64,
                 65,
                 66,
-                67
+                68
             ]
         }
     ],
@@ -756,18 +756,43 @@
             ]
         },
         {
-            "mesh" : 67,
-            "name" : "Sphere",
-            "scale" : [
-                0.25,
-                0.25,
-                0.25
+            "camera" : 0,
+            "name" : "Camera_Orientation",
+            "rotation" : [
+                -0.7071067690849304,
+                0,
+                0,
+                0.7071067690849304
+            ]
+        },
+        {
+            "children" : [
+                67
+            ],
+            "name" : "Camera",
+            "rotation" : [
+                0.5927098989486694,
+                0.3173997104167938,
+                -0.2734939157962799,
+                0.6878615617752075
             ],
             "translation" : [
-                -0.8700000047683716,
-                0.9900000095367432,
-                0.25
+                2.700000047683716,
+                1.5800000429153442,
+                2.549999713897705
             ]
+        }
+    ],
+    "cameras" : [
+        {
+            "name" : "Camera",
+            "perspective" : {
+                "aspectRatio" : 1.7777777777777777,
+                "yfov" : 1.024778957977204,
+                "zfar" : 1000,
+                "znear" : 0.10000000149011612
+            },
+            "type" : "perspective"
         }
     ],
     "materials" : [
@@ -1098,20 +1123,6 @@
                     0.4830000102519989,
                     0.3840000033378601,
                     0.3009999990463257,
-                    1
-                ],
-                "metallicFactor" : 0,
-                "roughnessFactor" : 0.5
-            }
-        },
-        {
-            "doubleSided" : true,
-            "name" : "Sphere",
-            "pbrMetallicRoughness" : {
-                "baseColorFactor" : [
-                    0.800000011920929,
-                    0.800000011920929,
-                    0.800000011920929,
                     1
                 ],
                 "metallicFactor" : 0,
@@ -2055,20 +2066,6 @@
                     },
                     "indices" : 252,
                     "material" : 1
-                }
-            ]
-        },
-        {
-            "name" : "Sphere",
-            "primitives" : [
-                {
-                    "attributes" : {
-                        "POSITION" : 253,
-                        "NORMAL" : 254,
-                        "TEXCOORD_0" : 255
-                    },
-                    "indices" : 256,
-                    "material" : 28
                 }
             ]
         }
@@ -4301,40 +4298,6 @@
             "componentType" : 5123,
             "count" : 134208,
             "type" : "SCALAR"
-        },
-        {
-            "bufferView" : 253,
-            "componentType" : 5126,
-            "count" : 559,
-            "max" : [
-                0.9999997019767761,
-                1,
-                0.9999994039535522
-            ],
-            "min" : [
-                -0.9999990463256836,
-                -1,
-                -0.9999987483024597
-            ],
-            "type" : "VEC3"
-        },
-        {
-            "bufferView" : 254,
-            "componentType" : 5126,
-            "count" : 559,
-            "type" : "VEC3"
-        },
-        {
-            "bufferView" : 255,
-            "componentType" : 5126,
-            "count" : 559,
-            "type" : "VEC2"
-        },
-        {
-            "bufferView" : 256,
-            "componentType" : 5123,
-            "count" : 2880,
-            "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
@@ -5602,26 +5565,6 @@
             "buffer" : 0,
             "byteLength" : 268416,
             "byteOffset" : 9896416
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 6708,
-            "byteOffset" : 10164832
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 6708,
-            "byteOffset" : 10171540
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 4472,
-            "byteOffset" : 10178248
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 5760,
-            "byteOffset" : 10182720
         }
     ],
     "samplers" : [
@@ -5632,7 +5575,7 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 10188480,
+            "byteLength" : 10164832,
             "uri" : "bedroom.bin"
         }
     ]

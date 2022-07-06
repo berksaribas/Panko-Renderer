@@ -79,6 +79,15 @@ namespace Vrg {
         }
     };
 
+    struct ImageMipCache {
+        VkImage image;
+        uint32_t mip;
+
+        bool operator==(ImageMipCache const& rhs) const noexcept {
+            return image == rhs.image && mip == rhs.mip;
+        }
+    };
+
     struct DescriptorSetCache_hash {
         size_t operator()(DescriptorSetCache const& x) const noexcept {
             size_t h = 0;           
@@ -117,6 +126,14 @@ namespace Vrg {
         size_t operator()(ImageViewCache const& x) const noexcept {
             size_t h = 0;
             hash_combine(h, reinterpret_cast<uint64_t>(x.image), x.imageView.baseMipLevel, x.imageView.mipLevelCount, x.imageView.sampler);
+            return h;
+        }
+    };
+
+    struct ImageMipCache_hash {
+        size_t operator()(ImageMipCache const& x) const noexcept {
+            size_t h = 0;
+            hash_combine(h, reinterpret_cast<uint64_t>(x.image), x.mip);
             return h;
         }
     };

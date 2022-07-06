@@ -1,7 +1,6 @@
 #include "vk_compute.h"
 #include "vk_initializers.h"
 #include <VkBootstrap.h>
-#include <vk_engine.h>
 #include <vk_utils.h>
 
 void VulkanCompute::init(EngineData& engineData)

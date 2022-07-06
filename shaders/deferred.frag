@@ -30,36 +30,12 @@ layout(set = 6, binding = 0) uniform sampler2D glossyReflections;
 layout(set = 7, binding = 0) uniform sampler2D brdfLut;
 layout(set = 8, binding = 0) uniform sampler2D glossyNormal;
 
-layout(std140, set = 9, binding = 0) readonly buffer _ProbeLocations { vec4 probeLocations[]; };
-layout(set = 9, binding = 1) buffer _ProbeRaycastResult { vec4 results[]; };
-
-
 #include "shadow.glsl"
 
 #define CNST_MAX_SPECULAR_EXP 64
 float roughnessToSpecularPower(float r)
 {
   return 2 / (pow(r,4)) - 2;
-}
-
-vec4 calcIrradiance(vec3 nor, vec4[9] c) {
-    const float c1 = 0.429043;
-    const float c2 = 0.511664;
-    const float c3 = 0.743125;
-    const float c4 = 0.886227;
-    const float c5 = 0.247708;
-    return (
-        c1 * c[8] * (nor.x * nor.x - nor.y * nor.y) +
-        c3 * c[6] * nor.z * nor.z +
-        c4 * c[0] -
-        c5 * c[6] +
-        2.0 * c1 * c[4] * nor.x * nor.y +
-        2.0 * c1 * c[7]  * nor.x * nor.z +
-        2.0 * c1 * c[5] * nor.y * nor.z +
-        2.0 * c2 * c[3]  * nor.x +
-        2.0 * c2 * c[1] * nor.y +
-        2.0 * c2 * c[2] * nor.z
-    );
 }
 
 float specularPowerToConeAngle(float specularPower)
@@ -288,41 +264,6 @@ void main()
     //vec3 microfacet2 =  sampleGGXVNDF(transpose(TBN) * view , roughnessSquared, roughnessSquared, 0.9, 0 ) ;
 	//vec3 direction2 = TBN * reflect(-(transpose(TBN) * view), microfacet2);
 
-    vec3 diffuseLight = cameraData.indirectDiffuse == 1 ? texture(indirectLightMap, inLightmapCoord).xyz : vec3(0);
-
-    if(false) {
-        float totalWeight = 0;
-        vec4 totalColor = vec4(0);
-        vec4 coeffs[9];
-        for(int i = 0; i < 148; i++) {
-            float newdist = distance(probeLocations[i].xyz, inWorldPosition / 0.3);
-            vec3 dir = normalize(probeLocations[i].xyz * 0.3 - inWorldPosition);
-
-            float t = newdist / 15;
-	        if (t >= 0 && t <= 1) {
-		        float tSquared = t * t;
-		        float weight = (2 * t * tSquared) - (3 * tSquared) + 1;
-                weight *= pow(max(0.0001, (dot(dir, inNormal) + 1.0) * 0.5), 2) + 0.2;
-
-
-                for(int j = 0; j < 9; j++) {
-                    coeffs[j] = results[64 * i + j];
-                }
-                vec4 values = calcIrradiance(-inNormal, coeffs);
-                vec4 values2 = calcIrradiance(dir, coeffs);
-
-                const float crush_threshold = 0.2f;
-                if (weight < crush_threshold) {
-                    weight *= weight * weight * (1.0f / pow(crush_threshold, 2)); 
-                }
-
-                totalWeight += weight;
-                totalColor += weight * vec4(values.rgba);
-	        }
-        }
-
-        diffuseLight = totalColor.rgb / totalWeight / PI;
-    }
 
     if(cameraData.useStochasticSpecular == 0)
     {
@@ -366,9 +307,9 @@ void main()
                 }
                 
 
-                if(gb3.b > 0.001) {
-                    tHit = 0.25;
-                }
+                //if(gb3.b > 0.001) {
+                //    tHit = 0.25;
+                //}
                 
                 
                 //if(i == 0) {
@@ -414,18 +355,18 @@ void main()
             float sampleMipChannel = clamp(mipChannel, 0.0f, 7);
             vec4 lowerMip = vec4(0);
             vec4 higherMip = vec4(0);
-            lowerMip = bilateral4x4(InUv, int(sampleMipChannel), true, vec4(diffuseLight, 1.0), roughnessSquared);
-            higherMip = bilateral4x4(InUv, int(sampleMipChannel) + 1, true, vec4(diffuseLight, 1.0), roughnessSquared);
+            lowerMip = bilateral4x4(InUv, int(sampleMipChannel), true, texture(indirectLightMap, inLightmapCoord).rgba, roughnessSquared);
+            higherMip = bilateral4x4(InUv, int(sampleMipChannel) + 1, true, texture(indirectLightMap, inLightmapCoord).rgba, roughnessSquared);
 
             reflectionColor = mix(lowerMip, higherMip, sampleMipChannel - int(sampleMipChannel));
 
             //reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , clamp((sampleMipChannel - 2) / 8, 0, 1));
             //reflectionColor = mix(reflectionColor, vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) , min(1.0, screenSpaceDistance / textureSize(glossyReflections, 0).x));
-            reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(diffuseLight, 1.0) * 1) , (pow(16, roughness) - 1) / 15);
+            reflectionColor =  /*vec4(mix(vec3(1), albedo, roughness), 1) * */ mix(reflectionColor /* / vec4(mix(vec3(1), albedo, roughness), 1) */, (reflectionColor * 0 + vec4(texture(indirectLightMap, inLightmapCoord).rgb, 1.0) * 0.5) , (pow(16, roughness) - 1) / 15);
             //reflectionColor = vec4(tHit/16);
         }
         else {
-            reflectionColor = vec4(diffuseLight, 1.0);
+            reflectionColor = vec4(texture(indirectLightMap, inLightmapCoord).rgb , 1.0);
         }
     }
     else {
@@ -435,6 +376,7 @@ void main()
     
     vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(inNormal), view, normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
     
+    vec3 diffuseLight = cameraData.indirectDiffuse == 1 ? texture(indirectLightMap, inLightmapCoord).xyz : vec3(0);
     reflectionColor = cameraData.indirectSpecular == 1 ? reflectionColor : vec4(0);
     
     vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(inNormal), view, diffuseLight, reflectionColor.rgb, brdfLut, vec3(0));
