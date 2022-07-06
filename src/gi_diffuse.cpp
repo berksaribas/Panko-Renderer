@@ -219,6 +219,7 @@ void DiffuseIllumination::init(EngineData& engineData, PrecalculationInfo* preca
 		delete[] lm;
 		_gpuReceiverCount = receiverCount;
 		_receiverBuffer = vkutils::create_upload_buffer(&engineData, receiverDataVector.data(), sizeof(GPUReceiverDataUV) * receiverDataVector.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+		_receiverBufferBinding = engineData.renderGraph->register_storage_buffer(&_receiverBuffer, "ReceiverBuffer");
 	}
 }
 
@@ -455,10 +456,10 @@ void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& e
 			{2, sceneData.cameraBufferBinding},
 			{2, shadow._shadowMapDataBinding},
 			{3, sceneData.objectBufferBinding},
-			{4, sceneData.materialBufferBinding},
-			{5, shadow._shadowMapColorImageBinding},
-			{6, _dilatedGiIndirectLightImageBinding},
-			{7, brdfUtils.brdfLutImageBinding},
+			{5, sceneData.materialBufferBinding},
+			{6, shadow._shadowMapColorImageBinding},
+			{7, _dilatedGiIndirectLightImageBinding},
+			{8, brdfUtils.brdfLutImageBinding},
 		},
 		.extraDescriptorSets = {
 			{0, sceneData.raytracingDescriptor, sceneData.raytracingSetLayout},

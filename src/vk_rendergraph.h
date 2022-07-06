@@ -8,6 +8,7 @@
 #include "vk_cache.h"
 #include "memory.h"
 #include "vk_raytracing.h"
+#include "vk_timer.h"
 
 namespace Vrg {
 	class RenderGraph {
@@ -24,13 +25,14 @@ namespace Vrg {
 		void compile();
 		
 		void execute(VkCommandBuffer cmd);
+		VulkanTimer vkTimer;
 	private:
 		VkPipeline get_pipeline(RenderPass& renderPass);
 		RaytracingPipeline* get_raytracing_pipeline(RenderPass& renderPass);
 		VkPipelineLayout get_pipeline_layout(RenderPass& renderPass);
 		VkDescriptorSet get_descriptor_set(RenderPass& renderPass, int set);
 		VkDescriptorSetLayout get_descriptor_set_layout(RenderPass& renderPass, int set);
-		VkImageView get_image_view(VkImage image, ImageView& imageView, VkFormat format, bool isDepth = false);
+		VkImageView get_image_view(VkImage image, ImageView& imageView, VkFormat format);
 		void insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip = 0);
 		VkImageLayout get_current_image_layout(VkImage image, uint32_t mip);
 

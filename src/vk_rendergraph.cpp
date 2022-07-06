@@ -326,8 +326,11 @@ void RenderGraph::insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, Pi
 
 void RenderGraph::execute(VkCommandBuffer cmd)
 {
+	vkTimer.reset();
+
 	for (int r = 0; r < renderPasses.size(); r++) {
 		auto& renderPass = renderPasses[r];
+		vkTimer.start_recording(*engineData, cmd, renderPass.name);
 
 		//WRITE BARRIERS
 		for (int i = 0; i < renderPass.writes.size(); i++) {
@@ -411,7 +414,7 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 
 
 			if (rasterPipeline.depthOutput.binding != nullptr) {
-				depthStencilAttachment.imageView = get_image_view(rasterPipeline.depthOutput.binding->image->_image, rasterPipeline.depthOutput.binding->imageView, rasterPipeline.depthOutput.binding->format, true),
+				depthStencilAttachment.imageView = get_image_view(rasterPipeline.depthOutput.binding->image->_image, rasterPipeline.depthOutput.binding->imageView, rasterPipeline.depthOutput.binding->format),
 				render_info.pDepthAttachment = &depthStencilAttachment;
 			}
 
@@ -507,6 +510,8 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 
 			vkCmdTraceRaysKHR(cmd, &raytracingPipeline->rgenRegion, &raytracingPipeline->missRegion, &raytracingPipeline->hitRegion, &raytracingPipeline->callRegion, renderPass.raytracingPipeline.width, renderPass.raytracingPipeline.height, renderPass.raytracingPipeline.depth);
 		}
+
+		vkTimer.stop_recording(*engineData, cmd);
 	}
 
 	imageBindingAccessType.clear();
@@ -950,12 +955,17 @@ VkDescriptorSetLayout RenderGraph::get_descriptor_set_layout(RenderPass& renderP
 	return newDescriptorSetLayout;
 }
 
-VkImageView Vrg::RenderGraph::get_image_view(VkImage image, ImageView& imageView, VkFormat format, bool isDepth)
+VkImageView Vrg::RenderGraph::get_image_view(VkImage image, ImageView& imageView, VkFormat format)
 {
 	ImageViewCache cache1 = { image, imageView };
 
 	if (imageViewCache.find(cache1) != imageViewCache.end()) {
 		return imageViewCache[cache1];
+	}
+
+	bool isDepth = false;
+	if (format == DEPTH_32_FORMAT) {
+		isDepth = true;
 	}
 
 	VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(format, image, isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT  : VK_IMAGE_ASPECT_COLOR_BIT);

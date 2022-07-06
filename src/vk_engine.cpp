@@ -61,8 +61,6 @@ GlossyIllumination glossyIllumination;
 GlossyDenoise glossyDenoise;
 Deferred deferred;
 
-VulkanTimer vkTimer;
-
 //Imgui
 bool enableGi = false;
 bool showProbes = false;
@@ -264,8 +262,7 @@ void VulkanEngine::prepare_gui() {
 
 					if (enableDenoise) {
 						ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
-						//todo uncomment
-						//ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
+						ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
 					}
 					else {
 						ImGui::Text("Currently using stochastic raytracing");
@@ -413,6 +410,23 @@ void VulkanEngine::prepare_gui() {
 		}
 		ImGui::End();
 
+		ImGui::Begin("Performance");
+		{
+			if (_engineData.renderGraph->vkTimer.result) {
+				float totalTime = 0;
+				for (int i = 0; i < _engineData.renderGraph->vkTimer.count; i++) {
+					float time = (_engineData.renderGraph->vkTimer.times[i * 2 + 1] - _engineData.renderGraph->vkTimer.times[i * 2]) / 1000000.0;
+					totalTime += time;
+					sprintf_s(buffer, "%s: %f ms", _engineData.renderGraph->vkTimer.names[i].c_str(), time);
+					ImGui::Text(buffer);
+				}
+				ImGui::Separator();
+				sprintf_s(buffer, "Total (GPU): %f ms", totalTime);
+				ImGui::Text(buffer);
+			}
+		}
+		ImGui::End();
+
 		ImGui::Render();
 	}
 }
@@ -459,8 +473,7 @@ void VulkanEngine::draw()
 	_camData.cameraPos = glm::vec4(camera.pos.x, camera.pos.y, camera.pos.z, 1.0);
 
 	_camData.lightmapInputSize = {(float) gltf_scene.lightmap_width, (float) gltf_scene.lightmap_height};
-	//todo uncomment
-	//_camData.lightmapTargetSize = {diffuseIllumination._lightmapExtent.width, diffuseIllumination._lightmapExtent.height};
+	_camData.lightmapTargetSize = {diffuseIllumination._lightmapExtent.width, diffuseIllumination._lightmapExtent.height};
 
 	_camData.frameCount = _frameNumber;
 
@@ -601,6 +614,7 @@ void VulkanEngine::draw()
 				},
 				.execute = [&](VkCommandBuffer cmd) {
 					vkCmdDraw(cmd, 3, 1, 0, 0);
+					//_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
 					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 				}
 			}
@@ -610,86 +624,6 @@ void VulkanEngine::draw()
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 	{
 		_engineData.renderGraph->execute(cmd);
-
-		//vkTimer.start_recording(_engineData, cmd, "Gbuffer");
-		
-
-		//vkTimer.stop_recording(_engineData, cmd);
-
-		/*
-		// SHADOW MAP RENDERING
-		vkTimer.start_recording(_engineData, cmd, "Shadow Map");
-		shadow.render(cmd, _engineData, _sceneDescriptors, [&](VkCommandBuffer cmd) {
-			draw_objects(cmd);
-		});
-		vkTimer.stop_recording(_engineData, cmd);
-
-		vkTimer.start_recording(_engineData, cmd, "Diffuse Illumination");
-		if (enableGroundTruthDiffuse) {
-			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, _dilationPipeline, _dilationPipelineLayout);
-		}
-		else {
-			diffuseIllumination.render(cmd, _engineData, _sceneDescriptors, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
-				draw_objects(cmd);
-				}, useRealtimeRaycast, _dilationPipeline, _dilationPipelineLayout);
-		}
-		vkTimer.stop_recording(_engineData, cmd);
-
-		vkTimer.start_recording(_engineData, cmd, "Glossy Illumination");
-		glossyIllumination.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, brdfUtils);
-		vkTimer.stop_recording(_engineData, cmd);
-
-		if (_camData.useStochasticSpecular) {
-			vkTimer.start_recording(_engineData, cmd, "Glossy Denoising");
-			glossyDenoise.render(cmd, _engineData, _sceneDescriptors, gbuffer, glossyIllumination);
-			vkTimer.stop_recording(_engineData, cmd);
-
-			vkTimer.start_recording(_engineData, cmd, "Deferred Lighting");
-			if (enableDenoise) {
-				deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise);
-			}
-			else {
-				deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
-			}
-			vkTimer.stop_recording(_engineData, cmd);
-		}
-		else {
-			vkTimer.start_recording(_engineData, cmd, "Deferred Lighting");
-			deferred.render(cmd, _engineData, _sceneDescriptors, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils);
-			vkTimer.stop_recording(_engineData, cmd);
-		}
-		
-		//POST PROCESSING + UI
-		{
-			VkClearValue clearValue;
-			clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
-
-			VkClearValue depthClear;
-			depthClear.depthStencil = { 1.0f, 0 };
-			VkRenderPassBeginInfo rpInfo = vkinit::renderpass_begin_info(_renderPass, _windowExtent, _framebuffers[swapchainImageIndex]);
-
-			rpInfo.clearValueCount = 2;
-			VkClearValue clearValues[] = { clearValue, depthClear };
-			rpInfo.pClearValues = clearValues;
-			
-			vkTimer.start_recording(_engineData, cmd, "Post Processing + UI");
-			vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkutils::cmd_viewport_scissor(cmd, _windowExtent);
-			
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _gammaPipelineLayout, 0, 1, &deferred._deferredColorTextureDescriptor, 0, nullptr);
-			vkCmdDraw(cmd, 3, 1, 0, 0);
-			
-			if (!screenshot) {
-				_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
-				ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-			}
-
-			vkCmdEndRenderPass(cmd);
-			vkTimer.stop_recording(_engineData, cmd);
-			printf("%d\n", _frameNumber);
-		}*/
 	}
 	
 	VK_CHECK(vkEndCommandBuffer(cmd));
@@ -745,7 +679,7 @@ void VulkanEngine::draw()
 	_camData.glossyFrameCount++;
 
 	//TODO: Enable
-	//vkTimer.get_results(_engineData);
+	_engineData.renderGraph->vkTimer.get_results(_engineData);
 }
 
 void VulkanEngine::run()
@@ -859,6 +793,7 @@ void VulkanEngine::init_vulkan()
 	features11.pNext = &features12;
 
 	features12.bufferDeviceAddress = true;
+	features12.hostQueryReset = true;
 	features12.pNext = &featureRt;
 	
 	features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
@@ -1109,12 +1044,12 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_scene()
 {
-	//std::string file_name = "../../assets/cornellFixed.gltf";
+	std::string file_name = "../../assets/cornellFixed.gltf";
 	//std::string file_name = "../../assets/cornellsuzanne.gltf";
 	//std::string file_name = "../../assets/occluderscene.gltf";
 	//std::string file_name = "../../assets/reflection_new.gltf";
 	//std::string file_name = "../../assets/shtest.gltf";
-	std::string file_name = "../../assets/bedroom/bedroom.gltf";
+	//std::string file_name = "../../assets/bedroom/bedroom.gltf";
 	//std::string file_name = "../../assets/livingroom/livingroom.gltf";
 	//std::string file_name = "../../assets/picapica/scene.gltf";
 	//std::string file_name = "D:/newsponza/combined/sponza.gltf";
