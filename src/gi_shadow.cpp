@@ -64,11 +64,7 @@ void Shadow::render(EngineData& engineData, SceneData& sceneData, std::function<
 				vkinit::color_blend_attachment_state(),
 			},
 			.vertexBuffers = {
-				sceneData.vertexBufferBinding,
-				sceneData.normalBufferBinding,
-				sceneData.texBufferBinding,
-				sceneData.lightmapTexBufferBinding,
-				sceneData.tangentBufferBinding
+				sceneData.vertexBufferBinding
 			},
 			.indexBuffer = sceneData.indexBufferBinding,
 			.colorOutputs = {

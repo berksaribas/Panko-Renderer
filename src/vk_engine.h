@@ -60,7 +60,7 @@ public:
 	bool _isInitialized{ false };
 	int _frameNumber{ 0 };
 
-	VkExtent2D _windowExtent{ 1920 , 1080 };
+	VkExtent2D _windowExtent{ 1280 , 720 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -97,8 +97,6 @@ public:
 
 	float _sceneScale = 0.3f;
 
-	VkRenderPass _renderPass;
-
 	//initializes everything in the engine
 	void init();
 
@@ -132,8 +130,6 @@ private:
 	void init_imgui();
 
 	void init_query_pool();
-
-	void init_default_renderpass();
 
 	void prepare_gui();
 };

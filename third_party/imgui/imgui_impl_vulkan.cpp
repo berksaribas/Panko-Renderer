@@ -934,6 +934,19 @@ static void ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAllocationC
     info.layout = bd->PipelineLayout;
     info.renderPass = renderPass;
     info.subpass = subpass;
+
+#if defined(VK_VERSION_1_3) || defined(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
+    VkPipelineRenderingCreateInfoKHR pipelineRenderingCreateInfo = {};
+    pipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    pipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats = &bd->VulkanInitInfo.ColorAttachmentFormat;
+
+    if (bd->VulkanInitInfo.UseDynamicRendering) {
+        info.pNext = &pipelineRenderingCreateInfo;
+        info.renderPass = nullptr; // Just make sure it's actually nullptr.
+    }
+#endif
+
     VkResult err = vkCreateGraphicsPipelines(device, pipelineCache, 1, &info, allocator, pipeline);
     check_vk_result(err);
 }
@@ -1076,7 +1089,8 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkRenderPass rend
     IM_ASSERT(info->DescriptorPool != VK_NULL_HANDLE);
     IM_ASSERT(info->MinImageCount >= 2);
     IM_ASSERT(info->ImageCount >= info->MinImageCount);
-    IM_ASSERT(render_pass != VK_NULL_HANDLE);
+    if (!info->UseDynamicRendering)
+        IM_ASSERT(render_pass != VK_NULL_HANDLE);
 
     bd->VulkanInitInfo = *info;
     bd->RenderPass = render_pass;
@@ -1673,7 +1687,32 @@ static void ImGui_ImplVulkan_RenderWindow(ImGuiViewport* viewport, void*)
         {
             ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
             memcpy(&wd->ClearValue.color.float32[0], &clear_color, 4 * sizeof(float));
+        }
+#if defined(VK_VERSION_1_3) || defined(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
+        if (v->UseDynamicRendering) {
+            VkRenderingAttachmentInfo attachmentInfo = {};
+            attachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+            attachmentInfo.imageView = fd->BackbufferView;
+            attachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            attachmentInfo.resolveMode = VK_RESOLVE_MODE_NONE;
+            attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            attachmentInfo.clearValue = wd->ClearValue;
 
+            VkRenderingInfo renderingInfo = {};
+            renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+            renderingInfo.renderArea.extent.width = wd->Width;
+            renderingInfo.renderArea.extent.height = wd->Height;
+            renderingInfo.layerCount = 1;
+            renderingInfo.viewMask = 0;
+            renderingInfo.colorAttachmentCount = 1;
+            renderingInfo.pColorAttachments = &attachmentInfo;
+
+            //vkCmdBeginRenderingKHR(fd->CommandBuffer, &renderingInfo);
+        }
+        else
+#endif
+        {
             VkRenderPassBeginInfo info = {};
             info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             info.renderPass = wd->RenderPass;
@@ -1689,7 +1728,15 @@ static void ImGui_ImplVulkan_RenderWindow(ImGuiViewport* viewport, void*)
     ImGui_ImplVulkan_RenderDrawData(viewport->DrawData, fd->CommandBuffer, wd->Pipeline);
 
     {
-        vkCmdEndRenderPass(fd->CommandBuffer);
+#if defined(VK_VERSION_1_3) || defined(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
+        if (v->UseDynamicRendering) {
+            //vkCmdEndRenderingKHR(fd->CommandBuffer);
+        }
+        else
+#endif
+        {
+            vkCmdEndRenderPass(fd->CommandBuffer);
+        }
         {
             VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             VkSubmitInfo info = {};

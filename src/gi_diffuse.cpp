@@ -250,8 +250,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 					sceneData.vertexBufferBinding,
 					sceneData.normalBufferBinding,
 					sceneData.texBufferBinding,
-					sceneData.lightmapTexBufferBinding,
-					sceneData.tangentBufferBinding
+					sceneData.lightmapTexBufferBinding
 				},
 				.indexBuffer = sceneData.indexBufferBinding,
 				.colorOutputs = {
@@ -260,6 +259,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData, Sc
 			},
 			.reads = {
 				{0, sceneData.cameraBufferBinding},
+				{0, shadow._shadowMapDataBinding},
 				{1, sceneData.objectBufferBinding},
 				{3, sceneData.materialBufferBinding},
 				{4, shadow._shadowMapColorImageBinding},

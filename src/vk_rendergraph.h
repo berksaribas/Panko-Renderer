@@ -23,8 +23,9 @@ namespace Vrg {
 		Bindable* register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
 		Bindable* get_resource(std::string resourceName); //TODO: Implement if needed. Right now, not needed.
 		void compile();
-		
 		void execute(VkCommandBuffer cmd);
+		void rebuild_pipelines();
+
 		VulkanTimer vkTimer;
 	private:
 		VkPipeline get_pipeline(RenderPass& renderPass);

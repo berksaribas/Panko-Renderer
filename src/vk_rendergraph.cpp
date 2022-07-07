@@ -330,7 +330,9 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 
 	for (int r = 0; r < renderPasses.size(); r++) {
 		auto& renderPass = renderPasses[r];
+
 		vkTimer.start_recording(*engineData, cmd, renderPass.name);
+
 
 		//WRITE BARRIERS
 		for (int i = 0; i < renderPass.writes.size(); i++) {
@@ -380,15 +382,15 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			const auto& rasterPipeline = renderPass.rasterPipeline;
 
 			//TODO: Get rid of std::vectors
-			std::vector<VkRenderingAttachmentInfoKHR> renderingAttachments;
+			std::vector<VkRenderingAttachmentInfo> renderingAttachments;
 			renderingAttachments.reserve(rasterPipeline.colorOutputs.size());
 			int colorAttachmentCount = rasterPipeline.colorOutputs.size();
 
 			for (int i = 0; i < colorAttachmentCount; i++) {
-				VkRenderingAttachmentInfoKHR color_attachment_info{
-					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+				VkRenderingAttachmentInfo color_attachment_info{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 					.imageView = get_image_view(rasterPipeline.colorOutputs[i].binding->image->_image, rasterPipeline.colorOutputs[i].binding->imageView, rasterPipeline.colorOutputs[i].binding->format),
-					.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
+					.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 					.clearValue = rasterPipeline.colorOutputs[i].clearValue
@@ -396,17 +398,17 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 				renderingAttachments.push_back(color_attachment_info);
 			}
 
-			VkRenderingInfoKHR render_info {
-				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+			VkRenderingInfo render_info {
+				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
 				.renderArea = {0, 0, rasterPipeline.size.width, rasterPipeline.size.height},
 				.layerCount = 1,
 				.colorAttachmentCount = (uint32_t) colorAttachmentCount,
 				.pColorAttachments = renderingAttachments.data(),
 			};
 
-			VkRenderingAttachmentInfoKHR depthStencilAttachment{
-				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
-				.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR,
+			VkRenderingAttachmentInfo depthStencilAttachment{
+				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+				.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 				.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 				.clearValue = rasterPipeline.depthOutput.clearValue
@@ -439,11 +441,11 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 				bindingImageLayout[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 			}
 
-			vkCmdBeginRenderingKHR(cmd, &render_info);
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, get_pipeline(renderPass));
+			vkCmdBeginRendering(cmd, &render_info);
 
 			vkutils::cmd_viewport_scissor(cmd, rasterPipeline.size);
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, get_pipeline(renderPass));
 
 			//TODO: Currently supporting maximum of 16 descriptor sets
 			VkDescriptorSet descriptorSet[16];
@@ -478,10 +480,10 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			if(rasterPipeline.indexBuffer != nullptr) {
 				vkCmdBindIndexBuffer(cmd, rasterPipeline.indexBuffer->buffer->_buffer, 0, VK_INDEX_TYPE_UINT32); //TODO: support different index types
 			}
-			//TODO: DRAW
+
 			renderPass.execute(cmd);
 
-			vkCmdEndRenderingKHR(cmd);
+			vkCmdEndRendering(cmd);
 
 			for (int i = 0; i < colorAttachmentCount; i++) {
 				auto& colorAttachment = rasterPipeline.colorOutputs[0];
@@ -518,6 +520,19 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 	bufferBindingAccessType.clear();
 	renderPasses.clear();
 	frameAllocator.reset();
+}
+
+void Vrg::RenderGraph::rebuild_pipelines()
+{
+	for (auto& it : pipelineCache) {
+		vkDestroyPipeline(engineData->device, it.second, nullptr);
+	}
+	pipelineCache.clear();
+
+	for (auto& it : raytracingPipelineCache) {
+		vulkanRaytracing->destroy_raytracing_pipeline(it.second);
+	}
+	raytracingPipelineCache.clear();
 }
 
 void RenderGraph::compile()
@@ -599,8 +614,8 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 			depthFormat = renderPass.rasterPipeline.depthOutput.binding->format;
 		}
 
-		VkPipelineRenderingCreateInfoKHR pipeline_rendering_create_info{
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+		VkPipelineRenderingCreateInfo pipeline_rendering_create_info{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 			.colorAttachmentCount = (uint32_t)renderPass.rasterPipeline.colorOutputs.size(),
 			.pColorAttachmentFormats = colorAttachments.data(),
 			.depthAttachmentFormat = depthFormat

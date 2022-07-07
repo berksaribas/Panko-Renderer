@@ -103,7 +103,7 @@ void main()
 	vec3 view = normalize(cameraData.cameraPos.xyz / 0.3 - worldPos.xyz);
     vec3 direction = reflect(-view, normal);
 
-	if(material >= 0 ) {
+	if(!(metallic == 0 && roughness == 1)) {
 		uint rayFlags = gl_RayFlagsOpaqueEXT;
 		uint cullMask = 0xff;
 		float tmin = 0.001;

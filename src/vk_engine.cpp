@@ -118,7 +118,6 @@ void VulkanEngine::init()
 	_vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
 	_engineData.renderGraph->enable_raytracing(&_vulkanRaytracing);
 
-	init_default_renderpass();
 	init_imgui();
 
 	bool loadPrecomputedData = true;
@@ -207,7 +206,7 @@ void VulkanEngine::prepare_gui() {
 		{
 			sprintf_s(buffer, "Rebuild Shaders");
 			if (ImGui::Button(buffer)) {
-				//TODO
+				_engineData.renderGraph->rebuild_pipelines();
 			}
 
 			ImGui::NewLine();
@@ -417,11 +416,11 @@ void VulkanEngine::prepare_gui() {
 				for (int i = 0; i < _engineData.renderGraph->vkTimer.count; i++) {
 					float time = (_engineData.renderGraph->vkTimer.times[i * 2 + 1] - _engineData.renderGraph->vkTimer.times[i * 2]) / 1000000.0;
 					totalTime += time;
-					sprintf_s(buffer, "%s: %f ms", _engineData.renderGraph->vkTimer.names[i].c_str(), time);
+					sprintf_s(buffer, "%s: %.2f ms", _engineData.renderGraph->vkTimer.names[i].c_str(), time);
 					ImGui::Text(buffer);
 				}
 				ImGui::Separator();
-				sprintf_s(buffer, "Total (GPU): %f ms", totalTime);
+				sprintf_s(buffer, "Total (GPU): %.2f ms", totalTime);
 				ImGui::Text(buffer);
 			}
 		}
@@ -767,7 +766,7 @@ void VulkanEngine::init_vulkan()
 	auto inst_ret = builder.set_app_name("Example Vulkan Application")
 		.request_validation_layers(bUseValidationLayers)
 		.use_default_debug_messenger()
-		.require_api_version(1, 2, 0)
+		.require_api_version(1, 3, 0)
 		.build();
 
 	vkb::Instance vkb_inst = inst_ret.value();
@@ -785,8 +784,10 @@ void VulkanEngine::init_vulkan()
 
 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR featureRt = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 	VkPhysicalDeviceAccelerationStructureFeaturesKHR featureAccel = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+	VkPhysicalDeviceVulkan13Features features13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 	VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 	VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_feature = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
 
 	features11.shaderDrawParameters = VK_TRUE;
@@ -794,34 +795,33 @@ void VulkanEngine::init_vulkan()
 
 	features12.bufferDeviceAddress = true;
 	features12.hostQueryReset = true;
-	features12.pNext = &featureRt;
-	
 	features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
 	features12.runtimeDescriptorArray = VK_TRUE;
 	features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+	features12.pNext = &dynamic_rendering_feature;
+
+	features13.dynamicRendering = true;
+	features13.pNext = &featureRt;
+	dynamic_rendering_feature.dynamicRendering = true;
+	dynamic_rendering_feature.pNext = &featureRt;
 
 	featureRt.rayTracingPipeline = true;
 	featureRt.pNext = &featureAccel;
 
 	featureAccel.accelerationStructure = true;
-	featureAccel.pNext = &dynamic_rendering_feature;
-
-	dynamic_rendering_feature.dynamicRendering = true;
+	featureAccel.pNext = nullptr;
 
 	//use vkbootstrap to select a gpu. 
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	auto physicalDeviceSelectionResult = selector
-		.set_minimum_version(1, 2)
+		.set_minimum_version(1, 3)
 		.set_surface(_surface)
 		.set_required_features(physicalDeviceFeatures)
-		.add_required_extension(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
 		.add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
-		.add_required_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
 		.add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
-		.add_required_extension(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
 		.select();
 	
 	//printf(physicalDeviceSelectionResult.error().message().c_str());
@@ -833,7 +833,6 @@ void VulkanEngine::init_vulkan()
 	deviceBuilder.add_pNext(&features11);
 	vkb::Device vkbDevice = deviceBuilder.build().value();
 
-	// Get the VkDevice handle used in the rest of a vulkan application_engineData.colorDepthRenderPass
 	_engineData.device = vkbDevice.device;
 	_chosenGPU = physicalDevice.physical_device;
 
@@ -1384,8 +1383,10 @@ void VulkanEngine::init_imgui()
 	init_info.MinImageCount = 3;
 	init_info.ImageCount = 3;
 	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+	init_info.UseDynamicRendering = true;
+	init_info.ColorAttachmentFormat = _swachainImageFormat;
 
-	ImGui_ImplVulkan_Init(&init_info, _renderPass);
+	ImGui_ImplVulkan_Init(&init_info, nullptr);
 
 	//execute a gpu command to upload imgui font textures
 	vkutils::immediate_submit(&_engineData, [&](VkCommandBuffer cmd) {
@@ -1421,84 +1422,7 @@ void VulkanEngine::init_query_pool()
 	createInfo.flags = 0;
 
 	createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
-	createInfo.queryCount = 255; // REVIEW
+	createInfo.queryCount = 512; // REVIEW
 
 	VK_CHECK(vkCreateQueryPool(_engineData.device, &createInfo, nullptr, &_engineData.queryPool));
-}
-
-void VulkanEngine::init_default_renderpass()
-{
-	VkAttachmentDescription color_attachment = {};
-	color_attachment.format = _swachainImageFormat;
-	color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkAttachmentReference color_attachment_ref = {};
-	color_attachment_ref.attachment = 0;
-	color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentDescription depth_attachment = {};
-	// Depth attachment
-	depth_attachment.flags = 0;
-	depth_attachment.format = DEPTH_32_FORMAT;
-	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentReference depth_attachment_ref = {};
-	depth_attachment_ref.attachment = 1;
-	depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	//we are going to create 1 subpass, which is the minimum you can do
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &color_attachment_ref;
-	subpass.pDepthStencilAttachment = &depth_attachment_ref;
-
-	// Subpass dependencies for layout transitions
-	VkSubpassDependency dependencies[2];
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	dependencies[1].srcSubpass = 0;
-	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	//array of 2 attachments, one for the color, and other for depth
-	VkAttachmentDescription attachments[2] = { color_attachment,depth_attachment };
-
-	VkRenderPassCreateInfo render_pass_info = {};
-	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	render_pass_info.attachmentCount = 2;
-	render_pass_info.pAttachments = attachments;
-	render_pass_info.subpassCount = 1;
-	render_pass_info.pSubpasses = &subpass;
-	render_pass_info.dependencyCount = 2;
-	render_pass_info.pDependencies = dependencies;
-
-	VK_CHECK(vkCreateRenderPass(_engineData.device, &render_pass_info, nullptr, &_renderPass));
-
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroyRenderPass(_engineData.device, _renderPass, nullptr);
-	});
 }

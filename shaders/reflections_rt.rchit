@@ -118,6 +118,7 @@ void main()
     float roughness = materials[inMaterialId].roughness_factor;
     float metallic = materials[inMaterialId].metallic_factor;
 
+
 	if(materials[inMaterialId].texture > -1) {
         albedo = materials[inMaterialId].base_color.xyz * pow(texture(textures[materials[inMaterialId].texture], uv).xyz, vec3(2.2));
     }
@@ -130,34 +131,16 @@ void main()
         roughness *= values.g;
         metallic *= values.b;
     }
-
-
-    reflectionColor = texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz;
-    
-    /*
-    if(MAX_RECURSION > 0 && gl_RayTminEXT > 0.00005 ) {
-        uint rayFlags = gl_RayFlagsOpaqueEXT;
-		uint cullMask = 0xff;
-		float tmin = 0.00001;
-		float tmax = 100000.0;
-        vec3 pos = worldPos / 0.3;
-        vec3 view = normalize(gl_ObjectRayOriginEXT * 0.3  - worldPos.xyz);
-    
-        uint random_state = ((gl_LaunchIDEXT.x) * 1973 + 9277  * gl_LaunchIDEXT.y + gl_LaunchIDEXT.y * 26699) | 1;
-        vec4 Wh_pdf = importance_sample_ggx(vec2(random_float_between(random_state, 0, 1), random_float_between(random_state, 0, 1)), worldNrm, roughness);
-		float pdf = Wh_pdf.w;
-		vec3 direction = reflect(-view, Wh_pdf.xyz);
-    
-        traceRayEXT(topLevelAS, rayFlags, cullMask, 0, 0, 0, pos + worldNrm * 0.1, tmin, direction, tmax, 1);
-    }*/
     
     //metallic = 0.5;
 
     vec4 shadowPos = biasMat * shadowMapData.depthMVP * vec4(worldPos.xyz, 1.0);
     float shadow = sample_shadow_map_evsm(shadowPos / shadowPos.w);
 
-    vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, normalize(worldNrm), -gl_WorldRayDirectionEXT, normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
-    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, normalize(worldNrm), -gl_WorldRayDirectionEXT, texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz, brdfLut, directLight);
+    vec3 indirectDiffuse = texture(indirectLightMap, lightmapUv / cameraData.lightmapInputSize).xyz;
+
+    vec3 directLight = calculate_direct_lighting(albedo, metallic, roughness, worldNrm, -gl_WorldRayDirectionEXT, normalize(cameraData.lightPos).xyz, cameraData.lightColor.xyz) * shadow;
+    vec3 indirectLight = calculate_indirect_lighting(albedo, metallic, roughness, worldNrm, -gl_WorldRayDirectionEXT, indirectDiffuse, indirectDiffuse, brdfLut, directLight);
 
     //vec3 N = normalize(worldNrm);
     //vec3 L = normalize(cameraData.lightPos.xyz);

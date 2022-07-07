@@ -23,6 +23,7 @@ add_library(eigen INTERFACE)
 add_library(xatlas STATIC)
 
 target_sources(vkbootstrap PRIVATE 
+    vkbootstrap/VkBootstrapDispatch.h
     vkbootstrap/VkBootstrap.h
     vkbootstrap/VkBootstrap.cpp
     )

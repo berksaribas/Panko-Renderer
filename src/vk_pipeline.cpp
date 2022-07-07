@@ -1,7 +1,7 @@
 #include "vk_pipeline.h"
 #include <iostream>
 
-VkPipeline PipelineBuilder::build_pipeline(VkDevice device, VkRenderPass pass, VkPipelineRenderingCreateInfoKHR* dynamicRendering) {
+VkPipeline PipelineBuilder::build_pipeline(VkDevice device, VkRenderPass pass, VkPipelineRenderingCreateInfo* dynamicRendering) {
 	//make viewport state from our stored viewport and scissor.
 	//at the moment we won't support multiple viewports or scissors
 	VkPipelineViewportStateCreateInfo viewportState = {};
@@ -28,7 +28,7 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device, VkRenderPass pass, V
 	pipelineInfo.pDepthStencilState = &_depthStencil;
 	pipelineInfo.layout = _pipelineLayout;
 	if(dynamicRendering) {
-		pipelineInfo.renderPass = nullptr;
+		pipelineInfo.renderPass = VK_NULL_HANDLE;
 		pipelineInfo.pNext = dynamicRendering;
 	}
 	else {
