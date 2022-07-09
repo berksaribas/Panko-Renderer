@@ -89,6 +89,8 @@ int selected_file = 0;
 bool useSceneCamera = false;
 CameraConfig cameraConfig;
 
+Vrg::Bindable* selectedRenderBinding;
+
 void VulkanEngine::init()
 {
 	// We initialize SDL and create a window with it. 
@@ -157,6 +159,7 @@ void VulkanEngine::init()
 	glossyIllumination.init_images(_engineData, _windowExtent);
 	glossyDenoise.init_images(_engineData, _windowExtent);
 	deferred.init_images(_engineData, _windowExtent);
+	_vulkanDebugRenderer.init(_engineData);
 
 	shadow._shadowMapData.positiveExponent = 40;
 	shadow._shadowMapData.negativeExponent = 5;
@@ -340,12 +343,19 @@ void VulkanEngine::prepare_gui() {
 			ImGui::End();
 		}
 
-		ImGui::Begin("Textures");
+		ImGui::Begin("Debug");
 		{
-			//ImGui::Image(shadow._shadowMapTextureDescriptor, { 128, 128 });
-			//ImGui::Image(diffuseIllumination._giIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
-			//ImGui::Image(diffuseIllumination._dilatedGiIndirectLightTextureDescriptor, { (float)precalculationInfo.lightmapResolution,  (float)precalculationInfo.lightmapResolution });
-			//ImGui::Image(glossyIllumination._glossyReflectionsColorTextureDescriptor, { 320, 180 });
+			selectedRenderBinding = nullptr;
+			auto& bindingNames = _engineData.renderGraph->bindingNames;
+			for (int i = 0; i < _engineData.renderGraph->bindings.size(); i++) {
+				auto* binding = &_engineData.renderGraph->bindings[i];
+				if (binding->type == Vrg::BindType::IMAGE_VIEW) {
+					ImGui::Text(bindingNames[binding].c_str());
+					if (ImGui::IsItemHovered()) {
+						selectedRenderBinding = binding;
+					}
+				}
+			}
 			ImGui::End();
 		}
 
@@ -435,6 +445,9 @@ void VulkanEngine::draw()
 	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
 	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
 	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
+
+	//TODO: Enable
+	_engineData.renderGraph->vkTimer.get_results(_engineData);
 
 	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
 	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
@@ -587,6 +600,8 @@ void VulkanEngine::draw()
 			deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyIllumination._glossyReflectionsColorImageBinding);
 		}
 
+		_vulkanDebugRenderer.render(_engineData, _sceneData, _windowExtent, _swapchainBindings[swapchainImageIndex]);
+
 		VkClearValue clearValue;
 		clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
 
@@ -609,11 +624,11 @@ void VulkanEngine::draw()
 
 				},
 				.reads = {
-					{0, deferred._deferredColorImageBinding}
+					{0, selectedRenderBinding == nullptr ? deferred._deferredColorImageBinding : selectedRenderBinding}
 				},
 				.execute = [&](VkCommandBuffer cmd) {
 					vkCmdDraw(cmd, 3, 1, 0, 0);
-					//_vulkanDebugRenderer.render(cmd, _sceneDescriptors.globalDescriptor);
+					_vulkanDebugRenderer.custom_execute(cmd, _engineData);
 					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 				}
 			}
@@ -676,9 +691,6 @@ void VulkanEngine::draw()
 	//increase the number of frames drawn
 	_frameNumber++;
 	_camData.glossyFrameCount++;
-
-	//TODO: Enable
-	_engineData.renderGraph->vkTimer.get_results(_engineData);
 }
 
 void VulkanEngine::run()

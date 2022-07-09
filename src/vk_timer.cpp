@@ -16,10 +16,12 @@ void VulkanTimer::stop_recording(EngineData& engineData, VkCommandBuffer cmd)
 
 void VulkanTimer::get_results(EngineData& engineData)
 {
+    if (count == 0) {
+        return;
+    }
+
     auto res = vkGetQueryPoolResults(engineData.device, engineData.queryPool, 0, count * 2, sizeof(uint64_t) * count * 2, times, sizeof(uint64_t),
-        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-
-
+        VK_QUERY_RESULT_64_BIT);
 
     result = res == VK_SUCCESS;
 }

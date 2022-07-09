@@ -117,7 +117,7 @@ void Vrg::RenderGraph::enable_raytracing(VulkanRaytracing* _vulkanRaytracing)
 	vulkanRaytracing = _vulkanRaytracing;
 }
 
-void RenderGraph::add_render_pass(RenderPass renderPass)
+RenderPass* RenderGraph::add_render_pass(RenderPass renderPass)
 {
 	auto& newPass = renderPass;
 
@@ -152,6 +152,8 @@ void RenderGraph::add_render_pass(RenderPass renderPass)
 	}
 
 	renderPasses.push_back(renderPass);
+
+	return &renderPasses[renderPasses.size() - 1];
 }
 
 Bindable* RenderGraph::register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName)
@@ -167,6 +169,8 @@ Bindable* RenderGraph::register_image_view(AllocatedImage* image, ImageView imag
 	};
 
 	bindings.push_back(bindable);
+
+	bindingNames[&bindings[bindings.size() - 1]] = resourceName;
 
 	return &bindings[bindings.size() - 1];
 }
@@ -232,7 +236,6 @@ Bindable* RenderGraph::register_index_buffer(AllocatedBuffer* buffer, VkFormat f
 
 	return &bindings[bindings.size() - 1];
 }
-
 
 void RenderGraph::insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip) {
 	ResourceAccessType prevAccessType = ResourceAccessType::NONE;
@@ -324,6 +327,93 @@ void RenderGraph::insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, Pi
 	}
 }
 
+void Vrg::RenderGraph::handle_render_pass_barriers(VkCommandBuffer cmd, RenderPass& renderPass)
+{
+	//WRITE BARRIERS
+	for (int i = 0; i < renderPass.writes.size(); i++) {
+		auto binding = renderPass.writes[i].binding;
+
+		if (is_buffer_binding(binding->type)) {
+			insert_barrier(cmd, binding, renderPass.pipelineType, true);
+		}
+		else if (is_image_binding(binding->type)) {
+			for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
+				insert_barrier(cmd, binding, renderPass.pipelineType, true, k);
+			}
+		}
+	}
+	//READ BARRIERS
+	for (int i = 0; i < renderPass.reads.size(); i++) {
+		auto binding = renderPass.reads[i].binding;
+
+		if (is_buffer_binding(binding->type)) {
+			insert_barrier(cmd, binding, renderPass.pipelineType, false);
+		}
+		else if (is_image_binding(binding->type)) {
+			for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
+				insert_barrier(cmd, binding, renderPass.pipelineType, false, k);
+			}
+		}
+	}
+}
+
+void Vrg::RenderGraph::bind_pipeline_and_descriptors(VkCommandBuffer cmd, RenderPass& renderPass)
+{
+	VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	VkPipeline pipeline;
+
+	if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
+		bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+		pipeline = get_pipeline(renderPass);
+	}
+	else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
+		bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		pipeline = get_pipeline(renderPass);
+	}
+	else {
+		bindPoint = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+		pipeline = get_raytracing_pipeline(renderPass)->pipeline;
+	}
+
+	VkDescriptorSet descriptorSet[16];
+
+	for (int i = 0; i < renderPass.descriptorSetCount; i++) {
+		descriptorSet[i] = get_descriptor_set(renderPass, i);
+	}
+	auto pipelineLayout = get_pipeline_layout(renderPass);
+
+	vkCmdBindPipeline(cmd, bindPoint, pipeline);
+	vkCmdBindDescriptorSets(cmd, bindPoint, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
+	if (renderPass.constants.size() > 0) {
+		vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
+			renderPass.constants[0].size, renderPass.constants[0].data);
+	}
+
+	if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
+		auto& rasterPipeline = renderPass.rasterPipeline;
+		vkutils::cmd_viewport_scissor(cmd, rasterPipeline.size);
+
+		//TODO: Get rid of std::vectors
+		std::vector<VkDeviceSize> offsets;
+		std::vector<VkBuffer> buffers;
+		offsets.reserve(rasterPipeline.vertexBuffers.size());
+		buffers.reserve(rasterPipeline.vertexBuffers.size());
+
+		for (int i = 0; i < rasterPipeline.vertexBuffers.size(); i++) {
+			buffers.push_back(rasterPipeline.vertexBuffers[i]->buffer->_buffer);
+			offsets.push_back(0);
+		}
+
+		if (buffers.size() > 0) {
+			vkCmdBindVertexBuffers(cmd, 0, buffers.size(), buffers.data(), offsets.data());
+		}
+
+		if (rasterPipeline.indexBuffer != nullptr) {
+			vkCmdBindIndexBuffer(cmd, rasterPipeline.indexBuffer->buffer->_buffer, 0, VK_INDEX_TYPE_UINT32); //TODO: support different index types
+		}
+	}
+}
+
 void RenderGraph::execute(VkCommandBuffer cmd)
 {
 	vkTimer.reset();
@@ -331,51 +421,16 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 	for (int r = 0; r < renderPasses.size(); r++) {
 		auto& renderPass = renderPasses[r];
 
+		if (renderPass.skipExecution) {
+			continue;
+		}
+
 		vkTimer.start_recording(*engineData, cmd, renderPass.name);
 
-
-		//WRITE BARRIERS
-		for (int i = 0; i < renderPass.writes.size(); i++) {
-			auto binding = renderPass.writes[i].binding;
-			
-			if (is_buffer_binding(binding->type)) {
-				insert_barrier(cmd, binding, renderPass.pipelineType, true);
-			}
-			else if (is_image_binding(binding->type)) {
-				for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
-					insert_barrier(cmd, binding, renderPass.pipelineType, true, k);
-				}
-			}
-		}
-		//READ BARRIERS
-		for (int i = 0; i < renderPass.reads.size(); i++) {
-			auto binding = renderPass.reads[i].binding;
-
-			if (is_buffer_binding(binding->type)) {
-				insert_barrier(cmd, binding, renderPass.pipelineType, false);
-			}
-			else if (is_image_binding(binding->type)) {
-				for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
-					insert_barrier(cmd, binding, renderPass.pipelineType, false, k);
-				}
-			}
-		}
-
+		handle_render_pass_barriers(cmd, renderPass);
+		bind_pipeline_and_descriptors(cmd, renderPass);
 
 		if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
-			VkDescriptorSet descriptorSet[16];
-
-			for (int i = 0; i < renderPass.descriptorSetCount; i++) {
-				descriptorSet[i] = get_descriptor_set(renderPass, i);
-			}
-			auto pipelineLayout = get_pipeline_layout(renderPass);
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, get_pipeline(renderPass));
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
-			if (renderPass.constants.size() > 0) {
-				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
-					renderPass.constants[0].size, renderPass.constants[0].data);
-			}
 			vkCmdDispatch(cmd, renderPass.computePipeline.dimX, renderPass.computePipeline.dimY, renderPass.computePipeline.dimZ);
 		}
 		else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
@@ -421,7 +476,6 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			}
 
 			//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
-
 			//Color output barrier
 			for (int i = 0; i < colorAttachmentCount; i++) {
 				auto& colorAttachment = rasterPipeline.colorOutputs[0];
@@ -441,45 +495,7 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 				bindingImageLayout[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 			}
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, get_pipeline(renderPass));
 			vkCmdBeginRendering(cmd, &render_info);
-
-			vkutils::cmd_viewport_scissor(cmd, rasterPipeline.size);
-
-
-			//TODO: Currently supporting maximum of 16 descriptor sets
-			VkDescriptorSet descriptorSet[16];
-			 
-			for (int i = 0; i < renderPass.descriptorSetCount; i++) {
-				descriptorSet[i] = get_descriptor_set(renderPass, i);
-			}
-			auto pipelineLayout = get_pipeline_layout(renderPass);
-
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
-
-			if (renderPass.constants.size() > 0) {
-				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
-					renderPass.constants[0].size, renderPass.constants[0].data);
-			}
-
-			//TODO: Get rid of std::vectors
-			std::vector<VkDeviceSize> offsets;
-			std::vector<VkBuffer> buffers;
-			offsets.reserve(rasterPipeline.vertexBuffers.size());
-			buffers.reserve(rasterPipeline.vertexBuffers.size());
-
-			for (int i = 0; i < rasterPipeline.vertexBuffers.size(); i++) {
-				buffers.push_back(rasterPipeline.vertexBuffers[i]->buffer->_buffer);
-				offsets.push_back(0);
-			}
-
-			if (buffers.size() > 0) {
-				vkCmdBindVertexBuffers(cmd, 0, buffers.size(), buffers.data(), offsets.data());
-			}
-
-			if(rasterPipeline.indexBuffer != nullptr) {
-				vkCmdBindIndexBuffer(cmd, rasterPipeline.indexBuffer->buffer->_buffer, 0, VK_INDEX_TYPE_UINT32); //TODO: support different index types
-			}
 
 			renderPass.execute(cmd);
 
@@ -493,22 +509,7 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 			}
 		}
 		else if (renderPass.pipelineType == PipelineType::RAYTRACING_TYPE) {
-			VkDescriptorSet descriptorSet[16];
-
-			for (int i = 0; i < renderPass.descriptorSetCount; i++) {
-				descriptorSet[i] = get_descriptor_set(renderPass, i);
-			}
-
 			auto raytracingPipeline = get_raytracing_pipeline(renderPass);
-			auto pipelineLayout = get_pipeline_layout(renderPass);
-
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, raytracingPipeline->pipeline);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipelineLayout, 0, renderPass.descriptorSetCount, descriptorSet, 0, nullptr);
-			
-			if (renderPass.constants.size() > 0) {
-				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_ALL, 0,
-					renderPass.constants[0].size, renderPass.constants[0].data);
-			}
 
 			vkCmdTraceRaysKHR(cmd, &raytracingPipeline->rgenRegion, &raytracingPipeline->missRegion, &raytracingPipeline->hitRegion, &raytracingPipeline->callRegion, renderPass.raytracingPipeline.width, renderPass.raytracingPipeline.height, renderPass.raytracingPipeline.depth);
 		}
@@ -534,39 +535,6 @@ void Vrg::RenderGraph::rebuild_pipelines()
 	}
 	raytracingPipelineCache.clear();
 }
-
-void RenderGraph::compile()
-{
-	//for (int r = 0; r < renderPasses.size(); r++) {
-	//	auto& renderPass = renderPasses[r];
-	//	if (renderPass.isDescriptorsDirty) {
-	//		renderPass.create_descriptor_set();
-	//		renderPass.create_pipeline_layout();
-	//
-	//		renderPass.isPipelineDirty = true;
-	//	}
-	//
-	//	if (renderPass.isPipelineDirty) {
-	//		renderPass.create_pipeline();
-	//	}
-	//}
-}
-
-/*
-RenderPass* RenderPass::add_constant(void* data, size_t size)
-{
-	uint32_t offset = 0;
-	if (pushConstantRanges.size() > 0) {
-		offset = pushConstantRanges[pushConstantRanges.size() - 1].offset
-			+ pushConstantRanges[pushConstantRanges.size() - 1].size;
-	}
-
-	VkPushConstantRange range = { VK_SHADER_STAGE_ALL, offset, size };
-	pushConstantRanges.push_back(range);
-
-	return this;
-}
-*/
 
 VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 {

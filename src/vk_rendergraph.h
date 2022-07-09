@@ -15,18 +15,24 @@ namespace Vrg {
 	public:
 		RenderGraph(EngineData* _engineData);
 		void enable_raytracing(VulkanRaytracing* _vulkanRaytracing);
-		void add_render_pass(RenderPass renderPass);
+		RenderPass* add_render_pass(RenderPass renderPass);
 		Bindable* register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName);
 		Bindable* register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName);
 		Bindable* register_uniform_buffer(AllocatedBuffer* buffer, std::string resourceName);
 		Bindable* register_vertex_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
 		Bindable* register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
 		Bindable* get_resource(std::string resourceName); //TODO: Implement if needed. Right now, not needed.
-		void compile();
+
+		void handle_render_pass_barriers(VkCommandBuffer cmd, RenderPass& renderPass);
+		void bind_pipeline_and_descriptors(VkCommandBuffer cmd, RenderPass& renderPass);
+
 		void execute(VkCommandBuffer cmd);
 		void rebuild_pipelines();
 
 		VulkanTimer vkTimer;
+		std::vector<Bindable> bindings;
+		std::unordered_map<Bindable*, std::string> bindingNames;
+
 	private:
 		VkPipeline get_pipeline(RenderPass& renderPass);
 		RaytracingPipeline* get_raytracing_pipeline(RenderPass& renderPass);
@@ -47,8 +53,6 @@ namespace Vrg {
 
 		//bindings
 		uint32_t bindingCount = 0;
-		std::vector<Bindable> bindings;
-		std::unordered_map<std::string, uint32_t> bindingNames;
 		std::unordered_map<VkBuffer, ResourceAccessType> bufferBindingAccessType;
 		std::unordered_map<ImageMipCache, ResourceAccessType, ImageMipCache_hash> imageBindingAccessType;
 		std::unordered_map<ImageMipCache, VkImageLayout, ImageMipCache_hash> bindingImageLayout;

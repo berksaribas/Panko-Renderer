@@ -2,99 +2,20 @@
 #include <vk_pipeline.h>
 #include <vk_initializers.h>
 #include <vk_utils.h>
+#include "vk_rendergraph.h"
 
-void VulkanDebugRenderer::init(VkDevice device, VmaAllocator allocator, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout)
+void VulkanDebugRenderer::init(EngineData& _engineData)
 {
-	_device = device;
-	_allocator = allocator;
-
-	VkShaderModule unlitVertShader;
-	if (!vkutils::load_shader_module(_device, "../../shaders/debug_unlit.vert.spv", &unlitVertShader))
-	{
-		assert("Unlit Vertex Shader Loading Issue");
-	}
-
-	VkShaderModule unlitFragShader;
-	if (!vkutils::load_shader_module(_device, "../../shaders/debug_unlit.frag.spv", &unlitFragShader))
-	{
-		assert("Unlit Fragment Shader Loading Issue");
-	}
-
-	PipelineBuilder pipelineBuilder;
-	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
-	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
-	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_POINT);
-	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
-	auto colorBlendAttachment = vkinit::color_blend_attachment_state();
-	pipelineBuilder._colorBlending = vkinit::color_blend_state_create_info(1, &colorBlendAttachment);
-
-	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
-
-	//we will have just 1 vertex buffer binding, with a per-vertex rate
-	VkVertexInputBindingDescription vertexBinding = {};
-	vertexBinding.binding = 0;
-	vertexBinding.stride = sizeof(glm::vec3);
-	vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	VkVertexInputBindingDescription colorBinding = {};
-	colorBinding.binding = 1;
-	colorBinding.stride = sizeof(glm::vec3);
-	colorBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	//Position will be stored at Location 0
-	VkVertexInputAttributeDescription positionAttribute = {};
-	positionAttribute.binding = 0;
-	positionAttribute.location = 0;
-	positionAttribute.format = VK_FORMAT_R32G32B32_SFLOAT;
-	positionAttribute.offset = 0;
-
-	VkVertexInputAttributeDescription colorAttribute = {};
-	colorAttribute.binding = 1;
-	colorAttribute.location = 1;
-	colorAttribute.format = VK_FORMAT_R32G32B32_SFLOAT;
-	colorAttribute.offset = 0;
-
-	std::vector<VkVertexInputBindingDescription> bindings;
-	std::vector<VkVertexInputAttributeDescription> attributes;
-	bindings.push_back(vertexBinding);
-	bindings.push_back(colorBinding);
-	attributes.push_back(positionAttribute);
-	attributes.push_back(colorAttribute);
-
-	pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
-	pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = attributes.size();
-
-	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = bindings.data();
-	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = bindings.size();
-	
-	//add the other shaders
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, unlitVertShader));
-
-	//make sure that triangleFragShader is holding the compiled colored_triangle.frag
-	pipelineBuilder._shaderStages.push_back(
-		vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, unlitFragShader));
-
-	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info(&globalSetLayout, 1);
-	VK_CHECK(vkCreatePipelineLayout(_device, &pipeline_layout_info, nullptr, &_pipelineLayout));
-	pipelineBuilder._pipelineLayout = _pipelineLayout;
-
-	//build the mesh triangle pipeline
-	_pointPipeline = pipelineBuilder.build_pipeline(_device, renderPass);
-
-	pipelineBuilder._inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-	pipelineBuilder._rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
-	_linePipeline = pipelineBuilder.build_pipeline(_device, renderPass);
-
-	vkDestroyShaderModule(_device, unlitVertShader, nullptr);
-	vkDestroyShaderModule(_device, unlitFragShader, nullptr);
-
 	//Create the buffers
-	_pointVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	_pointColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_pointVertexBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_pointColorBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_pointVertexBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_pointVertexBuffer, VK_FORMAT_R32G32B32_SFLOAT, "DebugPointVertexPosBuffer");
+	_pointColorBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_pointColorBuffer, VK_FORMAT_R32G32B32_SFLOAT, "DebugPointVertexColorBuffer");
 	
-	_lineVertexBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	_lineColorBuffer = vkutils::create_buffer(_allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_lineVertexBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_lineColorBuffer = vkutils::create_buffer(_engineData.allocator, sizeof(glm::vec3) * 1024000, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_lineVertexBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_lineVertexBuffer, VK_FORMAT_R32G32B32_SFLOAT, "DebugLineVertexPosBuffer");
+	_lineColorBufferBinding = _engineData.renderGraph->register_vertex_buffer(&_lineColorBuffer, VK_FORMAT_R32G32B32_SFLOAT, "DebugLineVertexColorBuffer");
 }
 
 void VulkanDebugRenderer::draw_line(glm::vec3 start, glm::vec3 end, glm::vec3 color)
@@ -111,49 +32,108 @@ void VulkanDebugRenderer::draw_point(glm::vec3 point, glm::vec3 color)
 	_pointColors.push_back(color);
 }
 
-void VulkanDebugRenderer::render(VkCommandBuffer cmd, VkDescriptorSet globalDescriptorSet)
+Vrg::RenderPass* pointPass;
+Vrg::RenderPass* linePass;
+
+void VulkanDebugRenderer::render(EngineData& _engineData, SceneData& _sceneData, VkExtent2D size, Vrg::Bindable* renderTarget)
 {
-	
+	pointPass = nullptr;
+	linePass = nullptr;
+	VkClearValue clearValue;
 
-	/*
-	* DRAW POINTS
-	*/
 	if (_pointPositions.size() > 0) {
-		vkutils::cpu_to_gpu(_allocator, _pointVertexBuffer, _pointPositions.data(), _pointPositions.size() * sizeof(glm::vec3));
-		vkutils::cpu_to_gpu(_allocator, _pointColorBuffer, _pointColors.data(), _pointColors.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_engineData.allocator, _pointVertexBuffer, _pointPositions.data(), _pointPositions.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_engineData.allocator, _pointColorBuffer, _pointColors.data(), _pointColors.size() * sizeof(glm::vec3));
+	
+		pointPass = _engineData.renderGraph->add_render_pass({
+			.name = "DebugPointPass",
+			.pipelineType = Vrg::PipelineType::RASTER_TYPE,
+			.rasterPipeline = {
+				.vertexShader = "../../shaders/debug_unlit.vert.spv",
+				.fragmentShader = "../../shaders/debug_unlit.frag.spv",
+				.size = size,
+				.inputAssembly = Vrg::InputAssembly::POINT,
+				.polygonMode = Vrg::PolygonMode::POINT,
+				.depthState = { false, false, VK_COMPARE_OP_NEVER },
+				.cullMode = Vrg::CullMode::NONE,
+				.blendAttachmentStates = {
+					vkinit::color_blend_attachment_state(),
+				},
+				.vertexBuffers = {
+					_pointVertexBufferBinding,
+					_pointColorBufferBinding
+				},
+				.colorOutputs = {
+					{renderTarget, clearValue, true},
+				},
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pointPipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
-		VkDeviceSize pointOffsets[] = { 0, 0, 0 };
-		VkBuffer pointBuffers[] = { _pointVertexBuffer._buffer, _pointColorBuffer._buffer };
-		vkCmdBindVertexBuffers(cmd, 0, 2, pointBuffers, pointOffsets);
-		vkCmdDraw(cmd, _pointPositions.size(), 1, 0, 0);
-
-		_pointPositions.clear();
-		_pointColors.clear();
+			},
+			.reads = {
+				{0, _sceneData.cameraBufferBinding}
+			},
+			.execute = [&](VkCommandBuffer cmd) {
+				vkCmdDraw(cmd, _pointPositions.size(), 1, 0, 0);
+			},
+			.skipExecution = true
+		});
 	}
 
 	if (_linePositions.size() > 0) {
-		vkutils::cpu_to_gpu(_allocator, _lineVertexBuffer, _linePositions.data(), _linePositions.size() * sizeof(glm::vec3));
-		vkutils::cpu_to_gpu(_allocator, _lineColorBuffer, _lineColors.data(), _lineColors.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_engineData.allocator, _lineVertexBuffer, _linePositions.data(), _linePositions.size() * sizeof(glm::vec3));
+		vkutils::cpu_to_gpu(_engineData.allocator, _lineColorBuffer, _lineColors.data(), _lineColors.size() * sizeof(glm::vec3));
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _linePipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineLayout, 0, 1, &globalDescriptorSet, 0, nullptr);
-		VkDeviceSize lineOffsets[] = { 0, 0, 0 };
-		VkBuffer lineBuffers[] = { _lineVertexBuffer._buffer, _lineColorBuffer._buffer };
-		vkCmdBindVertexBuffers(cmd, 0, 2, lineBuffers, lineOffsets);
-		vkCmdDraw(cmd, _linePositions.size(), 1, 0, 0);
+		linePass = _engineData.renderGraph->add_render_pass({
+			.name = "DebugLinePass",
+			.pipelineType = Vrg::PipelineType::RASTER_TYPE,
+			.rasterPipeline = {
+				.vertexShader = "../../shaders/debug_unlit.vert.spv",
+				.fragmentShader = "../../shaders/debug_unlit.frag.spv",
+				.size = size,
+				.inputAssembly = Vrg::InputAssembly::LINE,
+				.polygonMode = Vrg::PolygonMode::LINE,
+				.depthState = { false, false, VK_COMPARE_OP_NEVER },
+				.cullMode = Vrg::CullMode::NONE,
+				.blendAttachmentStates = {
+					vkinit::color_blend_attachment_state(),
+				},
+				.vertexBuffers = {
+					_lineVertexBufferBinding,
+					_lineColorBufferBinding
+				},
+				.colorOutputs = {
+					{renderTarget, clearValue, true},
+				},
 
-		_linePositions.clear();
-		_lineColors.clear();
+			},
+			.reads = {
+				{0, _sceneData.cameraBufferBinding}
+			},
+			.execute = [&](VkCommandBuffer cmd) {
+				vkCmdDraw(cmd, _linePositions.size(), 1, 0, 0);
+			},
+			.skipExecution = true
+		});
 	}
+
 }
 
-void VulkanDebugRenderer::cleanup()
+void VulkanDebugRenderer::custom_execute(VkCommandBuffer cmd, EngineData& _engineData)
 {
-	vmaDestroyBuffer(_allocator, _pointVertexBuffer._buffer, _pointVertexBuffer._allocation);
-	vmaDestroyBuffer(_allocator, _pointColorBuffer._buffer, _pointColorBuffer._allocation);
+	if (pointPass != nullptr) {
+		_engineData.renderGraph->handle_render_pass_barriers(cmd, *pointPass);
+		_engineData.renderGraph->bind_pipeline_and_descriptors(cmd, *pointPass);
+		pointPass->execute(cmd);
+	}
 
-	vkDestroyPipeline(_device, _pointPipeline, nullptr);
-	vkDestroyPipelineLayout(_device, _pipelineLayout, nullptr);
+	if (linePass != nullptr) {
+		_engineData.renderGraph->handle_render_pass_barriers(cmd, *linePass);
+		_engineData.renderGraph->bind_pipeline_and_descriptors(cmd, *linePass);
+		linePass->execute(cmd);
+	}
+
+	_pointPositions.clear();
+	_pointColors.clear();
+
+	_linePositions.clear();
+	_lineColors.clear();
 }

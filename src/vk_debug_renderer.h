@@ -5,23 +5,20 @@
 
 class VulkanDebugRenderer {
 public:
-	void init(VkDevice device, VmaAllocator allocator, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout);
+	void init(EngineData& _engineData);
 	void draw_line(glm::vec3 start, glm::vec3 end, glm::vec3 color);
 	void draw_point(glm::vec3 point, glm::vec3 color);
-	void render(VkCommandBuffer cmd, VkDescriptorSet globalDescriptorSet);
-	void cleanup();
+	void render(EngineData& _engineData, SceneData& _sceneData, VkExtent2D size, Vrg::Bindable* renderTarget);
+	void custom_execute(VkCommandBuffer cmd, EngineData& _engineData);
 private:
-	VkDevice _device;
-	VmaAllocator _allocator;
-	VkPipelineLayout _pipelineLayout;
-
 	//Point
 	std::vector<glm::vec3> _pointPositions, _pointColors;
 	AllocatedBuffer _pointVertexBuffer, _pointColorBuffer;
-	VkPipeline _pointPipeline;
+	Vrg::Bindable* _pointVertexBufferBinding;
+	Vrg::Bindable* _pointColorBufferBinding;
 	//Line
 	std::vector<glm::vec3> _linePositions, _lineColors;
 	AllocatedBuffer _lineVertexBuffer, _lineColorBuffer;
-	VkPipeline _linePipeline;
-
+	Vrg::Bindable* _lineVertexBufferBinding;
+	Vrg::Bindable* _lineColorBufferBinding;
 };

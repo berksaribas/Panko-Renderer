@@ -40,6 +40,7 @@ void GlossyIllumination::init_images(EngineData& engineData, VkExtent2D imageSiz
 	}, "GlossyReflectionGbufferImageBase");
 
 	for (uint32_t i = 0; i < mipmapLevels; i++) {
+		break;//todo remove this
 		_glossyReflectionsColorImageBindings.push_back(engineData.renderGraph->register_image_view(&_glossyReflectionsColorImage, {
 			.sampler = Vrg::Sampler::LINEAR,
 			.baseMipLevel = i,
@@ -69,8 +70,8 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
 			.height = (uint32_t)_imageSize.height,
 		},
 		.writes = {
-			{1, _glossyReflectionsColorImageBindings[0]},
-			{1, _glossyReflectionsGbufferImageBindings[0]},
+			{1, _glossyReflectionsColorImageBinding},
+			{1, _glossyReflectionsGbufferImageBinding},
 		},
 		.reads = {
 			{1, gbufferData->albedoMetallicBinding},

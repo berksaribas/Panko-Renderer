@@ -145,6 +145,7 @@ namespace Vrg {
 		Slice<DescriptorSetBinding> extraDescriptorSets;
 		uint32_t descriptorSetCount;
 		std::function<void(VkCommandBuffer cmd)> execute;
+		bool skipExecution = false;
 	};
 	
 	struct MemoryPass {
