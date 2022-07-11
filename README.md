@@ -1,13 +1,10 @@
-## UPDATE
-I have been working on a Render Graph implementation to handle barriers as well as pipeline and descriptor creation fully automatically. Most of the implementation is finished but not throughoutly tested yet. See the render-graph branch for the implementation.
-
 ## Introduction
 This repository contains the implementation of real-time global illumination techniques for my thesis.
 
 ## Implemented Methods
 1. Real-time Global Illumination by Precomputed Local Reconstruction from Sparse Radiance Probes
 2. Denoised reflections using Spatiotemporal Variance-Guided Filtering
-3. Screen-space blurred reflections using Screen-Space Roughness
+3. Screen-space blurred reflections using Screen-Space Roughness (disabled at the moment)
 
 ## Description
 
