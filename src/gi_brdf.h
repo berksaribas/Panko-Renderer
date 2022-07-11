@@ -4,9 +4,9 @@
 class BRDF {
 public:
 	void init_images(EngineData& engineData);
-	Vrg::Bindable* brdfLutImageBinding;
-	Vrg::Bindable* scramblingRanking1sppImageBinding;
-	Vrg::Bindable* sobolImageBinding;
+	Handle<Vrg::Bindable> brdfLutImageBinding;
+	Handle<Vrg::Bindable> scramblingRanking1sppImageBinding;
+	Handle<Vrg::Bindable> sobolImageBinding;
 private:
 	AllocatedImage _brdfLutImage;
 	AllocatedImage _scramblingRanking1sppImage;

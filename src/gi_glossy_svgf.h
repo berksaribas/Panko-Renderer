@@ -6,20 +6,20 @@
 struct TemporalData {
 	AllocatedImage colorImage;
 	AllocatedImage momentsImage;
-	Vrg::Bindable* colorImageBinding;
-	Vrg::Bindable* momentsImageBinding;
+	Handle<Vrg::Bindable> colorImageBinding;
+	Handle<Vrg::Bindable> momentsImageBinding;
 };
 
 struct AtrousData {
 	AllocatedImage pingImage;
-	Vrg::Bindable* pingImageBinding;
+	Handle<Vrg::Bindable> pingImageBinding;
 };
 
 class GlossyDenoise {
 public:
 	void init_images(EngineData& engineData, VkExtent2D imageSize);
 	void render(EngineData& engineData, SceneData& sceneData, GBuffer& gbuffer, GlossyIllumination& glossyIllumination);
-	Vrg::Bindable* get_denoised_binding();
+	Handle<Vrg::Bindable> get_denoised_binding();
 	int num_atrous = 4;
 private:
 	int _currFrame = 0;

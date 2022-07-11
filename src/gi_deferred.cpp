@@ -29,7 +29,7 @@ void Deferred::init_images(EngineData& engineData, VkExtent2D imageSize)
 	}, "DeferredColorImage");
 }
 
-void Deferred::render(EngineData& engineData, SceneData& sceneData, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination, BRDF& brdfUtils, Vrg::Bindable* glossyBinding)
+void Deferred::render(EngineData& engineData, SceneData& sceneData, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination, BRDF& brdfUtils, Handle<Vrg::Bindable> glossyBinding)
 {
 	auto gbufferData = gbuffer.get_current_frame_data();
 
@@ -57,7 +57,8 @@ void Deferred::render(EngineData& engineData, SceneData& sceneData, GBuffer& gbu
 			{0, sceneData.cameraBufferBinding},
 			{0, shadow._shadowMapDataBinding},
 			{1, gbufferData->albedoMetallicBinding},
-			{1, gbufferData->normalMotionBinding},
+			{1, gbufferData->normalBinding},
+			{1, gbufferData->motionBinding},
 			{1, gbufferData->roughnessDepthCurvatureMaterialBinding},
 			{1, gbufferData->uvBinding},
 			{1, gbufferData->depthBinding},

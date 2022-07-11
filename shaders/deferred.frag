@@ -17,10 +17,11 @@ layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; }
 layout(set = 0, binding = 1) uniform _ShadowMapData { GPUShadowMapData shadowMapData; };
 
 layout(set = 1, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
-layout(set = 1, binding = 1) uniform sampler2D gbufferNormalMotion;
-layout(set = 1, binding = 2) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
-layout(set = 1, binding = 3) uniform sampler2D gbufferUV;
-layout(set = 1, binding = 4) uniform sampler2D gbufferDepth;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
+layout(set = 1, binding = 2) uniform sampler2D gbufferMotion;
+layout(set = 1, binding = 3) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 1, binding = 4) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 5) uniform sampler2D gbufferDepth;
 
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(std140, set = 3, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
@@ -220,7 +221,7 @@ void main()
 {
 
     vec4 gb1 = texture(gbufferAlbedoMetallic, InUv);
-    vec4 gb2 = texture(gbufferNormalMotion, InUv);
+    vec2 gb2 = texture(gbufferNormal, InUv).rg;
     vec4 gb3 = texture(gbufferRoughnessDepthCurvatureMaterial, InUv);
     vec4 gb4 = texture(gbufferUV, InUv);
 

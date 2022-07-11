@@ -3,8 +3,15 @@
 #include <vk_utils.h>
 #include <gltf_scene.hpp>
 
+#define SCRATCH_BUFFER_ALIGNMENT 128
+
 static bool hasFlag(VkFlags item, VkFlags flag) {
 	return (item & flag) == flag;
+}
+
+static uint64_t roundup(uint64_t numToRound, uint64_t multiple)
+{
+	return ((numToRound + multiple - 1) / multiple) * multiple;
 }
 
 void VulkanRaytracing::init(EngineData& engineData, VkPhysicalDeviceRayTracingPipelinePropertiesKHR gpuRaytracingProperties)
@@ -69,6 +76,7 @@ void VulkanRaytracing::convert_scene_to_vk_geometry(GltfScene& scene, AllocatedB
 
 void VulkanRaytracing::build_blas(VkBuildAccelerationStructureFlagsKHR flags)
 {
+	//printf("Building blas...\n");
 	uint32_t     nbBlas = static_cast<uint32_t>(_blasInputs.size());
 	VkDeviceSize asTotalSize{ 0 };     // Memory size of all allocated BLAS
 	uint32_t     nbCompactions{ 0 };   // Nb of BLAS requesting compaction
@@ -97,13 +105,14 @@ void VulkanRaytracing::build_blas(VkBuildAccelerationStructureFlagsKHR flags)
 
 		// Extra info
 		asTotalSize += buildAs[idx].sizeInfo.accelerationStructureSize;
-		maxScratchSize = std::max(maxScratchSize, buildAs[idx].sizeInfo.buildScratchSize);
+		maxScratchSize = std::max(maxScratchSize, roundup(buildAs[idx].sizeInfo.buildScratchSize, SCRATCH_BUFFER_ALIGNMENT));
 		nbCompactions += hasFlag(buildAs[idx].buildInfo.flags, VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR);
 	}
 	// Allocate the scratch buffers holding the temporary data of the acceleration structure builder
 	AllocatedBuffer scratchBuffer = vkutils::create_buffer(_allocator, maxScratchSize, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	VkBufferDeviceAddressInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, nullptr, scratchBuffer._buffer };
 	VkDeviceAddress scratchAddress = vkGetBufferDeviceAddress(_device, &bufferInfo);
+	scratchAddress += SCRATCH_BUFFER_ALIGNMENT - (scratchAddress % SCRATCH_BUFFER_ALIGNMENT);
 	// Allocate a query pool for storing the needed size for every BLAS compaction.
 	VkQueryPool queryPool{ VK_NULL_HANDLE };
 	if (nbCompactions > 0)  // Is compaction requested?
@@ -162,6 +171,8 @@ void VulkanRaytracing::build_blas(VkBuildAccelerationStructureFlagsKHR flags)
 
 void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructureFlagsKHR flags, bool update)
 {
+	//printf("Building tlas...\n");
+
 	std::vector<VkAccelerationStructureInstanceKHR> instances;
 	instances.reserve(scene.nodes.size());
 	for (int i = 0; i < scene.nodes.size(); i++)
@@ -465,11 +476,13 @@ void VulkanRaytracing::cmd_create_tlas(VkCommandBuffer cmdBuf, uint32_t countIns
 	}
 
 	// Allocate the scratch memory
-	scratchBuffer = vkutils::create_buffer(_allocator, sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	scratchBuffer = vkutils::create_buffer(_allocator, roundup(sizeInfo.buildScratchSize, SCRATCH_BUFFER_ALIGNMENT), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY);
 
 	VkBufferDeviceAddressInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, nullptr, scratchBuffer._buffer };
 	VkDeviceAddress scratchAddress = vkGetBufferDeviceAddress(_device, &bufferInfo);
+
+	scratchAddress += SCRATCH_BUFFER_ALIGNMENT - (scratchAddress % SCRATCH_BUFFER_ALIGNMENT);
 
 	// Update build information
 	buildInfo.srcAccelerationStructure = update ? tlas.accel : VK_NULL_HANDLE;

@@ -43,6 +43,8 @@ struct GPUCameraData {
 	vec4 lightColor;
 	vec2 lightmapInputSize;
 	vec2 lightmapTargetSize;
+	vec2 jitter;
+	vec2 prevJitter;
 	int indirectDiffuse;
 	int indirectSpecular;
 	int useStochasticSpecular;

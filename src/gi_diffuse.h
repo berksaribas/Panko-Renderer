@@ -20,42 +20,42 @@ public:
 	void debug_draw_specific_receiver(VulkanDebugRenderer& debugRenderer, int specificCluster, int specificReceiver, int specificReceiverRaySampleCount, bool* enabledProbes, bool showSpecificProbeRays, float sceneScale);
 
 	AllocatedBuffer _configBuffer;
-	Vrg::Bindable* _configBufferBinding;
+	Handle<Vrg::Bindable> _configBufferBinding;
 	AllocatedBuffer _probeRaycastResultOfflineBuffer;
-	Vrg::Bindable* _probeRaycastResultOfflineBufferBinding;
+	Handle<Vrg::Bindable> _probeRaycastResultOfflineBufferBinding;
 	AllocatedBuffer _probeRaycastResultOnlineBuffer;
-	Vrg::Bindable* _probeRaycastResultOnlineBufferBinding;
+	Handle<Vrg::Bindable> _probeRaycastResultOnlineBufferBinding;
 	AllocatedBuffer _probeBasisBuffer;
-	Vrg::Bindable* _probeBasisBufferBinding;
+	Handle<Vrg::Bindable> _probeBasisBufferBinding;
 	AllocatedBuffer _probeRelightOutputBuffer;
-	Vrg::Bindable* _probeRelightOutputBufferBinding;
+	Handle<Vrg::Bindable> _probeRelightOutputBufferBinding;
 
 	AllocatedBuffer _clusterProjectionMatricesBuffer;
-	Vrg::Bindable* _clusterProjectionMatricesBufferBinding;
+	Handle<Vrg::Bindable> _clusterProjectionMatricesBufferBinding;
 	AllocatedBuffer _clusterProjectionOutputBuffer;
-	Vrg::Bindable* _clusterProjectionOutputBufferBinding;
+	Handle<Vrg::Bindable> _clusterProjectionOutputBufferBinding;
 	AllocatedBuffer _clusterReceiverInfos;
-	Vrg::Bindable* _clusterReceiverInfosBinding;
+	Handle<Vrg::Bindable> _clusterReceiverInfosBinding;
 	AllocatedBuffer _clusterProbes;
-	Vrg::Bindable* _clusterProbesBinding;
+	Handle<Vrg::Bindable> _clusterProbesBinding;
 
 	AllocatedBuffer _receiverReconstructionMatricesBuffer;
-	Vrg::Bindable* _receiverReconstructionMatricesBufferBinding;
+	Handle<Vrg::Bindable> _receiverReconstructionMatricesBufferBinding;
 	AllocatedBuffer _clusterReceiverUvs;
-	Vrg::Bindable* _clusterReceiverUvsBinding;
+	Handle<Vrg::Bindable> _clusterReceiverUvsBinding;
 
 	AllocatedBuffer _probeLocationsBuffer;
-	Vrg::Bindable* _probeLocationsBufferBinding;
+	Handle<Vrg::Bindable> _probeLocationsBufferBinding;
 
 	AllocatedBuffer _receiverBuffer;
-	Vrg::Bindable* _receiverBufferBinding;
+	Handle<Vrg::Bindable> _receiverBufferBinding;
 
 	AllocatedImage _giIndirectLightImage;
-	Vrg::Bindable* _giIndirectLightImageBinding;
+	Handle<Vrg::Bindable> _giIndirectLightImageBinding;
 	AllocatedImage _lightmapColorImage;
-	Vrg::Bindable* _lightmapColorImageBinding;
+	Handle<Vrg::Bindable> _lightmapColorImageBinding;
 	AllocatedImage _dilatedGiIndirectLightImage;
-	Vrg::Bindable* _dilatedGiIndirectLightImageBinding;
+	Handle<Vrg::Bindable> _dilatedGiIndirectLightImageBinding;
 
 	VkExtent2D _lightmapExtent{ 2048 , 2048 };
 private:

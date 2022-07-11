@@ -6,9 +6,11 @@
 #include <functional>
 #include <initializer_list>
 #include "vk_cache.h"
-#include "memory.h"
+#include "memory/frame_allocator.h"
 #include "vk_raytracing.h"
 #include "vk_timer.h"
+
+#include "memory/handle_pool.h"
 
 namespace Vrg {
 	class RenderGraph {
@@ -16,32 +18,35 @@ namespace Vrg {
 		RenderGraph(EngineData* _engineData);
 		void enable_raytracing(VulkanRaytracing* _vulkanRaytracing);
 		RenderPass* add_render_pass(RenderPass renderPass);
-		Bindable* register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName);
-		Bindable* register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName);
-		Bindable* register_uniform_buffer(AllocatedBuffer* buffer, std::string resourceName);
-		Bindable* register_vertex_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
-		Bindable* register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
-		Bindable* get_resource(std::string resourceName); //TODO: Implement if needed. Right now, not needed.
+		Handle<Bindable> register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName);
+		Handle<Bindable> register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName);
+		Handle<Bindable> register_uniform_buffer(AllocatedBuffer* buffer, std::string resourceName);
+		Handle<Bindable> register_vertex_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
+		Handle<Bindable> register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName);
+		Handle<Bindable> get_resource(std::string resourceName); //TODO: Implement if needed. Right now, not needed.
 
+		void insert_barrier(VkCommandBuffer cmd, Handle<Bindable> bindable, PipelineType pipelineType, bool isWrite, uint32_t mip = 0);
 		void handle_render_pass_barriers(VkCommandBuffer cmd, RenderPass& renderPass);
 		void bind_pipeline_and_descriptors(VkCommandBuffer cmd, RenderPass& renderPass);
+		VkImageView get_image_view(VkImage image, ImageView& imageView, VkFormat format);
+		VkImageLayout get_current_image_layout(VkImage image, uint32_t mip);
+		void inform_current_image_layout(VkImage image, uint32_t mip, VkImageLayout layout);
 
 		void execute(VkCommandBuffer cmd);
 		void rebuild_pipelines();
 
-		VulkanTimer vkTimer;
-		std::vector<Bindable> bindings;
-		std::unordered_map<Bindable*, std::string> bindingNames;
+		void destroy_resource(AllocatedImage& image);
+		void destroy_resource(AllocatedBuffer& buffer);
 
+		VulkanTimer vkTimer;
+		Pool<Bindable> bindings;
 	private:
+		//TODO: Remove render pass dependency and expose to public
 		VkPipeline get_pipeline(RenderPass& renderPass);
 		RaytracingPipeline* get_raytracing_pipeline(RenderPass& renderPass);
 		VkPipelineLayout get_pipeline_layout(RenderPass& renderPass);
 		VkDescriptorSet get_descriptor_set(RenderPass& renderPass, int set);
 		VkDescriptorSetLayout get_descriptor_set_layout(RenderPass& renderPass, int set);
-		VkImageView get_image_view(VkImage image, ImageView& imageView, VkFormat format);
-		void insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip = 0);
-		VkImageLayout get_current_image_layout(VkImage image, uint32_t mip);
 
 		//
 		EngineData* engineData;

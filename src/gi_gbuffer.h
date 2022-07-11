@@ -5,16 +5,18 @@
 
 struct GbufferData {
 	AllocatedImage gbufferAlbedoMetallicImage;
-	AllocatedImage gbufferNormalMotionImage;
+	AllocatedImage gbufferNormalImage;
+	AllocatedImage gbufferMotionImage;
 	AllocatedImage gbufferRoughnessDepthCurvatureMaterialImage;
 	AllocatedImage gbufferUVImage;
 	AllocatedImage gbufferDepthImage;
 
-	Vrg::Bindable* albedoMetallicBinding;
-	Vrg::Bindable* normalMotionBinding;
-	Vrg::Bindable* roughnessDepthCurvatureMaterialBinding;
-	Vrg::Bindable* uvBinding;
-	Vrg::Bindable* depthBinding;
+	Handle<Vrg::Bindable> albedoMetallicBinding;
+	Handle<Vrg::Bindable> normalBinding;
+	Handle<Vrg::Bindable> motionBinding;
+	Handle<Vrg::Bindable> roughnessDepthCurvatureMaterialBinding;
+	Handle<Vrg::Bindable> uvBinding;
+	Handle<Vrg::Bindable> depthBinding;
 };
 
 class GBuffer {

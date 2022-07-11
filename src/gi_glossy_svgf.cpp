@@ -68,13 +68,15 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 			{0, sceneData.cameraBufferBinding},
 			//1
 			{1, gbufferCurrent->albedoMetallicBinding},
-			{1, gbufferCurrent->normalMotionBinding},
+			{1, gbufferCurrent->normalBinding},
+			{1, gbufferCurrent->motionBinding},
 			{1, gbufferCurrent->roughnessDepthCurvatureMaterialBinding},
 			{1, gbufferCurrent->uvBinding},
 			{1, gbufferCurrent->depthBinding},
 			//2
 			{2, gbufferPrevious->albedoMetallicBinding},
-			{2, gbufferPrevious->normalMotionBinding},
+			{2, gbufferPrevious->normalBinding},
+			{2, gbufferPrevious->motionBinding},
 			{2, gbufferPrevious->roughnessDepthCurvatureMaterialBinding},
 			{2, gbufferPrevious->uvBinding},
 			{2, gbufferPrevious->depthBinding},
@@ -89,7 +91,7 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 
 	for (int i = 0; i < num_atrous; i++)
 	{
-		Vrg::Bindable* current = _atrousData[(i) % 2].pingImageBinding;
+		auto current = _atrousData[(i) % 2].pingImageBinding;
 		if (i == 0) {
 			current = _temporalData[(_currFrame) % 2].colorImageBinding;
 		}
@@ -112,7 +114,8 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 				{0, sceneData.cameraBufferBinding},
 				//1
 				{1, gbufferCurrent->albedoMetallicBinding},
-				{1, gbufferCurrent->normalMotionBinding},
+				{1, gbufferCurrent->normalBinding},
+				{1, gbufferCurrent->motionBinding},
 				{1, gbufferCurrent->roughnessDepthCurvatureMaterialBinding},
 				{1, gbufferCurrent->uvBinding},
 				{1, gbufferCurrent->depthBinding},
@@ -126,7 +129,7 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 	}
 }
 
-Vrg::Bindable* GlossyDenoise::get_denoised_binding()
+Handle<Vrg::Bindable> GlossyDenoise::get_denoised_binding()
 {
 	return _atrousData[num_atrous%2].pingImageBinding;
 }

@@ -12,16 +12,18 @@ layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; }
 // Current Reprojection Write DS
 
 layout(set = 1, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
-layout(set = 1, binding = 1) uniform sampler2D gbufferNormalMotion;
-layout(set = 1, binding = 2) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
-layout(set = 1, binding = 3) uniform sampler2D gbufferUV;
-layout(set = 1, binding = 4) uniform sampler2D gbufferDepth;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
+layout(set = 1, binding = 2) uniform sampler2D gbufferMotion;
+layout(set = 1, binding = 3) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 1, binding = 4) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 5) uniform sampler2D gbufferDepth;
 
 layout(set = 2, binding = 0) uniform sampler2D prev_gbufferAlbedoMetallic;
-layout(set = 2, binding = 1) uniform sampler2D prev_gbufferNormalMotion;
-layout(set = 2, binding = 2) uniform sampler2D prev_gbufferRoughnessDepthCurvatureMaterial;
-layout(set = 2, binding = 3) uniform sampler2D prev_gbufferUV;
-layout(set = 2, binding = 4) uniform sampler2D prev_gbufferDepth;
+layout(set = 2, binding = 1) uniform sampler2D prev_gbufferNormal;
+layout(set = 2, binding = 2) uniform sampler2D prev_gbufferMotion;
+layout(set = 2, binding = 3) uniform sampler2D prev_gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 2, binding = 4) uniform sampler2D prev_gbufferUV;
+layout(set = 2, binding = 5) uniform sampler2D prev_gbufferDepth;
 
 // Input DS
 layout(set = 3, binding = 0) uniform sampler2D raytracingResult;
@@ -141,11 +143,12 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
     const vec2 texCoord = pixelCenter / vec2(imageDim);
 
     vec4 gb1 = texelFetch(gbufferAlbedoMetallic, ipos, 0);
-    vec4 gb2 = texelFetch(gbufferNormalMotion, ipos, 0);
+    vec2 gb2 = texelFetch(gbufferNormal, ipos, 0).rg;
     vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
+    vec2 gb4 = texelFetch(gbufferMotion, ipos, 0).rg;
 
     float depth = texelFetch(gbufferDepth, ipos, 0).r;
-    const vec2 motion = gb2.zw;
+    const vec2 motion = gb4.rg;
 
     const vec3 current_normal = octohedral_to_direction(gb2.xy);
     const float current_mesh_id = gb3.w;
@@ -180,11 +183,12 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
     { 
         ivec2 loc = ivec2(posPrev) + offset[sampleIdx];
         vec4 prev_gb1 = texelFetch(prev_gbufferAlbedoMetallic, loc, 0);
-        vec4 prev_gb2 = texelFetch(prev_gbufferNormalMotion, loc, 0);
+        vec2 prev_gb2 = texelFetch(prev_gbufferNormal, loc, 0).rg;
         vec4 prev_gb3 = texelFetch(prev_gbufferRoughnessDepthCurvatureMaterial, loc, 0);
+        vec2 prev_gb4 = texelFetch(prev_gbufferMotion, loc, 0).rg;
 
         float history_depth = texelFetch(prev_gbufferDepth, loc, 0).r;
-        const vec2 motion = prev_gb2.zw;
+        const vec2 motion = prev_gb4.rg;
 
         const vec3 history_normal = octohedral_to_direction(prev_gb2.xy);
         const float history_mesh_id = prev_gb3.w;
@@ -246,11 +250,12 @@ bool loadPrevData(out vec4 prevIndirect, out vec2 prevMoments, out float history
             {
                 ivec2 p = iposPrev + ivec2(xx, yy);
                 vec4 prev_gb1 = texelFetch(prev_gbufferAlbedoMetallic, p, 0);
-                vec4 prev_gb2 = texelFetch(prev_gbufferNormalMotion, p, 0);
+                vec2 prev_gb2 = texelFetch(prev_gbufferNormal, p, 0).rg;
                 vec4 prev_gb3 = texelFetch(prev_gbufferRoughnessDepthCurvatureMaterial, p, 0);
+                vec2 prev_gb4 = texelFetch(prev_gbufferMotion, p, 0).rg;
 
                 float history_depth = texelFetch(prev_gbufferDepth, p, 0).r;
-                const vec2 motion = prev_gb2.zw;
+                const vec2 motion = prev_gb4.rg;
 
                 const vec3 history_normal = octohedral_to_direction(prev_gb2.xy);
                 const float history_mesh_id = prev_gb3.z;
@@ -446,7 +451,7 @@ void main()
         const float gPhiNormal = 32.0;
         const float gPhiDepth = 1.0;
 
-        vec4 gb2 = texelFetch(gbufferNormalMotion, ipos, 0);
+        vec2 gb2 = texelFetch(gbufferNormal, ipos, 0).rg;
         vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
         const float lIndirectCenter = luminance(accumulated_color.rgb);
         vec3 normalCenter = octohedral_to_direction(gb2.xy);
@@ -464,7 +469,7 @@ void main()
 
                 const vec4 indirectP = accumulated_color;
 
-                vec4 gb2_s = texelFetch(gbufferNormalMotion, p, 0);
+                vec2 gb2_s = texelFetch(gbufferNormal, p, 0).rg;
                 vec4 gb3_s = texelFetch(gbufferRoughnessDepthCurvatureMaterial, p, 0);
 
                 vec3 normalP = octohedral_to_direction(gb2_s.xy);

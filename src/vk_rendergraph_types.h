@@ -1,7 +1,8 @@
 #pragma once
 #include <vk_types.h>
-#include <slice.h>
+#include <memory/slice.h>
 #include <functional>
+#include "memory/handle.h"
 
 namespace Vrg {
 	enum class ResourceAccessType {
@@ -27,7 +28,8 @@ namespace Vrg {
 	enum class PipelineType {
 		COMPUTE_TYPE,
 		RASTER_TYPE,
-		RAYTRACING_TYPE
+		RAYTRACING_TYPE,
+		CUSTOM
 	};
 	struct ImageView {
 		Sampler sampler;
@@ -45,12 +47,12 @@ namespace Vrg {
 		VkFormat format;
 		BindType type;
 		int count;
-		uint32_t id;
+		std::string name;
 	};
 
 	struct DescriptorBinding {
 		int set_index;
-		Bindable* binding;
+		Handle<Bindable> bindable;
 	};
 
 	struct DescriptorSetBinding {
@@ -60,7 +62,7 @@ namespace Vrg {
 	};
 
 	struct RenderTargetBinding {
-		Bindable* binding;
+		Handle<Bindable> bindable;
 		VkClearValue clearValue;
 		bool isSwapChain;
 	};
@@ -107,8 +109,8 @@ namespace Vrg {
 		CullMode cullMode = CullMode::COUNTER_CLOCK_WISE;
 		bool enableConservativeRasterization = false;
 		Slice<VkPipelineColorBlendAttachmentState> blendAttachmentStates;
-		Slice<Bindable*> vertexBuffers;
-		Bindable* indexBuffer;
+		Slice<Handle<Bindable>> vertexBuffers;
+		Handle<Bindable> indexBuffer;
 		Slice<RenderTargetBinding> colorOutputs;
 		RenderTargetBinding depthOutput;
 	};
@@ -149,8 +151,8 @@ namespace Vrg {
 	};
 	
 	struct MemoryPass {
-		Bindable* src;
-		Bindable* dst;
+		Handle<Bindable> src;
+		Handle<Bindable> dst;
 		//TODO: Blit support
 	};
 

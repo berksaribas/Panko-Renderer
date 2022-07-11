@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include "memory/handle.h"
 
 const VkFormat COLOR_32_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
 const VkFormat COLOR_16_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -38,6 +39,8 @@ struct CommandContext {
 
 struct EngineData {
     VkDevice device;
+    VkPhysicalDevice physicalDevice;
+    VkInstance instance;
 
     VkQueue graphicsQueue;
     uint32_t graphicsQueueFamily;
@@ -61,15 +64,15 @@ struct SceneData {
     AllocatedBuffer sceneDescBuffer, meshInfoBuffer;
     AllocatedBuffer cameraBuffer, objectBuffer, materialBuffer;
 
-    Vrg::Bindable* vertexBufferBinding;
-    Vrg::Bindable* normalBufferBinding;
-    Vrg::Bindable* texBufferBinding;
-    Vrg::Bindable* lightmapTexBufferBinding;
-    Vrg::Bindable* tangentBufferBinding;
-    Vrg::Bindable* indexBufferBinding;
-    Vrg::Bindable* cameraBufferBinding;
-    Vrg::Bindable* objectBufferBinding;
-    Vrg::Bindable* materialBufferBinding;
+    Handle<Vrg::Bindable> vertexBufferBinding;
+    Handle<Vrg::Bindable> normalBufferBinding;
+    Handle<Vrg::Bindable> texBufferBinding;
+    Handle<Vrg::Bindable> lightmapTexBufferBinding;
+    Handle<Vrg::Bindable> tangentBufferBinding;
+    Handle<Vrg::Bindable> indexBufferBinding;
+    Handle<Vrg::Bindable> cameraBufferBinding;
+    Handle<Vrg::Bindable> objectBufferBinding;
+    Handle<Vrg::Bindable> materialBufferBinding;
 
     VkDescriptorSet textureDescriptor;
     VkDescriptorSetLayout textureSetLayout;

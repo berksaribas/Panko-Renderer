@@ -14,10 +14,12 @@ layout (location = 6) in vec3 inTangent;
 layout (location = 7) in vec3 inBitangent;
 
 layout(location = 0) out vec4 gbufferAlbedoMetallic;
-layout(location = 1) out vec4 gbufferNormalMotion;
-layout(location = 2) out vec4 gbufferRoughnessDepthCurvatureMaterial;
-layout(location = 3) out vec4 gbufferUV;
+layout(location = 1) out vec2 gbufferNormal;
+layout(location = 2) out vec2 gbufferMotion;
+layout(location = 3) out vec4 gbufferRoughnessDepthCurvatureMaterial;
+layout(location = 4) out vec4 gbufferUV;
 
+layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
 layout(set = 2, binding = 0) uniform sampler2D[] textures;
 layout(std140, set = 3, binding = 0) readonly buffer MaterialBuffer{ GPUBasicMaterialData materials[]; };
 
@@ -37,8 +39,8 @@ vec2 direction_to_octohedral(vec3 normal)
 vec2 compute_motion_vector(vec4 prev_pos, vec4 current_pos)
 {
     // Perspective division, covert clip space positions to NDC.
-    vec2 current = (current_pos.xy / current_pos.w);
-    vec2 prev    = (prev_pos.xy / prev_pos.w);
+    vec2 current = (current_pos.xy / current_pos.w) - cameraData.jitter;
+    vec2 prev    = (prev_pos.xy / prev_pos.w) - cameraData.prevJitter;
 
     // Remap to [0, 1] range
     current = current * 0.5 + 0.5;
@@ -103,7 +105,9 @@ void main()
         normal = getNormal();
     }
 
-    gbufferNormalMotion = vec4(direction_to_octohedral(normal), compute_motion_vector(inOldPosition, inPosition));
+    gbufferNormal = direction_to_octohedral(normal);
+    gbufferMotion = compute_motion_vector(inOldPosition, inPosition);
+
     float linearDepth = gl_FragCoord.z / gl_FragCoord.w;
     float curvature = compute_curvature();
     //gbufferRoughnessDepthCurvatureMaterial = vec4(roughness, linearize_depth(gl_FragCoord.z, 0.1f, 1000.0f), curvature, inMaterialId);

@@ -35,7 +35,7 @@ void VulkanDebugRenderer::draw_point(glm::vec3 point, glm::vec3 color)
 Vrg::RenderPass* pointPass;
 Vrg::RenderPass* linePass;
 
-void VulkanDebugRenderer::render(EngineData& _engineData, SceneData& _sceneData, VkExtent2D size, Vrg::Bindable* renderTarget)
+void VulkanDebugRenderer::render(EngineData& _engineData, SceneData& _sceneData, VkExtent2D size, Handle<Vrg::Bindable> renderTarget)
 {
 	pointPass = nullptr;
 	linePass = nullptr;

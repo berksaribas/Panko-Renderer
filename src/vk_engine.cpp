@@ -13,9 +13,6 @@
 
 #include <glm/gtx/transform.hpp>
 
-#include "imgui.h"
-#include "imgui_impl_sdl.h"
-#include "imgui_impl_vulkan.h"
 #include <precalculation.h>
 #include <vk_utils.h>
 #include <vk_extensions.h>
@@ -39,9 +36,10 @@
 
 #define FILE_HELPER_IMPL
 #include <file_helper.h>
-#include <filesystem>
 
 #include "vk_rendergraph.h"
+#include "editor\editor.h"
+#include "vk_super_res.h"
 
 constexpr bool bUseValidationLayers = true;
 std::vector<GPUBasicMaterialData> materials;
@@ -61,49 +59,29 @@ GlossyIllumination glossyIllumination;
 GlossyDenoise glossyDenoise;
 Deferred deferred;
 
-//Imgui
-bool enableGi = false;
-bool showProbes = false;
-bool showProbeRays = false;
-bool showReceivers = false;
-bool showSpecificReceiver = false;
-int specificCluster = 1;
-int specificReceiver = 135;
-int specificReceiverRaySampleCount = 10;
-bool showSpecificProbeRays = false;
-bool probesEnabled[300];
-int renderMode = 0;
-
-int selectedPreset = -1;
-char customName[128];
-bool screenshot = false;
-
-bool useRealtimeRaycast = true;
-bool enableDenoise = true;
-bool enableGroundTruthDiffuse = false;
-
-bool showFileList = false;
-std::vector<std::string> load_files;
-int selected_file = 0;
-
-bool useSceneCamera = false;
+Editor editor;
 CameraConfig cameraConfig;
+Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
-Vrg::Bindable* selectedRenderBinding;
+vkb::Swapchain vkbSwapchain;
+bool swapchainInitialized = false;
+bool swapchainNeedsRecreation = false;
+
+SuperResolution superResolution;
 
 void VulkanEngine::init()
 {
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
 
-	SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+	SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
 	_window = SDL_CreateWindow(
-		"Vulkan Engine",
+		"Panko",
 		SDL_WINDOWPOS_UNDEFINED,
 		SDL_WINDOWPOS_UNDEFINED,
-		_windowExtent.width,
-		_windowExtent.height,
+		_displayResolution.width,
+		_displayResolution.height,
 		window_flags
 	);
 
@@ -120,7 +98,7 @@ void VulkanEngine::init()
 	_vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
 	_engineData.renderGraph->enable_raytracing(&_vulkanRaytracing);
 
-	init_imgui();
+	editor.initialize(_engineData, _window, _swachainImageFormat);
 
 	bool loadPrecomputedData = true;
 	if (!loadPrecomputedData) {
@@ -154,11 +132,11 @@ void VulkanEngine::init()
 	brdfUtils.init_images(_engineData);
 	shadow.init_buffers(_engineData);
 	shadow.init_images(_engineData);
-	gbuffer.init_images(_engineData, _windowExtent);
+	gbuffer.init_images(_engineData, _renderResolution);
 	diffuseIllumination.init(_engineData, &precalculationInfo, &precalculationLoadData, &precalculationResult, gltf_scene);
-	glossyIllumination.init_images(_engineData, _windowExtent);
-	glossyDenoise.init_images(_engineData, _windowExtent);
-	deferred.init_images(_engineData, _windowExtent);
+	glossyIllumination.init_images(_engineData, _renderResolution);
+	glossyDenoise.init_images(_engineData, _renderResolution);
+	deferred.init_images(_engineData, _renderResolution);
 	_vulkanDebugRenderer.init(_engineData);
 
 	shadow._shadowMapData.positiveExponent = 40;
@@ -191,10 +169,10 @@ void VulkanEngine::cleanup()
 
 		vmaDestroyAllocator(_engineData.allocator);
 
-		vkDestroySurfaceKHR(_instance, _surface, nullptr);
+		vkDestroySurfaceKHR(_engineData.instance, _surface, nullptr);
 
 		vkDestroyDevice(_engineData.device, nullptr);
-		vkDestroyInstance(_instance, nullptr);
+		vkDestroyInstance(_engineData.instance, nullptr);
 
 		SDL_DestroyWindow(_window);
 	}
@@ -202,248 +180,23 @@ void VulkanEngine::cleanup()
 
 static char buffer[256];
 
-void VulkanEngine::prepare_gui() {
-	{
-		//todo: imgui stuff
-		ImGui::Begin("Engine Config");
-		{
-			sprintf_s(buffer, "Rebuild Shaders");
-			if (ImGui::Button(buffer)) {
-				_engineData.renderGraph->rebuild_pipelines();
-			}
-
-			ImGui::NewLine();
-
-			sprintf_s(buffer, "Positive Exponent");
-			ImGui::DragFloat(buffer, &shadow._shadowMapData.positiveExponent);
-			sprintf_s(buffer, "Negative Exponent");
-			ImGui::DragFloat(buffer, &shadow._shadowMapData.negativeExponent);
-			sprintf_s(buffer, "Light Bleeding Reduction");
-			ImGui::DragFloat(buffer, &shadow._shadowMapData.LightBleedingReduction);
-			sprintf_s(buffer, "VSM Bias");
-			ImGui::DragFloat(buffer, &shadow._shadowMapData.VSMBias);
-
-			sprintf_s(buffer, "Ligh Direction");
-			ImGui::DragFloat3(buffer, &_camData.lightPos.x);
-
-			sprintf_s(buffer, "Light Color");
-			ImGui::ColorEdit3(buffer, &_camData.lightColor.x);
-
-			ImGui::NewLine();
-
-			sprintf_s(buffer, "Indirect Diffuse");
-			ImGui::Checkbox(buffer, (bool*)&_camData.indirectDiffuse);
-
-			if (_camData.indirectDiffuse) {
-				sprintf_s(buffer, "Ground Truth");
-				if (ImGui::Checkbox(buffer, &enableGroundTruthDiffuse)) {
-					_frameNumber = 0;
-				}
-			}
-
-			sprintf_s(buffer, "Use realtime probe raycasting");
-			ImGui::Checkbox(buffer, (bool*)&useRealtimeRaycast);
-
-			sprintf_s(buffer, "Indirect Specular");
-			ImGui::Checkbox(buffer, (bool*)&_camData.indirectSpecular);
-
-			if (_camData.indirectSpecular) {
-				sprintf_s(buffer, "Use Stochastic Raytracing");
-				if (ImGui::Checkbox(buffer, (bool*)&_camData.useStochasticSpecular)) {
-					///_frameNumber = 0;
-				}
-
-				if (_camData.useStochasticSpecular) {
-					sprintf_s(buffer, "Enable SVGF denoising");
-					if (ImGui::Checkbox(buffer, &enableDenoise)) {
-						_camData.glossyFrameCount = 0;
-						_camData.glossyDenoise = enableDenoise;
-					}
-
-
-
-					if (enableDenoise) {
-						ImGui::Text("Currently using stochastic raytracing + SVGF denoising.");
-						ImGui::InputInt("Atrous iterations", &glossyDenoise.num_atrous);
-					}
-					else {
-						ImGui::Text("Currently using stochastic raytracing");
-					}
-				}
-				else {
-					ImGui::Text("Currently using mirror raytracing + blurred mip chaining.");
-				}
-			}
-
-			ImGui::NewLine();
-			ImGui::Checkbox("Show Probes", &showProbes);
-			if (showProbes) {
-				ImGui::Checkbox("Show Probe Rays", &showProbeRays);
-			}
-			ImGui::Checkbox("Show Receivers", &showReceivers);
-			ImGui::Checkbox("Show Specific Receivers", &showSpecificReceiver);
-			if (showSpecificReceiver) {
-				ImGui::SliderInt("Cluster: ", &specificCluster, 0, precalculationLoadData.aabbClusterCount - 1);
-				ImGui::SliderInt("Receiver: ", &specificReceiver, 0, precalculationResult.clusterReceiverInfos[specificCluster].receiverCount - 1);
-
-				ImGui::DragInt("Ray sample count: ", &specificReceiverRaySampleCount);
-
-				ImGui::Checkbox("Show Selected Probe Rays", &showSpecificProbeRays);
-
-				{
-					int receiverCount = precalculationResult.clusterReceiverInfos[specificCluster].receiverCount;
-					int receiverOffset = precalculationResult.clusterReceiverInfos[specificCluster].receiverOffset;
-					int probeCount = precalculationResult.clusterReceiverInfos[specificCluster].probeCount;
-					int probeOffset = precalculationResult.clusterReceiverInfos[specificCluster].probeOffset;
-
-					for (int i = 0; i < probeCount; i++) {
-						if (precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i] > 0) {
-							int realProbeIndex = precalculationResult.clusterProbes[probeOffset + i];
-							sprintf_s(buffer, "Probe %d: %f", realProbeIndex, precalculationResult.receiverProbeWeightData[(receiverOffset + specificReceiver) * precalculationLoadData.maxProbesPerCluster + i]);
-							ImGui::Checkbox(buffer, &probesEnabled[realProbeIndex]);
-						}
-					}
-				}
-			}
-
-			ImGui::NewLine();
-
-			ImGui::InputText("Custom name", customName, sizeof(customName));
-			if (ImGui::Button("Screenshot")) {
-				screenshot = true;
-			}
-
-			if (ImGui::Button("Show Saved Data")) {
-				std::string path = "./screenshots/";
-				load_files.clear();
-				for (const auto& entry : std::filesystem::directory_iterator(path)) {
-					auto& path = entry.path();
-					if (path.extension().generic_string().compare(".cam") == 0) {
-						load_files.push_back(path.generic_string());
-					}
-				}
-				showFileList = true;
-			}
-
-			ImGui::End();
-		}
-
-		ImGui::Begin("Camera");
-		{
-			ImGui::ColorEdit4("Clear Color", &_camData.clearColor.r);
-			if (gltf_scene.cameras.size() > 0) {
-				ImGui::Checkbox("Use scene camera", &useSceneCamera);
-			}
-			ImGui::NewLine();
-
-			ImGui::SliderFloat("Camera Fov", &cameraConfig.fov, 0, 90);
-			ImGui::SliderFloat("Camera Speed", &cameraConfig.speed, 0, 1);
-			ImGui::SliderFloat("Camera Rotation Speed", &cameraConfig.rotationSpeed, 0, 0.5);
-
-			ImGui::End();
-		}
-
-		ImGui::Begin("Debug");
-		{
-			selectedRenderBinding = nullptr;
-			auto& bindingNames = _engineData.renderGraph->bindingNames;
-			for (int i = 0; i < _engineData.renderGraph->bindings.size(); i++) {
-				auto* binding = &_engineData.renderGraph->bindings[i];
-				if (binding->type == Vrg::BindType::IMAGE_VIEW) {
-					ImGui::Text(bindingNames[binding].c_str());
-					if (ImGui::IsItemHovered()) {
-						selectedRenderBinding = binding;
-					}
-				}
-			}
-			ImGui::End();
-		}
-
-		//ImGui::Begin("Viewport", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-		//{
-		//	
-		//	ImGui::Image(deferred._deferredColorTextureDescriptor, ImGui::GetWindowContentRegionMax());
-		//	ImGui::End();
-		//}
-
-		if (showFileList) {
-			ImGui::Begin("Files", &showFileList);
-			ImGui::ListBoxHeader("");
-			for (int i = 0; i < load_files.size(); i++) {
-				if (ImGui::Selectable(load_files[i].c_str(), i == selected_file)) {
-					selected_file = i;
-				}
-			}
-			ImGui::ListBoxFooter();
-			if (ImGui::Button("Load")) {
-				ScreenshotSaveData saveData = {};
-				load_binary(load_files[selected_file], &saveData, sizeof(ScreenshotSaveData));
-				camera = saveData.camera;
-				_camData.lightPos = saveData.lightPos;
-			}
-			ImGui::End();
-		}
-
-		ImGui::Begin("Materials");
-		{
-			bool materialsChanged = false;
-			for (int i = 0; i < materials.size(); i++) {
-				sprintf_s(buffer, "Material %d - %s", i, "todo");
-				ImGui::LabelText(buffer, buffer);
-				sprintf_s(buffer, "Base color %d", i);
-				materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].base_color.r);
-				sprintf_s(buffer, "Emissive color %d", i);
-				materialsChanged |= ImGui::ColorEdit4(buffer, &materials[i].emissive_color.r);
-				sprintf_s(buffer, "Roughness %d", i);
-				materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].roughness_factor, 0, 1);
-				sprintf_s(buffer, "Metallic %d", i);
-				materialsChanged |= ImGui::SliderFloat(buffer, &materials[i].metallic_factor, 0, 1);
-			}
-
-			if (materialsChanged) {
-				vkutils::cpu_to_gpu(_engineData.allocator, _sceneData.materialBuffer, materials.data(), materials.size() * sizeof(GPUBasicMaterialData));
-			}
-
-			ImGui::End();
-		}
-
-		ImGui::Begin("Objects");
-		{
-			for (int i = 0; i < gltf_scene.nodes.size(); i++)
-			{
-				sprintf_s(buffer, "Object %d", i);
-				glm::vec3 translate = { 0, 0, 0 };
-				ImGui::DragFloat3(buffer, &translate.x, -1, 1);
-				gltf_scene.nodes[i].world_matrix = glm::translate(translate) * gltf_scene.nodes[i].world_matrix;
-			}
-		}
-		ImGui::End();
-
-		ImGui::Begin("Performance");
-		{
-			if (_engineData.renderGraph->vkTimer.result) {
-				float totalTime = 0;
-				for (int i = 0; i < _engineData.renderGraph->vkTimer.count; i++) {
-					float time = (_engineData.renderGraph->vkTimer.times[i * 2 + 1] - _engineData.renderGraph->vkTimer.times[i * 2]) / 1000000.0;
-					totalTime += time;
-					sprintf_s(buffer, "%s: %.2f ms", _engineData.renderGraph->vkTimer.names[i].c_str(), time);
-					ImGui::Text(buffer);
-				}
-				ImGui::Separator();
-				sprintf_s(buffer, "Total (GPU): %.2f ms", totalTime);
-				ImGui::Text(buffer);
-			}
-		}
-		ImGui::End();
-
-		ImGui::Render();
-	}
-}
-
-void VulkanEngine::draw()
+void VulkanEngine::draw(double deltaTime)
 {
 	//wait until the gpu has finished rendering the last frame. Timeout of 1 second
 	VK_CHECK(vkWaitForFences(_engineData.device, 1, &_renderFence, true, 1000000000));
+	
+	//request image from the swapchain
+	uint32_t swapchainImageIndex;
+	VkResult swapchainResult = vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex);
+
+	if (swapchainResult == VK_ERROR_OUT_OF_DATE_KHR || swapchainResult == VK_SUBOPTIMAL_KHR || swapchainNeedsRecreation) {
+		init_swapchain();
+		return;
+	}
+	else if (swapchainResult != VK_SUCCESS) {
+		abort();
+	}
+	
 	VK_CHECK(vkResetFences(_engineData.device, 1, &_renderFence));
 
 	//TODO: Enable
@@ -452,10 +205,6 @@ void VulkanEngine::draw()
 	//now that we are sure that the commands finished executing, we can safely reset the command buffer to begin recording again.
 	VK_CHECK(vkResetCommandBuffer(_mainCommandBuffer, 0));
 
-	//request image from the swapchain
-	uint32_t swapchainImageIndex;
-	VK_CHECK(vkAcquireNextImageKHR(_engineData.device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex));
-
 	constexpr glm::vec3 UP = glm::vec3(0, 1, 0);
 	constexpr glm::vec3 RIGHT = glm::vec3(1, 0, 0);
 	constexpr glm::vec3 FORWARD = glm::vec3(0, 0, 1);
@@ -463,7 +212,7 @@ void VulkanEngine::draw()
 
 	float fov = glm::radians(cameraConfig.fov);
 
-	if (useSceneCamera) {
+	if (editor.editorSettings.useSceneCamera) {
 		res = glm::scale(glm::vec3(_sceneScale)) * gltf_scene.cameras[0].world_matrix;
 		camera.pos = gltf_scene.cameras[0].eye * _sceneScale;
 		fov = gltf_scene.cameras[0].cam.perspective.yfov;
@@ -476,8 +225,19 @@ void VulkanEngine::draw()
 	}
 
 	auto view = glm::inverse(res);
-	glm::mat4 projection = glm::perspective(fov, ((float)_windowExtent.width) / _windowExtent.height, 0.1f, 1000.0f);
+	glm::mat4 projection = glm::perspective(fov, ((float)_renderResolution.width) / _renderResolution.height, cameraConfig.nearPlane, cameraConfig.farPlane);
+	SuperResolutionData superResData;
+	superResolution.get_data(&superResData);
+
+	const float jitterX = 2.0f * superResData.jitterX / (float)_renderResolution.width;
+	const float jitterY = 2.0f * superResData.jitterY / (float)_renderResolution.height;
+	glm::mat4 jitterTranslationMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterX, jitterY, 0));
+	projection = jitterTranslationMatrix * projection;
+
 	projection[1][1] *= -1;
+
+	_camData.prevJitter = _camData.jitter;
+	_camData.jitter = { jitterX, jitterY };
 
 	_camData.prevViewproj = _camData.viewproj;
 	_camData.viewproj = projection * view;
@@ -533,18 +293,24 @@ void VulkanEngine::draw()
 
 	shadow._shadowMapData.depthMVP = depthProjectionMatrix * depthViewMatrix;
 
-	prepare_gui();
+	editor.prepare(_engineData);
+	editor.prepare_debug_settings(_engineData);
+	editor.prepare_camera_settings(_engineData, _camData, cameraConfig, gltf_scene.cameras.size() > 0);
+	editor.prepare_performance_settings(_engineData);
+	editor.prepare_material_settings(_engineData, _sceneData, materials.data(), materials.size());
+	editor.prepare_object_settings(_engineData, gltf_scene.nodes.data(), gltf_scene.nodes.size());
+	editor.prepare_renderer_settings(_engineData, _camData, shadow, glossyDenoise, _frameNumber);
 	
-	if (showProbes) {
-		diffuseIllumination.debug_draw_probes(_vulkanDebugRenderer, showProbeRays, _sceneScale);
+	if (editor.editorSettings.showProbes) {
+		diffuseIllumination.debug_draw_probes(_vulkanDebugRenderer, editor.editorSettings.showProbeRays, _sceneScale);
 	}
 	
-	if (showReceivers) {
+	if (editor.editorSettings.showReceivers) {
 		diffuseIllumination.debug_draw_receivers(_vulkanDebugRenderer, _sceneScale);
 	}
 
-	if (showSpecificReceiver) {
-		diffuseIllumination.debug_draw_specific_receiver(_vulkanDebugRenderer, specificCluster, specificReceiver, specificReceiverRaySampleCount, probesEnabled, showSpecificProbeRays, _sceneScale);
+	if (editor.editorSettings.showSpecificReceiver) {
+		diffuseIllumination.debug_draw_specific_receiver(_vulkanDebugRenderer, editor.editorSettings.specificCluster, editor.editorSettings.specificReceiver, editor.editorSettings.specificReceiverRaySampleCount, editor.editorSettings.probesEnabled, editor.editorSettings.showSpecificProbeRays, _sceneScale);
 	}
 
 	vkutils::cpu_to_gpu(_engineData.allocator, _sceneData.cameraBuffer, &_camData, sizeof(GPUCameraData));
@@ -553,7 +319,7 @@ void VulkanEngine::draw()
 	void* objectData;
 	vmaMapMemory(_engineData.allocator, _sceneData.objectBuffer._allocation, &objectData);
 	GPUObjectData* objectSSBO = (GPUObjectData*)objectData;
-
+	
 	for (int i = 0; i < gltf_scene.nodes.size(); i++)
 	{
 		auto& mesh = gltf_scene.prim_meshes[gltf_scene.nodes[i].prim_mesh];
@@ -576,20 +342,20 @@ void VulkanEngine::draw()
 		gbuffer.render(_engineData, _sceneData, [&](VkCommandBuffer cmd) {
 			draw_objects(cmd);
 		});
-		if (enableGroundTruthDiffuse) {
+		if (editor.editorSettings.enableGroundTruthDiffuse) {
 			diffuseIllumination.render_ground_truth(cmd, _engineData, _sceneData, shadow, brdfUtils);
 		}
 		else {
 			diffuseIllumination.render(cmd, _engineData, _sceneData, shadow, brdfUtils, [&](VkCommandBuffer cmd) {
 				draw_objects(cmd);
-			}, useRealtimeRaycast);
+			}, editor.editorSettings.useRealtimeRaycast);
 		}
 		glossyIllumination.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, brdfUtils);
 
 		if (_camData.useStochasticSpecular) {
 			glossyDenoise.render(_engineData, _sceneData, gbuffer, glossyIllumination);
 
-			if (enableDenoise) {
+			if (editor.editorSettings.enableDenoise) {
 				deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyDenoise.get_denoised_binding());
 			}
 			else {
@@ -600,7 +366,19 @@ void VulkanEngine::draw()
 			deferred.render(_engineData, _sceneData, gbuffer, shadow, diffuseIllumination, glossyIllumination, brdfUtils, glossyIllumination._glossyReflectionsColorImageBinding);
 		}
 
-		_vulkanDebugRenderer.render(_engineData, _sceneData, _windowExtent, _swapchainBindings[swapchainImageIndex]);
+
+		auto gbufferData = gbuffer.get_current_frame_data();
+
+		_engineData.renderGraph->add_render_pass(
+		{
+			.name = "SuperResolutionPass",
+			.pipelineType = Vrg::PipelineType::CUSTOM,
+			.execute = [&](VkCommandBuffer cmd) {
+				superResolution.dispatch(_engineData, cmd, deferred._deferredColorImageBinding, gbufferData->depthBinding, gbufferData->motionBinding, &cameraConfig, deltaTime);
+			}
+		});
+		
+		_vulkanDebugRenderer.render(_engineData, _sceneData, _displayResolution, _swapchainBindings[swapchainImageIndex]);
 
 		VkClearValue clearValue;
 		clearValue.color = { { 1.0f, 1.0f, 1.0f, 1.0f } };
@@ -612,7 +390,7 @@ void VulkanEngine::draw()
 				.rasterPipeline = {
 					.vertexShader = "../../shaders/fullscreen.vert.spv",
 					.fragmentShader = "../../shaders/gamma.frag.spv",
-					.size = _windowExtent,
+					.size = _displayResolution,
 					.depthState = { false, false, VK_COMPARE_OP_NEVER },
 					.cullMode = Vrg::CullMode::NONE,
 					.blendAttachmentStates = {
@@ -624,12 +402,12 @@ void VulkanEngine::draw()
 
 				},
 				.reads = {
-					{0, selectedRenderBinding == nullptr ? deferred._deferredColorImageBinding : selectedRenderBinding}
+					{0, editor.editorSettings.selectedRenderBinding.isValid() ? editor.editorSettings.selectedRenderBinding : superResolution.outputBindable}
 				},
 				.execute = [&](VkCommandBuffer cmd) {
 					vkCmdDraw(cmd, 3, 1, 0, 0);
 					_vulkanDebugRenderer.custom_execute(cmd, _engineData);
-					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+					editor.render(cmd);
 				}
 			}
 		);
@@ -675,17 +453,25 @@ void VulkanEngine::draw()
 
 	presentInfo.pImageIndices = &swapchainImageIndex;
 
-	VK_CHECK(vkQueuePresentKHR(_engineData.graphicsQueue, &presentInfo));
+	swapchainResult = vkQueuePresentKHR(_engineData.graphicsQueue, &presentInfo);
 	
-	if (screenshot) {
-		screenshot = false;
+	if (swapchainResult == VK_ERROR_OUT_OF_DATE_KHR || swapchainResult == VK_SUBOPTIMAL_KHR) {
+		init_swapchain();
+		return;
+	}
+	else if (swapchainResult != VK_SUCCESS) {
+		abort();
+	}
+
+	if (editor.editorSettings.screenshot) {
+		editor.editorSettings.screenshot = false;
 		std::time_t screenshot = std::time(0);
-		sprintf_s(buffer, "screenshots/%d-%s.png", screenshot, customName);
-		vkutils::screenshot(&_engineData, buffer, _swapchainImages[swapchainImageIndex], _windowExtent);
+		sprintf_s(buffer, "screenshots/%d-%s.png", screenshot, editor.editorSettings.customName);
+		vkutils::screenshot(&_engineData, buffer, _swapchainImages[swapchainImageIndex], _displayResolution);
 		ScreenshotSaveData saveData = { camera, _camData.lightPos };
-		sprintf_s(buffer, "screenshots/%d-%s.cam", screenshot, customName);
+		sprintf_s(buffer, "screenshots/%d-%s.cam", screenshot, editor.editorSettings.customName);
 		save_binary(buffer, &saveData, sizeof(ScreenshotSaveData));
-		memset(customName, 0, sizeof(customName));
+		memset(editor.editorSettings.customName, 0, sizeof(editor.editorSettings.customName));
 	}
 
 	//increase the number of frames drawn
@@ -699,6 +485,11 @@ void VulkanEngine::run()
 	bool bQuit = false;
 	bool onGui = true;
 	SDL_SetRelativeMouseMode((SDL_bool)!onGui);
+
+	Uint64 NOW = SDL_GetPerformanceCounter();
+	Uint64 LAST = 0;
+	double deltaTime = 0;
+
 	//main loop
 	while (!bQuit)
 	{
@@ -708,7 +499,7 @@ void VulkanEngine::run()
 
 		while (SDL_PollEvent(&e) != 0)
 		{
-			ImGui_ImplSDL2_ProcessEvent(&e);
+			editor.retrieve_input(&e);
 
 			if (e.type == SDL_QUIT)
 			{
@@ -725,6 +516,11 @@ void VulkanEngine::run()
 			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_LCTRL) {
 				onGui = !onGui;
 				SDL_SetRelativeMouseMode((SDL_bool) !onGui);
+			}
+			if (e.type == SDL_WINDOWEVENT) {
+				if (e.window.event == SDL_WINDOWEVENT_RESIZED) {
+					swapchainNeedsRecreation = true;
+				}
 			}
 		}
 
@@ -759,14 +555,16 @@ void VulkanEngine::run()
 				moved = true;
 			}
 			if (keys[SDL_SCANCODE_P]) {
-				screenshot = true;
+				editor.editorSettings.screenshot = true;
 			}
 		}
-		ImGui_ImplVulkan_NewFrame();
-		ImGui_ImplSDL2_NewFrame(_window);
 
-		ImGui::NewFrame();
-		draw();
+		LAST = NOW;
+		NOW = SDL_GetPerformanceCounter();
+
+		deltaTime = (double)((NOW - LAST) * 1000 / (double)SDL_GetPerformanceFrequency());
+
+		draw(deltaTime);
 	}
 }
 
@@ -775,7 +573,7 @@ void VulkanEngine::init_vulkan()
 	vkb::InstanceBuilder builder;
 
 	//make the vulkan instance, with basic debug features
-	auto inst_ret = builder.set_app_name("Example Vulkan Application")
+	auto inst_ret = builder.set_app_name("Panko Renderer")
 		.request_validation_layers(bUseValidationLayers)
 		.use_default_debug_messenger()
 		.require_api_version(1, 3, 0)
@@ -784,10 +582,10 @@ void VulkanEngine::init_vulkan()
 	vkb::Instance vkb_inst = inst_ret.value();
 
 	//grab the instance 
-	_instance = vkb_inst.instance;
+	_engineData.instance = vkb_inst.instance;
 	_debug_messenger = vkb_inst.debug_messenger;
 
-	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
+	SDL_Vulkan_CreateSurface(_window, _engineData.instance, &_surface);
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = VkPhysicalDeviceFeatures();
 	physicalDeviceFeatures.fillModeNonSolid = true;
@@ -846,10 +644,10 @@ void VulkanEngine::init_vulkan()
 	vkb::Device vkbDevice = deviceBuilder.build().value();
 
 	_engineData.device = vkbDevice.device;
-	_chosenGPU = physicalDevice.physical_device;
+	_engineData.physicalDevice = physicalDevice.physical_device;
 
 	//Get extension pointers
-	load_VK_EXTENSIONS(_instance, vkGetInstanceProcAddr, _engineData.device, vkGetDeviceProcAddr);
+	load_VK_EXTENSIONS(_engineData.instance, vkGetInstanceProcAddr, _engineData.device, vkGetDeviceProcAddr);
 
 	// use vkbootstrap to get a Graphics queue
 	_engineData.graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
@@ -859,9 +657,9 @@ void VulkanEngine::init_vulkan()
 	_engineData.computeQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::compute).value();
 
 	VmaAllocatorCreateInfo allocatorInfo = {};
-	allocatorInfo.physicalDevice = _chosenGPU;
+	allocatorInfo.physicalDevice = _engineData.physicalDevice;
 	allocatorInfo.device = _engineData.device;
-	allocatorInfo.instance = _instance;
+	allocatorInfo.instance = _engineData.instance;
 	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 	vmaCreateAllocator(&allocatorInfo, &_engineData.allocator);
 
@@ -871,31 +669,46 @@ void VulkanEngine::init_vulkan()
 	_gpuRaytracingProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
 	_gpuProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	_gpuProperties.pNext = &_gpuRaytracingProperties;
-	vkGetPhysicalDeviceProperties2(_chosenGPU, &_gpuProperties);
-	vkGetPhysicalDeviceFeatures(_chosenGPU, &_gpuFeatures);
+	vkGetPhysicalDeviceProperties2(_engineData.physicalDevice, &_gpuProperties);
+	vkGetPhysicalDeviceFeatures(_engineData.physicalDevice, &_gpuFeatures);
 }
 
 void VulkanEngine::init_swapchain()
 {
-	vkb::SwapchainBuilder swapchainBuilder{ _chosenGPU,_engineData.device,_surface };
-	vkb::Swapchain vkbSwapchain = swapchainBuilder
+	vkDeviceWaitIdle(_engineData.device);
+
+	vkb::SwapchainBuilder swapchainBuilder{ _engineData.physicalDevice,_engineData.device,_surface };
+
+	if (swapchainInitialized) {
+		vkb::destroy_swapchain(vkbSwapchain);
+
+		for (int i = 0; i < _swapchainAllocatedImage.size(); i++) {
+			_engineData.renderGraph->destroy_resource(_swapchainAllocatedImage[i]);
+		}
+	}
+
+	vkbSwapchain = swapchainBuilder
 		.use_default_format_selection()
 		//use vsync present mode
 		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-		.set_desired_extent(_windowExtent.width, _windowExtent.height)
+		//.set_desired_extent(_windowExtent.width, _windowExtent.height)
 		//.set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 		.build()
 		.value();
 
+
+	_displayResolution = vkbSwapchain.extent;
+
 	//store swapchain and its related images
 	_swapchain = vkbSwapchain.swapchain;
 	_swapchainImages = vkbSwapchain.get_images().value();
-	_swapchainImageViews = vkbSwapchain.get_image_views().value();
+	_swapchainAllocatedImage.clear();
 
 	for (int i = 0; i < _swapchainImages.size(); i++) {
 		AllocatedImage allocatedImage;
 		allocatedImage.format = vkbSwapchain.image_format;
 		allocatedImage._image = _swapchainImages[i];
+		allocatedImage._allocation = nullptr;
 		_swapchainAllocatedImage.push_back(allocatedImage);
 	}
 
@@ -903,7 +716,7 @@ void VulkanEngine::init_swapchain()
 
 	for (int i = 0; i < _swapchainImages.size(); i++) {
 		_swapchainBindings[i] = _engineData.renderGraph->register_image_view(&_swapchainAllocatedImage[i], {
-		.sampler = Vrg::Sampler::NEAREST,
+		.sampler = Vrg::Sampler::LINEAR,
 		.baseMipLevel = 0,
 		.mipLevelCount = 1
 		}, "Swapchain" + std::to_string(i));
@@ -911,15 +724,14 @@ void VulkanEngine::init_swapchain()
 
 	_swachainImageFormat = vkbSwapchain.image_format;
 
+	superResolution.initialize(_engineData, _renderResolution, _displayResolution);
+
 	_mainDeletionQueue.push_function([=]() {
 		vkDestroySwapchainKHR(_engineData.device, _swapchain, nullptr);
 	});
 
-	VkExtent3D depthImageExtent = {
-		_windowExtent.width,
-		_windowExtent.height,
-		1
-	};
+	swapchainInitialized = true;
+	swapchainNeedsRecreation = false;
 }
 
 void VulkanEngine::init_commands()
@@ -1341,79 +1153,6 @@ void VulkanEngine::init_scene()
 	_sceneData.meshInfoBuffer = vkutils::create_upload_buffer(&_engineData, dataMesh, sizeof(GPUMeshInfo) * gltf_scene.prim_meshes.size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
 	delete[] dataMesh;
-}
-
-void VulkanEngine::init_imgui()
-{
-	//1: create descriptor pool for IMGUI
-	// the size of the pool is very oversize, but it's copied from imgui demo itself.
-	VkDescriptorPoolSize pool_sizes[] =
-	{
-		{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-	};
-
-	VkDescriptorPoolCreateInfo pool_info = {};
-	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-	pool_info.maxSets = 1000;
-	pool_info.poolSizeCount = std::size(pool_sizes);
-	pool_info.pPoolSizes = pool_sizes;
-
-	VkDescriptorPool imguiPool;
-	VK_CHECK(vkCreateDescriptorPool(_engineData.device, &pool_info, nullptr, &imguiPool));
-
-
-	// 2: initialize imgui library
-
-	//this initializes the core structures of imgui
-	ImGui::CreateContext();
-
-	ImGui::StyleColorsDark();
-
-	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-	//this initializes imgui for SDL
-	ImGui_ImplSDL2_InitForVulkan(_window);
-
-	//this initializes imgui for Vulkan
-	ImGui_ImplVulkan_InitInfo init_info = {};
-	init_info.Instance = _instance;
-	init_info.PhysicalDevice = _chosenGPU;
-	init_info.Device = _engineData.device;
-	init_info.Queue = _engineData.graphicsQueue;
-	init_info.DescriptorPool = imguiPool;
-	init_info.MinImageCount = 3;
-	init_info.ImageCount = 3;
-	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-	init_info.UseDynamicRendering = true;
-	init_info.ColorAttachmentFormat = _swachainImageFormat;
-
-	ImGui_ImplVulkan_Init(&init_info, nullptr);
-
-	//execute a gpu command to upload imgui font textures
-	vkutils::immediate_submit(&_engineData, [&](VkCommandBuffer cmd) {
-		ImGui_ImplVulkan_CreateFontsTexture(cmd);
-	});
-
-	//clear font textures from cpu data
-	ImGui_ImplVulkan_DestroyFontUploadObjects();
-
-	//add the destroy the imgui created structures
-	_mainDeletionQueue.push_function([=]() {
-
-		vkDestroyDescriptorPool(_engineData.device, imguiPool, nullptr);
-		ImGui_ImplVulkan_Shutdown();
-		});
 }
 
 void VulkanEngine::draw_objects(VkCommandBuffer cmd)

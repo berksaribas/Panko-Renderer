@@ -5,17 +5,26 @@ file(GLOB SRC_FILES
     "*.cpp"
     "*.h"
     "*.hpp"
+    "editor/*.cpp"
+    "editor/*.h"
+    "editor/*.hpp"
+    "memory/*.cpp"
+    "memory/*.h"
+    "memory/*.hpp"
 )
 
-add_executable(vulkan_guide
+add_executable(panko
     ${SRC_FILES}
 )
 
-set_property(TARGET vulkan_guide PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:vulkan_guide>")
+# set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_FILES})
 
-target_include_directories(vulkan_guide PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(vulkan_guide vkbootstrap vma glm tinyobjloader imgui stb_image tinygltf eigen spherical_harmonics xatlas)
+set_property(TARGET panko PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:panko>")
 
-target_link_libraries(vulkan_guide Vulkan::Vulkan sdl2)
+target_include_directories(panko PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(panko vkbootstrap vma glm tinyobjloader imgui stb_image tinygltf eigen spherical_harmonics xatlas ffx_fsr2_api_x64 ffx_fsr2_api_vk_x64 fsr2)
 
-add_dependencies(vulkan_guide Shaders)
+target_link_libraries(panko Vulkan::Vulkan sdl2)
+
+add_dependencies(panko Shaders)

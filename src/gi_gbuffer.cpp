@@ -14,7 +14,9 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 	{
 		_gbufferdata[i].gbufferAlbedoMetallicImage = vkutils::create_image(&engineData, COLOR_8_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
 
-		_gbufferdata[i].gbufferNormalMotionImage = vkutils::create_image(&engineData, COLOR_16_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
+		_gbufferdata[i].gbufferNormalImage = vkutils::create_image(&engineData, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
+
+		_gbufferdata[i].gbufferMotionImage = vkutils::create_image(&engineData, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
 
 		_gbufferdata[i].gbufferRoughnessDepthCurvatureMaterialImage = vkutils::create_image(&engineData, COLOR_16_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, extent3D);
 
@@ -29,11 +31,16 @@ void GBuffer::init_images(EngineData& engineData, VkExtent2D imageSize)
 			.baseMipLevel = 0,
 			.mipLevelCount = 1
 		}, "GbufferAlbedoMetallicImage" + index);
-		_gbufferdata[i].normalMotionBinding = engineData.renderGraph->register_image_view(&_gbufferdata[i].gbufferNormalMotionImage, {
+		_gbufferdata[i].normalBinding = engineData.renderGraph->register_image_view(&_gbufferdata[i].gbufferNormalImage, {
 			.sampler = Vrg::Sampler::NEAREST,
 			.baseMipLevel = 0,
 			.mipLevelCount = 1
-		}, "GbufferNormalMotionImage" + index);
+		}, "GbufferNormalImage" + index);
+		_gbufferdata[i].motionBinding = engineData.renderGraph->register_image_view(&_gbufferdata[i].gbufferMotionImage, {
+			.sampler = Vrg::Sampler::NEAREST,
+			.baseMipLevel = 0,
+			.mipLevelCount = 1
+			}, "GbufferMotionImage" + index);
 		_gbufferdata[i].roughnessDepthCurvatureMaterialBinding = engineData.renderGraph->register_image_view(&_gbufferdata[i].gbufferRoughnessDepthCurvatureMaterialImage, {
 			.sampler = Vrg::Sampler::NEAREST,
 			.baseMipLevel = 0,
@@ -81,6 +88,7 @@ void GBuffer::render(EngineData& engineData, SceneData& sceneData, std::function
 					vkinit::color_blend_attachment_state(),
 					vkinit::color_blend_attachment_state(),
 					vkinit::color_blend_attachment_state(),
+					vkinit::color_blend_attachment_state(),
 				},
 				.vertexBuffers = {
 					sceneData.vertexBufferBinding,
@@ -92,7 +100,8 @@ void GBuffer::render(EngineData& engineData, SceneData& sceneData, std::function
 				.indexBuffer = sceneData.indexBufferBinding,
 				.colorOutputs = {
 					{current_data->albedoMetallicBinding, zeroColor},
-					{current_data->normalMotionBinding, zeroColor},
+					{current_data->normalBinding, zeroColor},
+					{current_data->motionBinding, zeroColor},
 					{current_data->roughnessDepthCurvatureMaterialBinding, materialGbufferColor},
 					{current_data->uvBinding, zeroColor},
 				},

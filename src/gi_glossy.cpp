@@ -75,7 +75,8 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
 		},
 		.reads = {
 			{1, gbufferData->albedoMetallicBinding},
-			{1, gbufferData->normalMotionBinding},
+			{1, gbufferData->normalBinding},
+			{1, gbufferData->motionBinding},
 			{1, gbufferData->roughnessDepthCurvatureMaterialBinding},
 			{1, gbufferData->uvBinding},
 			{1, gbufferData->depthBinding},

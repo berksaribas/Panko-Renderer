@@ -89,7 +89,6 @@ inline static void copy_memory(Slice<T>& slice, FrameAllocator& frameAllocator) 
 RenderGraph::RenderGraph(EngineData* _engineData)
 {
 	renderPasses.reserve(128);
-	bindings.reserve(256);
 	engineData = _engineData;
 
 	frameAllocator.initialize(1024 * 1024 * 64); //64mb
@@ -156,88 +155,70 @@ RenderPass* RenderGraph::add_render_pass(RenderPass renderPass)
 	return &renderPasses[renderPasses.size() - 1];
 }
 
-Bindable* RenderGraph::register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName)
+Handle<Bindable> RenderGraph::register_image_view(AllocatedImage* image, ImageView imageView, std::string resourceName)
 {
-	uint32_t id = bindings.size();
-
 	Bindable bindable = {
 		.image = image,
 		.imageView = imageView,
 		.format = image->format,
 		.type = BindType::IMAGE_VIEW,
-		.id = id
+		.name = resourceName
 	};
 
-	bindings.push_back(bindable);
+	vkutils::setObjectName(engineData->device, image->_image, resourceName);
 
-	bindingNames[&bindings[bindings.size() - 1]] = resourceName;
-
-	return &bindings[bindings.size() - 1];
+	return bindings.put(std::move(bindable));
 }
 
-Bindable* RenderGraph::register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName)
+Handle<Bindable> RenderGraph::register_storage_buffer(AllocatedBuffer* buffer, std::string resourceName)
 {
-	uint32_t id = bindings.size();
-
 	Bindable bindable = {
 		.buffer = buffer,
 		.type = BindType::STORAGE,
-		.id = id
+		.name = resourceName
 	};
 
-	bindings.push_back(bindable);
-
-	return &bindings[bindings.size() - 1];
+	return bindings.put(std::move(bindable));
 }
 
-Bindable* RenderGraph::register_uniform_buffer(AllocatedBuffer* buffer, std::string resourceName)
+Handle<Bindable> RenderGraph::register_uniform_buffer(AllocatedBuffer* buffer, std::string resourceName)
 {
-	uint32_t id = bindings.size();
-
 	Bindable bindable = {
 		.buffer = buffer,
 		.type = BindType::UNIFORM,
-		.id = id
+		.name = resourceName
 	};
 
-	bindings.push_back(bindable);
-
-	return &bindings[bindings.size() - 1];
+	return bindings.put(std::move(bindable));
 }
 
-Bindable* RenderGraph::register_vertex_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName)
+Handle<Bindable> RenderGraph::register_vertex_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName)
 {
-	uint32_t id = bindings.size();
-
 	Bindable bindable = {
 		.buffer = buffer,
 		.format = format,
 		.type = BindType::VERTEX,
-		.id = id
+		.name = resourceName
 	};
 
-	bindings.push_back(bindable);
-
-	return &bindings[bindings.size() - 1];
+	return bindings.put(std::move(bindable));
 }
 
-Bindable* RenderGraph::register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName)
+Handle<Bindable> RenderGraph::register_index_buffer(AllocatedBuffer* buffer, VkFormat format, std::string resourceName)
 {
-	uint32_t id = bindings.size();
-
 	Bindable bindable = {
 		.buffer = buffer,
 		.format = format,
 		.type = BindType::INDEX,
-		.id = id
+		.name = resourceName
 	};
 
-	bindings.push_back(bindable);
-
-	return &bindings[bindings.size() - 1];
+	return bindings.put(std::move(bindable));
 }
 
-void RenderGraph::insert_barrier(VkCommandBuffer cmd, Vrg::Bindable* binding, PipelineType pipelineType, bool isWrite, uint32_t mip) {
+void RenderGraph::insert_barrier(VkCommandBuffer cmd, Handle<Bindable> bindable, PipelineType pipelineType, bool isWrite, uint32_t mip) {
+	auto binding = bindings.get(bindable);
+	
 	ResourceAccessType prevAccessType = ResourceAccessType::NONE;
 
 	if (is_buffer_binding(binding->type)) {
@@ -331,27 +312,29 @@ void Vrg::RenderGraph::handle_render_pass_barriers(VkCommandBuffer cmd, RenderPa
 {
 	//WRITE BARRIERS
 	for (int i = 0; i < renderPass.writes.size(); i++) {
-		auto binding = renderPass.writes[i].binding;
+		auto bindable = renderPass.writes[i].bindable;
+		auto binding = bindings.get(bindable);
 
 		if (is_buffer_binding(binding->type)) {
-			insert_barrier(cmd, binding, renderPass.pipelineType, true);
+			insert_barrier(cmd, bindable, renderPass.pipelineType, true);
 		}
 		else if (is_image_binding(binding->type)) {
 			for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
-				insert_barrier(cmd, binding, renderPass.pipelineType, true, k);
+				insert_barrier(cmd, bindable, renderPass.pipelineType, true, k);
 			}
 		}
 	}
 	//READ BARRIERS
 	for (int i = 0; i < renderPass.reads.size(); i++) {
-		auto binding = renderPass.reads[i].binding;
+		auto bindable = renderPass.reads[i].bindable;
+		auto binding = bindings.get(bindable);
 
 		if (is_buffer_binding(binding->type)) {
-			insert_barrier(cmd, binding, renderPass.pipelineType, false);
+			insert_barrier(cmd, bindable, renderPass.pipelineType, false);
 		}
 		else if (is_image_binding(binding->type)) {
 			for (uint32_t k = binding->imageView.baseMipLevel; k < binding->imageView.baseMipLevel + binding->imageView.mipLevelCount; k++) {
-				insert_barrier(cmd, binding, renderPass.pipelineType, false, k);
+				insert_barrier(cmd, bindable, renderPass.pipelineType, false, k);
 			}
 		}
 	}
@@ -400,7 +383,7 @@ void Vrg::RenderGraph::bind_pipeline_and_descriptors(VkCommandBuffer cmd, Render
 		buffers.reserve(rasterPipeline.vertexBuffers.size());
 
 		for (int i = 0; i < rasterPipeline.vertexBuffers.size(); i++) {
-			buffers.push_back(rasterPipeline.vertexBuffers[i]->buffer->_buffer);
+			buffers.push_back(bindings.get(rasterPipeline.vertexBuffers[i])->buffer->_buffer);
 			offsets.push_back(0);
 		}
 
@@ -408,8 +391,8 @@ void Vrg::RenderGraph::bind_pipeline_and_descriptors(VkCommandBuffer cmd, Render
 			vkCmdBindVertexBuffers(cmd, 0, buffers.size(), buffers.data(), offsets.data());
 		}
 
-		if (rasterPipeline.indexBuffer != nullptr) {
-			vkCmdBindIndexBuffer(cmd, rasterPipeline.indexBuffer->buffer->_buffer, 0, VK_INDEX_TYPE_UINT32); //TODO: support different index types
+		if (rasterPipeline.indexBuffer.isValid()) {
+			vkCmdBindIndexBuffer(cmd, bindings.get(rasterPipeline.indexBuffer)->buffer->_buffer, 0, VK_INDEX_TYPE_UINT32); //TODO: support different index types
 		}
 	}
 }
@@ -427,93 +410,106 @@ void RenderGraph::execute(VkCommandBuffer cmd)
 
 		vkTimer.start_recording(*engineData, cmd, renderPass.name);
 
-		handle_render_pass_barriers(cmd, renderPass);
-		bind_pipeline_and_descriptors(cmd, renderPass);
-
-		if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
-			vkCmdDispatch(cmd, renderPass.computePipeline.dimX, renderPass.computePipeline.dimY, renderPass.computePipeline.dimZ);
+		if (renderPass.pipelineType == PipelineType::CUSTOM) {
+			renderPass.execute(cmd);
 		}
-		else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
-			const auto& rasterPipeline = renderPass.rasterPipeline;
+		else {
+			handle_render_pass_barriers(cmd, renderPass);
+			bind_pipeline_and_descriptors(cmd, renderPass);
 
-			//TODO: Get rid of std::vectors
-			std::vector<VkRenderingAttachmentInfo> renderingAttachments;
-			renderingAttachments.reserve(rasterPipeline.colorOutputs.size());
-			int colorAttachmentCount = rasterPipeline.colorOutputs.size();
+			if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE) {
+				vkCmdDispatch(cmd, renderPass.computePipeline.dimX, renderPass.computePipeline.dimY, renderPass.computePipeline.dimZ);
+			}
+			else if (renderPass.pipelineType == PipelineType::RASTER_TYPE) {
+				const auto& rasterPipeline = renderPass.rasterPipeline;
 
-			for (int i = 0; i < colorAttachmentCount; i++) {
-				VkRenderingAttachmentInfo color_attachment_info{
+				//TODO: Get rid of std::vectors
+				std::vector<VkRenderingAttachmentInfo> renderingAttachments;
+				renderingAttachments.reserve(rasterPipeline.colorOutputs.size());
+				int colorAttachmentCount = rasterPipeline.colorOutputs.size();
+
+				for (int i = 0; i < colorAttachmentCount; i++) {
+					auto binding = bindings.get(rasterPipeline.colorOutputs[i].bindable);
+
+					VkRenderingAttachmentInfo color_attachment_info{
+						.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+						.imageView = get_image_view(binding->image->_image, binding->imageView, binding->format),
+						.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+						.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+						.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+						.clearValue = rasterPipeline.colorOutputs[i].clearValue
+					};
+					renderingAttachments.push_back(color_attachment_info);
+				}
+
+				VkRenderingInfo render_info {
+					.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+					.renderArea = {0, 0, rasterPipeline.size.width, rasterPipeline.size.height},
+					.layerCount = 1,
+					.colorAttachmentCount = (uint32_t) colorAttachmentCount,
+					.pColorAttachments = renderingAttachments.data(),
+				};
+
+				VkRenderingAttachmentInfo depthStencilAttachment{
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-					.imageView = get_image_view(rasterPipeline.colorOutputs[i].binding->image->_image, rasterPipeline.colorOutputs[i].binding->imageView, rasterPipeline.colorOutputs[i].binding->format),
-					.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-					.clearValue = rasterPipeline.colorOutputs[i].clearValue
+					.clearValue = rasterPipeline.depthOutput.clearValue
 				};
-				renderingAttachments.push_back(color_attachment_info);
-			}
-
-			VkRenderingInfo render_info {
-				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-				.renderArea = {0, 0, rasterPipeline.size.width, rasterPipeline.size.height},
-				.layerCount = 1,
-				.colorAttachmentCount = (uint32_t) colorAttachmentCount,
-				.pColorAttachments = renderingAttachments.data(),
-			};
-
-			VkRenderingAttachmentInfo depthStencilAttachment{
-				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-				.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-				.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-				.clearValue = rasterPipeline.depthOutput.clearValue
-			};
 
 
-			if (rasterPipeline.depthOutput.binding != nullptr) {
-				depthStencilAttachment.imageView = get_image_view(rasterPipeline.depthOutput.binding->image->_image, rasterPipeline.depthOutput.binding->imageView, rasterPipeline.depthOutput.binding->format),
-				render_info.pDepthAttachment = &depthStencilAttachment;
-			}
+				if (rasterPipeline.depthOutput.bindable.isValid()) {
+					auto binding = bindings.get(rasterPipeline.depthOutput.bindable);
+					depthStencilAttachment.imageView = get_image_view(binding->image->_image, binding->imageView, binding->format),
+					render_info.pDepthAttachment = &depthStencilAttachment;
+				}
 
-			//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
-			//Color output barrier
-			for (int i = 0; i < colorAttachmentCount; i++) {
-				auto& colorAttachment = rasterPipeline.colorOutputs[0];
-				uint32_t mipLevel = colorAttachment.binding->imageView.baseMipLevel;
-				vkutils::image_barrier(cmd, colorAttachment.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1, 0, 1 }, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+				//TODO BARRIER VKIMAGESUBRESOURCERANGE FIX
+				//Color output barrier
+				for (int i = 0; i < colorAttachmentCount; i++) {
+					auto& colorAttachment = rasterPipeline.colorOutputs[0];
+					auto binding = bindings.get(colorAttachment.bindable);
 
-				imageBindingAccessType[{colorAttachment.binding->image->_image, mipLevel}] = ResourceAccessType::COLOR_WRITE;
-				bindingImageLayout[{colorAttachment.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			}
-			//Depth output barrier
-			if (rasterPipeline.depthOutput.binding != nullptr) {
-				uint32_t mipLevel = rasterPipeline.depthOutput.binding->imageView.baseMipLevel;
+					uint32_t mipLevel = binding->imageView.baseMipLevel;
+					vkutils::image_barrier(cmd, binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1, 0, 1 }, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-				vkutils::image_barrier(cmd, rasterPipeline.depthOutput.binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel, 1, 0, 1}, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+					imageBindingAccessType[{binding->image->_image, mipLevel}] = ResourceAccessType::COLOR_WRITE;
+					bindingImageLayout[{binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				}
+				//Depth output barrier
+				if (rasterPipeline.depthOutput.bindable.isValid()) {
+					auto binding = bindings.get(rasterPipeline.depthOutput.bindable);
 
-				imageBindingAccessType[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = ResourceAccessType::DEPTH_WRITE;
-				bindingImageLayout[{rasterPipeline.depthOutput.binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-			}
+					uint32_t mipLevel = binding->imageView.baseMipLevel;
 
-			vkCmdBeginRendering(cmd, &render_info);
+					vkutils::image_barrier(cmd, binding->image->_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel, 1, 0, 1}, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
 
-			renderPass.execute(cmd);
+					imageBindingAccessType[{binding->image->_image, mipLevel}] = ResourceAccessType::DEPTH_WRITE;
+					bindingImageLayout[{binding->image->_image, mipLevel}] = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+				}
 
-			vkCmdEndRendering(cmd);
+				vkCmdBeginRendering(cmd, &render_info);
 
-			for (int i = 0; i < colorAttachmentCount; i++) {
-				auto& colorAttachment = rasterPipeline.colorOutputs[0];
-				if (colorAttachment.isSwapChain) {
-					vkutils::image_barrier(cmd, colorAttachment.binding->image->_image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+				renderPass.execute(cmd);
+
+				vkCmdEndRendering(cmd);
+
+				for (int i = 0; i < colorAttachmentCount; i++) {
+					auto& colorAttachment = rasterPipeline.colorOutputs[0];
+					if (colorAttachment.isSwapChain) {
+						auto binding = bindings.get(colorAttachment.bindable);
+
+						vkutils::image_barrier(cmd, binding->image->_image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+					}
 				}
 			}
-		}
-		else if (renderPass.pipelineType == PipelineType::RAYTRACING_TYPE) {
-			auto raytracingPipeline = get_raytracing_pipeline(renderPass);
+			else if (renderPass.pipelineType == PipelineType::RAYTRACING_TYPE) {
+				auto raytracingPipeline = get_raytracing_pipeline(renderPass);
 
-			vkCmdTraceRaysKHR(cmd, &raytracingPipeline->rgenRegion, &raytracingPipeline->missRegion, &raytracingPipeline->hitRegion, &raytracingPipeline->callRegion, renderPass.raytracingPipeline.width, renderPass.raytracingPipeline.height, renderPass.raytracingPipeline.depth);
+				vkCmdTraceRaysKHR(cmd, &raytracingPipeline->rgenRegion, &raytracingPipeline->missRegion, &raytracingPipeline->hitRegion, &raytracingPipeline->callRegion, renderPass.raytracingPipeline.width, renderPass.raytracingPipeline.height, renderPass.raytracingPipeline.depth);
+			}
 		}
-
 		vkTimer.stop_recording(*engineData, cmd);
 	}
 
@@ -534,6 +530,27 @@ void Vrg::RenderGraph::rebuild_pipelines()
 		vulkanRaytracing->destroy_raytracing_pipeline(it.second);
 	}
 	raytracingPipelineCache.clear();
+}
+
+void Vrg::RenderGraph::destroy_resource(AllocatedImage& image)
+{
+	for (uint32_t i = 0; i < image.mips; i++) {
+		imageBindingAccessType.erase({ image._image, i });
+		bindingImageLayout.erase({ image._image, i });
+		//TODO: Destroy all image views
+		//TODO: Destroy all descriptor sets
+	}
+
+	if (image._allocation != nullptr) {
+		vmaDestroyImage(engineData->allocator, image._image, image._allocation);
+	}
+}
+
+void Vrg::RenderGraph::destroy_resource(AllocatedBuffer& buffer)
+{
+	//TODO: Destroy all descriptor sets
+	bufferBindingAccessType.erase(buffer._buffer);
+	vmaDestroyBuffer(engineData->allocator, buffer._buffer, buffer._allocation);
 }
 
 VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
@@ -573,13 +590,13 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 		colorAttachments.reserve(renderPass.rasterPipeline.colorOutputs.size());
 
 		for (int i = 0; i < renderPass.rasterPipeline.colorOutputs.size(); i++) {
-			colorAttachments.push_back(renderPass.rasterPipeline.colorOutputs[i].binding->format);
+			colorAttachments.push_back(bindings.get(renderPass.rasterPipeline.colorOutputs[i].bindable)->format);
 		}
 
 		VkFormat depthFormat = VK_FORMAT_UNDEFINED;
 
-		if (renderPass.rasterPipeline.depthOutput.binding != nullptr) {
-			depthFormat = renderPass.rasterPipeline.depthOutput.binding->format;
+		if (renderPass.rasterPipeline.depthOutput.bindable.isValid()) {
+			depthFormat = bindings.get(renderPass.rasterPipeline.depthOutput.bindable)->format;
 		}
 
 		VkPipelineRenderingCreateInfo pipeline_rendering_create_info{
@@ -613,7 +630,7 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 			pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
 			for (int i = 0; i < renderPass.rasterPipeline.vertexBuffers.size(); i++) {
-				VkFormat format = renderPass.rasterPipeline.vertexBuffers[i]->format;
+				VkFormat format = this->bindings.get(renderPass.rasterPipeline.vertexBuffers[i])->format;
 
 				VkVertexInputBindingDescription vertexBinding = {};
 				vertexBinding.binding = i;
@@ -807,21 +824,23 @@ VkDescriptorSet RenderGraph::get_descriptor_set(RenderPass& renderPass, int set)
 			}
 
 			DescriptorSet descriptorSet = {};
-			switch (bindings[i].binding->type) {
+			auto binding = this->bindings.get(bindings[i].bindable);
+
+			switch (binding->type) {
 			case BindType::UNIFORM:
 				descriptorSet.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				descriptorSet.buffer = bindings[i].binding->buffer;
+				descriptorSet.buffer = binding->buffer;
 				break;
 			case BindType::STORAGE:
 				descriptorSet.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				descriptorSet.buffer = bindings[i].binding->buffer;
+				descriptorSet.buffer = binding->buffer;
 				break;
 			case BindType::IMAGE_VIEW:
 				descriptorSet.type = isWrite ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				descriptorSet.image = bindings[i].binding->image->_image;
-				descriptorSet.imageView = bindings[i].binding->imageView;
+				descriptorSet.image = binding->image->_image;
+				descriptorSet.imageView = binding->imageView;
 				descriptorSet.imageLayout = isWrite ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				descriptorSet.format = bindings[i].binding->format;
+				descriptorSet.format = binding->format;
 				break;
 			default:
 				break;
@@ -898,7 +917,9 @@ VkDescriptorSetLayout RenderGraph::get_descriptor_set_layout(RenderPass& renderP
 				continue;
 			}
 
-			switch (bindings[i].binding->type) {
+			auto binding = this->bindings.get(bindings[i].bindable);
+
+			switch (binding->type) {
 			case BindType::UNIFORM:
 				layoutBindings.push_back(vkinit::descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, bindingCounter));
 				bindingDescriptorTypes.push_back(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
@@ -970,4 +991,9 @@ VkImageLayout Vrg::RenderGraph::get_current_image_layout(VkImage image, uint32_t
 	}
 
 	return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+void Vrg::RenderGraph::inform_current_image_layout(VkImage image, uint32_t mip, VkImageLayout layout)
+{
+	bindingImageLayout[{image, mip}] = layout;
 }

@@ -30,22 +30,6 @@ struct DeletionQueue
 	}
 };
 
-struct CameraConfig {
-	float fov = 45;
-	float speed = 0.1f;
-	float rotationSpeed = 0.05f;
-};
-
-struct Camera {
-	glm::vec3 pos;
-	glm::vec3 rotation;
-};
-
-struct ScreenshotSaveData {
-	Camera camera;
-	glm::vec4 lightPos;
-};
-
 class VulkanEngine {
 public:
 	EngineData _engineData;
@@ -60,7 +44,8 @@ public:
 	bool _isInitialized{ false };
 	int _frameNumber{ 0 };
 
-	VkExtent2D _windowExtent{ 1280 , 720 };
+	VkExtent2D _renderResolution{ 256 , 144 };
+	VkExtent2D _displayResolution{ 1280 , 720 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -69,8 +54,6 @@ public:
 	VkPhysicalDeviceRayTracingPipelinePropertiesKHR _gpuRaytracingProperties;
 
 	VkDebugUtilsMessengerEXT _debug_messenger;
-	VkPhysicalDevice _chosenGPU;
-	VkInstance _instance;
 
 	VkSurfaceKHR _surface;
 	VkSwapchainKHR _swapchain;
@@ -78,12 +61,10 @@ public:
 
 	std::vector<VkFramebuffer> _framebuffers;
 	std::vector<VkImage> _swapchainImages;
-	std::vector<VkImageView> _swapchainImageViews;
 	std::vector<AllocatedImage> _swapchainAllocatedImage;
-	std::vector<Vrg::Bindable*> _swapchainBindings;
+	std::vector<Handle<Vrg::Bindable>> _swapchainBindings;
 
 	GltfScene gltf_scene;
-	Camera camera = { glm::vec3(0, 0, 28.5), glm::vec3(0, 0, 0) };
 
 	/* DEFAULT RENDERING VARIABLES */
 
@@ -104,7 +85,7 @@ public:
 	void cleanup();
 
 	//draw loop
-	void draw();
+	void draw(double deltaTime);
 
 	//run main loop
 	void run();
@@ -126,8 +107,6 @@ private:
 	void init_descriptors();
 
 	void init_scene();
-
-	void init_imgui();
 
 	void init_query_pool();
 

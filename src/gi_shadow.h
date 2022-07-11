@@ -13,9 +13,9 @@ public:
 
 	AllocatedBuffer _shadowMapDataBuffer;
 	GPUShadowMapData _shadowMapData = {};
-	Vrg::Bindable* _shadowMapDataBinding;
-	Vrg::Bindable* _shadowMapDepthImageBinding;
-	Vrg::Bindable* _shadowMapColorImageBinding;
+	Handle<Vrg::Bindable> _shadowMapDataBinding;
+	Handle<Vrg::Bindable> _shadowMapDepthImageBinding;
+	Handle<Vrg::Bindable> _shadowMapColorImageBinding;
 private:
 	VkExtent2D _shadowMapExtent{ 4096 , 4096 };
 	AllocatedImage _shadowMapDepthImage;
