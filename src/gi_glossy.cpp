@@ -63,9 +63,9 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
 		.name = "GlossyPathTracePass",
 		.pipelineType = Vrg::PipelineType::RAYTRACING_TYPE,
 		.raytracingPipeline = {
-			.rgenShader = "../../shaders/reflections_rt.rgen.spv",
-			.missShader = "../../shaders/reflections_rt.rmiss.spv",
-			.hitShader = "../../shaders/reflections_rt.rchit.spv",
+			.rgenShader = "../../shaders/reflections/reflections_rt.rgen.spv",
+			.missShader = "../../shaders/reflections/reflections_rt.rmiss.spv",
+			.hitShader = "../../shaders/reflections/reflections_rt.rchit.spv",
 			.width = (uint32_t)_imageSize.width,
 			.height = (uint32_t)_imageSize.height,
 		},

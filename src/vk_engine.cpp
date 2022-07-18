@@ -490,6 +490,9 @@ void VulkanEngine::run()
 	Uint64 LAST = 0;
 	double deltaTime = 0;
 
+	bool isFullScreen = false;
+	VkExtent2D currentWindowSize = _displayResolution;
+
 	//main loop
 	while (!bQuit)
 	{
@@ -517,6 +520,18 @@ void VulkanEngine::run()
 				onGui = !onGui;
 				SDL_SetRelativeMouseMode((SDL_bool) !onGui);
 			}
+			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11) {
+				if (!isFullScreen) {
+					currentWindowSize = _displayResolution;
+					SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+				}
+				else {
+					SDL_SetWindowFullscreen(_window, 0);
+					SDL_SetWindowSize(_window, currentWindowSize.width, currentWindowSize.height);
+				}
+				isFullScreen = !isFullScreen;
+			}
+
 			if (e.type == SDL_WINDOWEVENT) {
 				if (e.window.event == SDL_WINDOWEVENT_RESIZED) {
 					swapchainNeedsRecreation = true;

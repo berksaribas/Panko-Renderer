@@ -1,0 +1,125 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_vulkan_glsl : enable
+
+#include "svgf_edge_functions.glsl"
+#include "../common.glsl"
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform _CameraBuffer { GPUCameraData cameraData; };
+
+layout(set = 1, binding = 0) uniform sampler2D gbufferAlbedoMetallic;
+layout(set = 1, binding = 1) uniform sampler2D gbufferNormal;
+layout(set = 1, binding = 2) uniform sampler2D gbufferMotion;
+layout(set = 1, binding = 3) uniform sampler2D gbufferRoughnessDepthCurvatureMaterial;
+layout(set = 1, binding = 4) uniform sampler2D gbufferUV;
+layout(set = 1, binding = 5) uniform sampler2D gbufferDepth;
+
+layout(set = 2, binding = 0) uniform sampler2D temporalResult;
+
+layout(set = 3, binding = 0, rgba16f) uniform writeonly image2D currOutput;
+
+layout(push_constant) uniform PushConstants { int gStepSize; };
+
+const float gPhiColor = 10.0;
+const float gPhiNormal = 32.0;
+const float gPhiDepth = 1.0;
+
+
+// computes a 3x3 gaussian blur of the variance, centered around
+// the current pixel
+float computeVarianceCenter(ivec2 ipos, sampler2D sIndirect)
+{
+    float sum = 0;
+
+    const float kernel[2][2] = {
+        { 1.0 / 4.0, 1.0 / 8.0  },
+        { 1.0 / 8.0, 1.0 / 16.0 }
+    };
+
+    const int radius = 1;
+    for (int yy = -radius; yy <= radius; yy++)
+    {
+        for (int xx = -radius; xx <= radius; xx++)
+        {
+            ivec2 p = ipos + ivec2(xx, yy);
+
+            float k = kernel[abs(xx)][abs(yy)];
+
+             sum += texelFetch(sIndirect, p, 0).a * k;
+        }
+    }
+
+    return sum;
+}
+
+void main()
+{
+    const ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 screenSize = textureSize(temporalResult, 0);
+
+    const float epsVariance      = 1e-10;
+    const float kernelWeights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
+
+    // constant samplers to prevent the compiler from generating code which
+    // fetches the sampler descriptor from memory for each texture access
+    const vec4  indirectCenter = texelFetch(temporalResult, ipos, 0);
+    const float lIndirectCenter = luminance(indirectCenter.rgb);
+
+    // variance for direct and indirect, filtered using 3x3 gaussin blur
+    const float var = computeVarianceCenter(ipos, temporalResult);
+
+    vec2 gb2 = texelFetch(gbufferNormal, ipos, 0).rg;
+    vec4 gb3 = texelFetch(gbufferRoughnessDepthCurvatureMaterial, ipos, 0);
+
+    vec3 normalCenter = octohedral_to_direction(gb2.xy);
+    float zCenter = gb3.g;
+
+    const float phiLIndirect = gPhiColor * sqrt(max(0.0, epsVariance + var));
+
+    // explicitly store/accumulate center pixel with weight 1 to prevent issues
+    // with the edge-stopping functions
+    float sumWIndirect = 1.0;
+    vec4  sumIndirect = indirectCenter;
+
+    for (int yy = -2; yy <= 2; yy++)
+    {
+        for (int xx = -2; xx <= 2; xx++)
+        {
+            const ivec2 p = ipos + ivec2(xx, yy) * gStepSize;
+            const bool inside = all(greaterThanEqual(p, ivec2(0,0))) && all(lessThan(p, screenSize));
+
+            const float kernel = kernelWeights[abs(xx)] * kernelWeights[abs(yy)];
+
+            if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
+            {
+                const vec4 indirectP = texelFetch(temporalResult, p, 0);
+
+                vec4 gb2_s = texelFetch(gbufferNormal, p, 0);
+                vec4 gb3_s = texelFetch(gbufferRoughnessDepthCurvatureMaterial, p, 0);
+
+                vec3 normalP = octohedral_to_direction(gb2_s.xy);
+                float zP = gb3_s.g;
+                const float lIndirectP = luminance(indirectP.rgb);
+
+                // compute the edge-stopping functions
+                const float w = computeWeight(
+                    zCenter, zP, gPhiDepth,
+					normalCenter, normalP, gPhiNormal,
+                    lIndirectCenter, lIndirectP, phiLIndirect);
+
+                const float wIndirect = w * kernel;
+
+                // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
+                sumWIndirect  += wIndirect;
+                sumIndirect   += vec4(wIndirect.xxx, wIndirect * wIndirect) * indirectP;
+            }
+        }
+    }
+
+    // renormalization is different for variance, check paper for the formula
+    vec4 outColor = vec4(sumIndirect / vec4(sumWIndirect.xxx, sumWIndirect * sumWIndirect));
+
+    imageStore(currOutput, ipos, outColor);
+}

@@ -1,0 +1,60 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_debug_printf : enable
+
+#include "../common.glsl"
+
+layout (local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform _Config { GIConfig config; };
+layout(std140, set = 0, binding = 1) readonly buffer _InputBuffer1 { GPUProbeRaycastResult probeRaycasts[]; };
+layout(std140, set = 0, binding = 2) readonly buffer _InputBuffer2 { vec4 probeBasis[]; };
+layout(set = 0, binding = 3) uniform sampler2D lightmap;
+layout(std140, set = 0, binding = 4) buffer _OutputBuffer { vec4 outColors[]; };
+
+void main()
+{
+	uint gID = gl_GlobalInvocationID.x;
+
+	if(gID < config.probeCount * config.basisFunctionCount) {
+		uint probe = gID / config.basisFunctionCount;
+		uint basis = gID % config.basisFunctionCount;
+		uint index = gID * config.rayCount;
+
+		vec4 tempResult = vec4(0);
+		int divider = 1; //use 8 instead of 1, we dont need 8000 rays, 1000 is more than enough
+
+		for(int j = 0; j < config.rayCount; j+=divider) {
+			uint specialIndex = j * config.basisFunctionCount + basis;
+
+			vec4 color = vec4(0, 0, 0, 1);
+			if(probeRaycasts[probe * config.rayCount + j].objectId != -1) {
+				color.rgb = texture(lightmap, probeRaycasts[probe * config.rayCount + j].lightmapUv / config.lightmapInputSize).rgb;
+			}
+			else {
+				color = vec4(0);
+			}
+
+			tempResult += probeBasis[specialIndex / 4][specialIndex % 4] * color;
+		}
+
+		outColors[gID] = tempResult * divider;
+	}
+}
+
+/*
+TODO
+Inputs:
+	- Lightmap texture
+	- Probe Raycast Results
+	- Probe Raycast Basis functions
+Calculation:
+	- For each probe raycast result, get the corresponding pixel color in lightmap texture
+	- Multiply that value with basis functions of the corresponding probe and rayPayloadEXT
+	- For each probe, average that value (i.e. divide to number of rays)
+Output:
+	- (probe count) * (basis function count) vec3/vec4 colors
+*/
+

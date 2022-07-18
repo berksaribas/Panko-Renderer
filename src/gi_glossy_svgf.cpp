@@ -54,7 +54,7 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 		.name = "SVGFTemporalPass",
 		.pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
 		.computePipeline = {
-			.shader = "../../shaders/svgf_temporal.comp.spv",
+			.shader = "../../shaders/reflections_svgf/svgf_temporal.comp.spv",
 			.dimX = static_cast<uint32_t>(ceil(float(_imageSize.width) / float(8))),
 			.dimY = static_cast<uint32_t>(ceil(float(_imageSize.height) / float(8))),
 			.dimZ = 1
@@ -101,7 +101,7 @@ void GlossyDenoise::render(EngineData& engineData, SceneData& sceneData, GBuffer
 			.name = "SVGFAtrousPass",
 			.pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
 			.computePipeline = {
-				.shader = "../../shaders/svgf_atrous.comp.spv",
+				.shader = "../../shaders/reflections_svgf/svgf_atrous.comp.spv",
 				.dimX = static_cast<uint32_t>(ceil(float(_imageSize.width) / float(8))),
 				.dimY = static_cast<uint32_t>(ceil(float(_imageSize.height) / float(8))),
 				.dimZ = 1

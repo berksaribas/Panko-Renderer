@@ -1,16 +1,10 @@
 
 # Add source to this project's executable.
 
-file(GLOB SRC_FILES  
+file(GLOB_RECURSE SRC_FILES  
     "*.cpp"
     "*.h"
     "*.hpp"
-    "editor/*.cpp"
-    "editor/*.h"
-    "editor/*.hpp"
-    "memory/*.cpp"
-    "memory/*.h"
-    "memory/*.hpp"
 )
 
 add_executable(panko

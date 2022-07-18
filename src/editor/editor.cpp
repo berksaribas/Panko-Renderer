@@ -87,8 +87,8 @@ void Editor::prepare(EngineData& engineData)
 	ImGui_ImplSDL2_NewFrame(_window);
 	ImGui::NewFrame();
 
-	bool demo = true;
-	ImGui::ShowDemoWindow(&demo);
+	//bool demo = true;
+	//ImGui::ShowDemoWindow(&demo);
 }
 
 void Editor::prepare_camera_settings(EngineData& engineData, GPUCameraData& camData, CameraConfig& camConfig, bool sceneCameraAvailable)

@@ -44,7 +44,7 @@ public:
 	bool _isInitialized{ false };
 	int _frameNumber{ 0 };
 
-	VkExtent2D _renderResolution{ 256 , 144 };
+	VkExtent2D _renderResolution{ 1280 , 720 };
 	VkExtent2D _displayResolution{ 1280 , 720 };
 
 	struct SDL_Window* _window{ nullptr };

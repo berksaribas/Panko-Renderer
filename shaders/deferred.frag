@@ -6,7 +6,7 @@
 
 #include "common.glsl"
 #include "brdf.glsl"
-#include "svgf_edge_functions.glsl"
+#include "reflections_svgf/svgf_edge_functions.glsl"
 
 //shader input
 layout (location = 0) in vec2 InUv;
@@ -31,7 +31,7 @@ layout(set = 6, binding = 0) uniform sampler2D glossyReflections;
 layout(set = 7, binding = 0) uniform sampler2D brdfLut;
 layout(set = 8, binding = 0) uniform sampler2D glossyNormal;
 
-#include "shadow.glsl"
+#include "shadow_mapping/shadow.glsl"
 
 #define CNST_MAX_SPECULAR_EXP 64
 float roughnessToSpecularPower(float r)

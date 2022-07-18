@@ -57,8 +57,8 @@ void Shadow::render(EngineData& engineData, SceneData& sceneData, std::function<
 		.name = "ShadowPass",
 		.pipelineType = Vrg::PipelineType::RASTER_TYPE,
 		.rasterPipeline = {
-			.vertexShader = "../../shaders/evsm.vert.spv",
-			.fragmentShader = "../../shaders/evsm.frag.spv",
+			.vertexShader = "../../shaders/shadow_mapping/evsm.vert.spv",
+			.fragmentShader = "../../shaders/shadow_mapping/evsm.frag.spv",
 			.size = _shadowMapExtent,
 			.blendAttachmentStates = {
 				vkinit::color_blend_attachment_state(),
