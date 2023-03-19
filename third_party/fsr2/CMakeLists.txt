@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.15)
 #set(CMAKE_CONFIGURATION_TYPES Debug Release)
 set(CMAKE_DEBUG_POSTFIX d)
 
-option (FFX_FSR2_API_DX12 "Build FSR 2.0 DX12 backend" ON)
+option (FFX_FSR2_API_DX12 "Build FSR 2.0 DX12 backend" OFF)
 option (FFX_FSR2_API_VK "Build FSR 2.0 Vulkan backend" ON)
 
 set(FSR2_AUTO_COMPILE_SHADERS ON CACHE BOOL "Compile shaders automatically as a prebuild step.")
@@ -47,7 +47,6 @@ else()
 endif()
 
 # Embed PDBs in the debug versions of the libs
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Z7")
 
 # Write both debug and release versions of the static libs to the /lib folder as they are uniquely named
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_HOME_DIRECTORY}/bin/ffx_fsr2_api/)

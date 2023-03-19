@@ -3,7 +3,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "common.glsl"
-#include "svgf_edge_functions.glsl"
+#include "reflections_svgf/svgf_edge_functions.glsl"
 
 layout (location = 0) in vec2 InUv;
 

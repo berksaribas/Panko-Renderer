@@ -9,13 +9,18 @@ class GlossyIllumination;
 class SceneData;
 class BRDF;
 
-class Deferred {
+class Deferred
+{
 public:
-	void init_images(EngineData& engineData, VkExtent2D imageSize);
-	void render(EngineData& engineData, SceneData& sceneData, GBuffer& gbuffer, Shadow& shadow, DiffuseIllumination& diffuseIllumination, GlossyIllumination& glossyIllumination, BRDF& brdfUtils, Handle<Vrg::Bindable> glossyBinding);
+    void init_images(EngineData& engineData, VkExtent2D imageSize);
+    void render(EngineData& engineData, SceneData& sceneData, GBuffer& gbuffer, Shadow& shadow,
+                DiffuseIllumination& diffuseIllumination,
+                GlossyIllumination& glossyIllumination, BRDF& brdfUtils,
+                Handle<Vrg::Bindable> glossyBinding);
 
-	AllocatedImage _deferredColorImage;
-	Handle<Vrg::Bindable> _deferredColorImageBinding;
+    AllocatedImage _deferredColorImage;
+    Handle<Vrg::Bindable> _deferredColorImageBinding;
+
 private:
-	VkExtent2D _imageSize;
+    VkExtent2D _imageSize;
 };

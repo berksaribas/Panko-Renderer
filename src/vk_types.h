@@ -1,43 +1,49 @@
 ﻿#pragma once
 
-#include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
 #include "memory/handle.h"
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan.h>
 
 const VkFormat COLOR_32_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
 const VkFormat COLOR_16_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 const VkFormat COLOR_8_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 const VkFormat DEPTH_32_FORMAT = VK_FORMAT_D32_SFLOAT;
 
-namespace Vrg {
-    class RenderGraph;
-    struct Bindable;
-}
+namespace Vrg
+{
+class RenderGraph;
+struct Bindable;
+} // namespace Vrg
 
-struct AllocatedBuffer {
+struct AllocatedBuffer
+{
     VkBuffer _buffer;
     VmaAllocation _allocation;
     VkDescriptorBufferInfo _descriptorBufferInfo;
 };
 
-struct AllocatedImage {
+struct AllocatedImage
+{
     VkImage _image;
     VmaAllocation _allocation;
     uint32_t mips = 1;
     VkFormat format;
 };
 
-struct Texture {
+struct Texture
+{
     AllocatedImage image;
     VkImageView imageView;
 };
 
-struct CommandContext {
+struct CommandContext
+{
     VkFence fence;
     VkCommandPool commandPool;
 };
 
-struct EngineData {
+struct EngineData
+{
     VkDevice device;
     VkPhysicalDevice physicalDevice;
     VkInstance instance;
@@ -58,8 +64,10 @@ struct EngineData {
     Vrg::RenderGraph* renderGraph;
 };
 
-struct SceneData {
-    AllocatedBuffer vertexBuffer, indexBuffer, normalBuffer, texBuffer, lightmapTexBuffer, tangentBuffer;
+struct SceneData
+{
+    AllocatedBuffer vertexBuffer, indexBuffer, normalBuffer, texBuffer, lightmapTexBuffer,
+        tangentBuffer;
 
     AllocatedBuffer sceneDescBuffer, meshInfoBuffer;
     AllocatedBuffer cameraBuffer, objectBuffer, materialBuffer;

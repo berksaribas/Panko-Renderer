@@ -17,14 +17,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <assert.h>
 #include "vk_extensions.h"
+#include <assert.h>
 
-  /* NVVK_GENERATE_VERSION_INFO */
-  // Generated using Vulkan 198
-  /* NVVK_GENERATE_VERSION_INFO */
+/* NVVK_GENERATE_VERSION_INFO */
+// Generated using Vulkan 198
+/* NVVK_GENERATE_VERSION_INFO */
 
-  /* clang-format off */
+/* clang-format off */
 
   /* NVVK_GENERATE_STATIC_PFN */
 #ifdef VK_AMD_buffer_marker
@@ -3399,6 +3399,4 @@ void load_VK_EXTENSIONS(VkInstance instance, PFN_vkGetInstanceProcAddr getInstan
 	/* NVVK_GENERATE_LOAD_PROC */
 }
 
-
 /* clang-format on */
-
