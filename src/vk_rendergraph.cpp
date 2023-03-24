@@ -1,5 +1,9 @@
 #include "gltf_scene.hpp"
+#include "vk_cache.h"
 #include "vk_pipeline.h"
+#include "vk_rendergraph_types.h"
+#include <stdio.h>
+#include <string_view>
 #include <vk_initializers.h>
 #include <vk_rendergraph.h>
 #include <vk_utils.h>
@@ -94,14 +98,85 @@ template <typename T>
 inline static void copy_memory(Slice<T>& slice, FrameAllocator& frameAllocator)
 {
     T* newPtr = frameAllocator.allocate_array<T>(slice.size());
-    memcpy(newPtr, slice.m_data, slice.byte_size());
+    for (uint32_t i = 0; i < slice.size(); i++)
+    {
+        newPtr[i] = slice.m_data[i];
+    }
     slice.m_data = newPtr;
 }
 
-RenderGraph::RenderGraph(EngineData* _engineData)
+inline static size_t get_pipeline_hash(const RenderPass& renderPass)
+{
+    size_t hash = std::hash<int>{}(static_cast<int>(renderPass.pipelineType));
+
+    for (auto& define : renderPass.defines)
+    {
+        hash_combine(hash, define.str);
+        hash_combine(hash, define.value);
+    }
+
+    if (renderPass.pipelineType == PipelineType::RASTER_TYPE)
+    {
+        hash_combine(hash, renderPass.rasterPipeline.vertexShader);
+        hash_combine(hash, renderPass.rasterPipeline.fragmentShader);
+        // TODO: Need to support these
+        // hash_combine(hash, renderPass.rasterPipeline.size.width);
+        // hash_combine(hash, renderPass.rasterPipeline.size.height);
+        // hash_combine(hash, renderPass.rasterPipeline.inputAssembly);
+        // hash_combine(hash, renderPass.rasterPipeline.polygonMode);
+        // hash_combine(hash, renderPass.rasterPipeline.depthState);
+        // hash_combine(hash, renderPass.rasterPipeline.cullMode);
+        // hash_combine(hash, renderPass.rasterPipeline.enableConservativeRasterization);
+    }
+    else if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE)
+    {
+        hash_combine(hash, renderPass.computePipeline.shader);
+    }
+    else
+    {
+        hash_combine(hash, renderPass.raytracingPipeline.rgenShader);
+        hash_combine(hash, renderPass.raytracingPipeline.missShader);
+        hash_combine(hash, renderPass.raytracingPipeline.hitShader);
+    }
+
+    return hash;
+}
+
+inline Slice<std::string_view> get_defines(Slice<Define> defines,
+                                           FrameAllocator& frameAllocator)
+{
+    char* data = frameAllocator.allocate_array<char>(2048);
+    auto* result = frameAllocator.allocate_array<std::string_view>(defines.size());
+
+    int cursor = 0;
+    int counter = 0;
+
+    for (auto& define : defines)
+    {
+        int size = 0;
+
+        if (define.value != -999)
+        {
+            size = sprintf(data, "%s %d", define.str.data(), define.value);
+        }
+        else
+        {
+            size = sprintf(data, "%s", define.str.data());
+        }
+
+        result[counter] = std::string_view(data + cursor, size);
+        counter += size + 1;
+        counter++;
+    }
+
+    return Slice<std::string_view>(result, defines.size());
+}
+
+RenderGraph::RenderGraph(EngineData* _engineData, ShaderManager* _shaderManager)
 {
     renderPasses.reserve(128);
     engineData = _engineData;
+    shaderManager = _shaderManager;
 
     frameAllocator.initialize(1024 * 1024 * 64); // 64mb
 
@@ -137,6 +212,7 @@ RenderPass* RenderGraph::add_render_pass(RenderPass renderPass)
 
     copy_memory(newPass.writes, frameAllocator);
     copy_memory(newPass.reads, frameAllocator);
+    copy_memory(newPass.defines, frameAllocator);
     copy_memory(newPass.extraDescriptorSets, frameAllocator);
 
     copy_memory(newPass.constants, frameAllocator);
@@ -644,6 +720,7 @@ void Vrg::RenderGraph::rebuild_pipelines()
         vulkanRaytracing->destroy_raytracing_pipeline(it.second);
     }
     raytracingPipelineCache.clear();
+    shaderManager->clear_cache();
 }
 
 void Vrg::RenderGraph::destroy_resource(AllocatedImage& image)
@@ -671,17 +748,20 @@ void Vrg::RenderGraph::destroy_resource(AllocatedBuffer& buffer)
 
 VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 {
-    // TODO: A better pipeline cache!
-    if (pipelineCache.find(renderPass.name) != pipelineCache.end())
+    auto pipelineHash = get_pipeline_hash(renderPass);
+    if (pipelineCache.find(pipelineHash) != pipelineCache.end())
     {
-        return pipelineCache[renderPass.name];
+        return pipelineCache[pipelineHash];
     }
 
     if (renderPass.pipelineType == PipelineType::COMPUTE_TYPE)
     {
         VkShaderModule computeShader;
-        if (!vkutils::load_shader_module(
-                engineData->device, renderPass.computePipeline.shader.c_str(), &computeShader))
+        Slice<uint32_t> spirv{};
+        shaderManager->get_spirv(renderPass.computePipeline.shader,
+                                 get_defines(renderPass.defines, frameAllocator), spirv);
+
+        if (!vkutils::load_shader_module(engineData->device, spirv, &computeShader))
         {
             assert("Compute Shader Loading Issue");
         }
@@ -699,7 +779,7 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
         VK_CHECK(vkCreateComputePipelines(engineData->device, VK_NULL_HANDLE, 1,
                                           &computePipelineCreateInfo, nullptr,
                                           &computePipeline));
-        pipelineCache[renderPass.name] = computePipeline;
+        pipelineCache[pipelineHash] = computePipeline;
 
         vkDestroyShaderModule(engineData->device, computeShader, nullptr);
 
@@ -732,17 +812,19 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
 
         // compile shaders
         VkShaderModule vertexShader;
-        if (!vkutils::load_shader_module(engineData->device,
-                                         renderPass.rasterPipeline.vertexShader.c_str(),
-                                         &vertexShader))
+        Slice<uint32_t> spirvVertex{};
+        shaderManager->get_spirv(renderPass.rasterPipeline.vertexShader, {}, spirvVertex);
+
+        if (!vkutils::load_shader_module(engineData->device, spirvVertex, &vertexShader))
         {
             assert("Vertex Shader Loading Issue");
         }
 
         VkShaderModule fragmentShader;
-        if (!vkutils::load_shader_module(engineData->device,
-                                         renderPass.rasterPipeline.fragmentShader.c_str(),
-                                         &fragmentShader))
+        Slice<uint32_t> spirvFragment{};
+        shaderManager->get_spirv(renderPass.rasterPipeline.fragmentShader, {}, spirvFragment);
+
+        if (!vkutils::load_shader_module(engineData->device, spirvFragment, &fragmentShader))
         {
             assert("Fragment Shader Loading Issue");
         }
@@ -893,7 +975,7 @@ VkPipeline RenderGraph::get_pipeline(RenderPass& renderPass)
         pipelineBuilder._pipelineLayout = get_pipeline_layout(renderPass);
         VkPipeline newPipeline = pipelineBuilder.build_pipeline(
             engineData->device, nullptr, &pipeline_rendering_create_info);
-        pipelineCache[renderPass.name] = newPipeline;
+        pipelineCache[pipelineHash] = newPipeline;
 
         vkDestroyShaderModule(engineData->device, vertexShader, nullptr);
         vkDestroyShaderModule(engineData->device, fragmentShader, nullptr);
@@ -914,9 +996,17 @@ RaytracingPipeline* Vrg::RenderGraph::get_raytracing_pipeline(RenderPass& render
     RaytracingPipeline pipeline;
     RayPipeline rayPipeline = renderPass.raytracingPipeline;
 
+    Slice<uint32_t> rgenSpirv{};
+    shaderManager->get_spirv(rayPipeline.rgenShader, {}, rgenSpirv);
+
+    Slice<uint32_t> rmissSpirv{};
+    shaderManager->get_spirv(rayPipeline.missShader, {}, rmissSpirv);
+
+    Slice<uint32_t> rchitSpirv{};
+    shaderManager->get_spirv(rayPipeline.hitShader, {}, rchitSpirv);
+
     vulkanRaytracing->create_new_pipeline(
-        pipeline, get_pipeline_layout(renderPass), rayPipeline.rgenShader.c_str(),
-        rayPipeline.missShader.c_str(), rayPipeline.hitShader.c_str(),
+        pipeline, get_pipeline_layout(renderPass), rgenSpirv, rmissSpirv, rchitSpirv,
         rayPipeline.recursionDepth, &rayPipeline.rgenSpecialization,
         &rayPipeline.missSpecialization, &rayPipeline.hitSpecialization);
 

@@ -87,7 +87,7 @@ void BRDF::init_images(EngineData& engineData)
         std::vector<uint16_t> buffer(size);
 
         FILE* ptr;
-        fopen_s(&ptr, "../../data/brdf_lut.bin", "rb");
+        fopen_s(&ptr, "../data/brdf_lut.bin", "rb");
         fread_s(buffer.data(), size, size, 1, ptr);
         fclose(ptr);
 
@@ -101,7 +101,7 @@ void BRDF::init_images(EngineData& engineData)
 
     {
         FILE* ptr;
-        fopen_s(&ptr, "../../data/blue_noise/sobol_256_4d.png", "rb");
+        fopen_s(&ptr, "../data/blue_noise/sobol_256_4d.png", "rb");
         int x, y, comp;
 
         auto data = stbi_load_from_file(ptr, &x, &y, &comp, 0);
@@ -118,7 +118,7 @@ void BRDF::init_images(EngineData& engineData)
 
     {
         FILE* ptr;
-        fopen_s(&ptr, "../../data/blue_noise/scrambling_ranking_128x128_2d_1spp.png", "rb");
+        fopen_s(&ptr, "../data/blue_noise/scrambling_ranking_128x128_2d_1spp.png", "rb");
         int x, y, comp;
 
         auto data = stbi_load_from_file(ptr, &x, &y, &comp, 4);

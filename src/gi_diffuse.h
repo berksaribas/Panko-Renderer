@@ -17,8 +17,8 @@ public:
               PrecalculationResult* precalculationResult, GltfScene& scene);
     void render(VkCommandBuffer cmd, EngineData& engineData, SceneData& sceneData,
                 Shadow& shadow, BRDF& brdfUtils,
-                std::function<void(VkCommandBuffer cmd)>&& function,
-                bool realtimeProbeRaycast);
+                std::function<void(VkCommandBuffer cmd)>&& function, bool realtimeProbeRaycast,
+                int numBasisFunctions);
     void render_ground_truth(VkCommandBuffer cmd, EngineData& engineData, SceneData& sceneData,
                              Shadow& shadow, BRDF& brdfUtils);
 

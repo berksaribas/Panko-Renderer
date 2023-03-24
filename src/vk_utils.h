@@ -1,5 +1,6 @@
 #pragma once
 
+#include "memory/slice.h"
 #include <functional>
 #include <string>
 #include <vk_types.h>
@@ -34,7 +35,7 @@ void generate_mipmaps(VkCommandBuffer& cmd, VkImage image, int32_t width, int32_
                       uint32_t mipLevels);
 bool load_image_from_memory(EngineData* engineData, void* pixels, int width, int height,
                             AllocatedImage& outImage, uint32_t& outMipLevels);
-bool load_shader_module(VkDevice device, const char* filePath,
+bool load_shader_module(VkDevice device, Slice<uint32_t> spirv,
                         VkShaderModule* outShaderModule);
 void cmd_viewport_scissor(VkCommandBuffer cmd, VkExtent2D extent);
 AllocatedBuffer create_upload_buffer(EngineData* engineData, void* buffer_data, size_t size,

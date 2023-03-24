@@ -1,4 +1,5 @@
 #pragma once
+
 #include <initializer_list>
 #include <vector>
 
@@ -15,10 +16,34 @@ template <typename T> struct Slice
     T* m_data;
     size_t m_size;
 
-    T& operator[](const int i) const;
+    T& operator[](int i) const;
 
-    const size_t size() const;
-    const size_t byte_size() const;
+    [[nodiscard]] size_t size() const;
+    [[nodiscard]] size_t byte_size() const;
+
+    using iterator = T*;
+    using const_iterator = const T*;
+
+    iterator begin()
+    {
+        return &m_data[0];
+    }
+
+    const_iterator begin() const
+    {
+        return &m_data[0];
+    }
+
+    iterator end()
+    {
+        return &m_data[m_size];
+    }
+
+    const_iterator end() const
+    {
+
+        return &m_data[m_size];
+    }
 };
 
 template <typename T> inline Slice<T>::Slice(std::initializer_list<T> init)
@@ -33,12 +58,6 @@ template <typename T> inline Slice<T>::Slice(T* _data, size_t _size)
     m_size = _size;
 }
 
-template <typename T> inline Slice<T>::Slice(std::vector<T>& list)
-{
-    m_data = list.data();
-    m_size = list.size();
-}
-
 template <typename T> inline Slice<T>::Slice(T* _data)
 {
     m_data = _data;
@@ -51,17 +70,23 @@ template <typename T> inline Slice<T>::Slice(T& _data)
     m_size = 1;
 }
 
-template <typename T> inline T& Slice<T>::operator[](const int i) const
+template <typename T> inline Slice<T>::Slice(std::vector<T>& list)
+{
+    m_data = list.data();
+    m_size = list.size();
+}
+
+template <typename T> inline T& Slice<T>::operator[](int i) const
 {
     return m_data[i];
 }
 
-template <typename T> inline const size_t Slice<T>::size() const
+template <typename T> inline size_t Slice<T>::size() const
 {
     return m_size;
 }
 
-template <typename T> inline const size_t Slice<T>::byte_size() const
+template <typename T> inline size_t Slice<T>::byte_size() const
 {
     return m_size * sizeof(T);
 }

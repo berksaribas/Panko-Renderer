@@ -1,4 +1,5 @@
 #pragma once
+#include "memory/slice.h"
 #include <vector>
 #include <vk_types.h>
 
@@ -58,8 +59,9 @@ public:
     void build_tlas(GltfScene& scene, VkBuildAccelerationStructureFlagsKHR flags, bool update);
     // Per pipeline
     void create_new_pipeline(RaytracingPipeline& raytracingPipeline,
-                             VkPipelineLayout pipelineLayout, const char* rgenPath,
-                             const char* missPath, const char* hitPath, int recursionDepth = 1,
+                             VkPipelineLayout pipelineLayout, Slice<uint32_t> spirvRgen,
+                             Slice<uint32_t> spirvMiss, Slice<uint32_t> spirvHit,
+                             int recursionDepth = 1,
                              VkSpecializationInfo* rgenSpecialization = nullptr,
                              VkSpecializationInfo* missSpecialization = nullptr,
                              VkSpecializationInfo* hitSpecialization = nullptr);

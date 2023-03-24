@@ -80,21 +80,23 @@ void VulkanEngine::init()
                          _displayResolution.width, _displayResolution.height, window_flags);
 
     _engineData = {};
+    _shaderManager.initialize();
 
     init_vulkan();
-    _engineData.renderGraph = new Vrg::RenderGraph(&_engineData);
+    _engineData.renderGraph = new Vrg::RenderGraph(&_engineData, &_shaderManager);
 
     init_swapchain();
     init_commands();
     init_sync_structures();
     init_descriptor_pool();
 
+    _vulkanCompute.init(_engineData);
     _vulkanRaytracing.init(_engineData, _gpuRaytracingProperties);
     _engineData.renderGraph->enable_raytracing(&_vulkanRaytracing);
 
     editor.initialize(_engineData, _window, _swachainImageFormat);
 
-    bool loadPrecomputedData = true;
+    bool loadPrecomputedData = false;
     if (!loadPrecomputedData)
     {
         precalculationInfo.voxelSize = 0.25;
@@ -111,7 +113,7 @@ void VulkanEngine::init()
     }
     else
     {
-        precalculation.load("../../precomputation/precalculation.cfg", precalculationInfo,
+        precalculation.load("../precomputation/precalculation.cfg", precalculationInfo,
                             precalculationLoadData, precalculationResult);
     }
 
@@ -123,7 +125,7 @@ void VulkanEngine::init()
                                precalculationResult);
         // precalculation.prepare(*this, gltf_scene, precalculationInfo,
         // precalculationLoadData, precalculationResult,
-        // "../../precomputation/precalculation.Probes");
+        // "../precomputation/precalculation.Probes");
         exit(0);
     }
 
@@ -404,7 +406,8 @@ void VulkanEngine::draw(double deltaTime)
             diffuseIllumination.render(
                 cmd, _engineData, _sceneData, shadow, brdfUtils,
                 [&](VkCommandBuffer cmd) { draw_objects(cmd); },
-                editor.editorSettings.useRealtimeRaycast);
+                editor.editorSettings.useRealtimeRaycast,
+                editor.editorSettings.numberOfBasisFunctions);
         }
         glossyIllumination.render(_engineData, _sceneData, gbuffer, shadow,
                                   diffuseIllumination, brdfUtils);
@@ -456,8 +459,8 @@ void VulkanEngine::draw(double deltaTime)
              .pipelineType = Vrg::PipelineType::RASTER_TYPE,
              .rasterPipeline =
                  {
-                     .vertexShader = "../../shaders/fullscreen.vert.spv",
-                     .fragmentShader = "../../shaders/gamma.frag.spv",
+                     .vertexShader = "../shaders/fullscreen.vert",
+                     .fragmentShader = "../shaders/gamma.frag",
                      .size = _displayResolution,
                      .depthState = {false, false, VK_COMPARE_OP_NEVER},
                      .cullMode = Vrg::CullMode::NONE,
@@ -1010,14 +1013,14 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_scene()
 {
-    std::string file_name = "../../assets/cornellFixed.gltf";
-    // std::string file_name = "../../assets/cornellsuzanne.gltf";
-    // std::string file_name = "../../assets/occluderscene.gltf";
-    // std::string file_name = "../../assets/reflection_new.gltf";
-    // std::string file_name = "../../assets/shtest.gltf";
-    // std::string file_name = "../../assets/bedroom/bedroom.gltf";
-    // std::string file_name = "../../assets/livingroom/livingroom.gltf";
-    // std::string file_name = "../../assets/picapica/scene.gltf";
+    std::string file_name = "../assets/cornellFixed.gltf";
+    // std::string file_name = "../assets/cornellsuzanne.gltf";
+    // std::string file_name = "../assets/occluderscene.gltf";
+    // std::string file_name = "../assets/reflection_new.gltf";
+    // std::string file_name = "../assets/shtest.gltf";
+    // std::string file_name = "../assets/bedroom/bedroom.gltf";
+    // std::string file_name = "../assets/livingroom/livingroom.gltf";
+    // std::string file_name = "../assets/picapica/scene.gltf";
     // std::string file_name = "D:/newsponza/combined/sponza.gltf";
 
     tinygltf::Model tmodel;

@@ -80,8 +80,8 @@ void GBuffer::render(EngineData& engineData, SceneData& sceneData,
     engineData.renderGraph->add_render_pass(
         {.name = "GBufferPass",
          .pipelineType = Vrg::PipelineType::RASTER_TYPE,
-         .rasterPipeline = {.vertexShader = "../../shaders/gbuffer.vert.spv",
-                            .fragmentShader = "../../shaders/gbuffer.frag.spv",
+         .rasterPipeline = {.vertexShader = "../shaders/gbuffer.vert",
+                            .fragmentShader = "../shaders/gbuffer.frag",
                             .size = _imageSize,
                             .blendAttachmentStates =
                                 {

@@ -100,5 +100,10 @@ target_include_directories(stb_image INTERFACE stb_image)
 
 add_subdirectory("fsr2")
 
+set(BUILD_TESTING OFF CACHE BOOL ".." FORCE)
+set(ENABLE_HLSL   OFF CACHE BOOL ".." FORCE)
+set(ENABLE_OPT    OFF CACHE BOOL ".." FORCE)
+add_subdirectory("glslang")
+
 add_library(fsr2 INTERFACE)
 target_include_directories(fsr2 INTERFACE fsr2)

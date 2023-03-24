@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "vk_shader.h"
 #include <glm/glm.hpp>
 #include <gltf_scene.hpp>
 #include <vector>
@@ -44,6 +45,7 @@ public:
     VulkanCompute _vulkanCompute;
     VulkanRaytracing _vulkanRaytracing;
     VulkanDebugRenderer _vulkanDebugRenderer;
+    ShaderManager _shaderManager;
 
     DeletionQueue _mainDeletionQueue;
 

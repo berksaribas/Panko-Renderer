@@ -17,7 +17,7 @@ public:
     }
 
 private:
-    void* memory;
-    size_t cursor;
+    void* m_memory;
+    size_t m_cursor;
     size_t m_size;
 };

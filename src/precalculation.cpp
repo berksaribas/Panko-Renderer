@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <triangle_box_intersection.h>
 
-#include "triangle_box_intersection.h"
 #include <fstream>
 #include <queue>
 #include <vector>
@@ -723,7 +722,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene,
                   outPrecalculationResult.probeRaycastBasisFunctions);
 
     //{
-    //	std::string filename = "../../precomputation/precalculation";
+    //	std::string filename = "../precomputation/precalculation";
     //	save_binary(filename + ".ProbeRaycastResult",
     // outPrecalculationResult.probeRaycastResult, precalculationInfo.raysPerProbe*
     // probes.size() * sizeof(GPUProbeRaycastResult)); 	save_binary(filename +
@@ -885,7 +884,7 @@ void Precalculation::prepare(VulkanEngine& engine, GltfScene& scene,
     }
 
     // Save everything
-    std::string filename = "../../precomputation/precalculation";
+    std::string filename = "../precomputation/precalculation";
 
     nlohmann::json config;
     config["voxelSize"] = precalculationInfo.voxelSize;
@@ -1268,9 +1267,14 @@ void Precalculation::place_probes(VulkanEngine& engine, std::vector<glm::vec4>& 
                                         sizeof(glm::vec4) * probes.size());
     engine._vulkanCompute.create_buffer(instance, STORAGE, VMA_MEMORY_USAGE_GPU_TO_CPU,
                                         sizeof(float) * probes.size());
-    engine._vulkanCompute.build(
-        instance, engine._engineData.descriptorPool,
-        "../../shaders/precomputation/precalculate_probe_density_weights.comp.spv");
+
+    Slice<uint32_t> spirvProbeDensityWeights{};
+    engine._shaderManager.get_spirv(
+        "../shaders/precomputation/precalculate_probe_density_weights.comp", {},
+        spirvProbeDensityWeights);
+
+    engine._vulkanCompute.build(instance, engine._engineData.descriptorPool,
+                                spirvProbeDensityWeights);
     vkutils::cpu_to_gpu(engine._engineData.allocator, instance.bindings[1].buffer,
                         probes.data(), sizeof(glm::vec4) * probes.size());
 #endif
@@ -1553,7 +1557,7 @@ std::vector<Receiver> Precalculation::generate_receivers_cpu(VulkanEngine& engin
     }
 
     FILE* ptr;
-    fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
+    fopen_s(&ptr, "../precomputation/receiver_image.bin", "wb");
     fwrite(image, lightmapResolution * lightmapResolution, 1, ptr);
     fclose(ptr);
     printf("Created receivers: %d!\n", receiverCounter);
@@ -1714,14 +1718,14 @@ imageSize); fb_info.pAttachments = attachments; fb_info.attachmentCount = 2;
     {
         VkShaderModule gbufferVertShader;
         if (!vkutils::load_shader_module(engine._engineData.device,
-"../../shaders/precalculate_receivers.vert.spv", &gbufferVertShader))
+"../shaders/precalculate_receivers.vert", &gbufferVertShader))
         {
             assert("G Buffer Vertex Shader Loading Issue");
         }
 
         VkShaderModule gbufferFragShader;
         if (!vkutils::load_shader_module(engine._engineData.device,
-"../../shaders/precalculate_receivers.frag.spv", &gbufferFragShader))
+"../shaders/precalculate_receivers.frag", &gbufferFragShader))
         {
             assert("F Buffer Fragment Shader Loading Issue");
         }
@@ -2035,7 +2039,7 @@ posObjectId[(receiverId) * 4 + 3]; _receivers[receiverId].dPos = normal[(receive
     }
 
     FILE* ptr;
-    fopen_s(&ptr, "../../precomputation/receiver_image.bin", "wb");
+    fopen_s(&ptr, "../precomputation/receiver_image.bin", "wb");
     fwrite(image, lightmapResolution* lightmapResolution, 1, ptr);
     fclose(ptr);
     printf("Created receivers: %d!\n", receiverCounter);
@@ -2140,11 +2144,20 @@ void Precalculation::probe_raycast(VulkanEngine& engine, std::vector<glm::vec4>&
     vkCreatePipelineLayout(engine._engineData.device, &pipelineLayoutCreateInfo, nullptr,
                            &pipelineLayout);
 
-    engine._vulkanRaytracing.create_new_pipeline(
-        rtPipeline, pipelineLayout,
-        "../../shaders/precomputation/precalculate_probe_rt.rgen.spv",
-        "../../shaders/precomputation/precalculate_probe_rt.rmiss.spv",
-        "../../shaders/precomputation/precalculate_probe_rt.rchit.spv");
+    Slice<uint32_t> probeRtRgen{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_probe_rt.rgen", {},
+                                    probeRtRgen);
+
+    Slice<uint32_t> probeRtRmiss{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_probe_rt.rmiss",
+                                    {}, probeRtRmiss);
+
+    Slice<uint32_t> probeRtRchit{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_probe_rt.rchit",
+                                    {}, probeRtRchit);
+
+    engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayout, probeRtRgen,
+                                                 probeRtRmiss, probeRtRchit);
 
     {
         GPUSceneDesc desc = {};
@@ -2393,11 +2406,20 @@ void Precalculation::receiver_raycast(
     vkCreatePipelineLayout(engine._engineData.device, &pipelineLayoutCreateInfo, nullptr,
                            &pipelineLayout);
 
-    engine._vulkanRaytracing.create_new_pipeline(
-        rtPipeline, pipelineLayout,
-        "../../shaders/precomputation/precalculate_receiver_rt.rgen.spv",
-        "../../shaders/precomputation/precalculate_probe_rt.rmiss.spv",
-        "../../shaders/precomputation/precalculate_probe_rt.rchit.spv");
+    Slice<uint32_t> receiverRtRgen{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_receiver_rt.rgen",
+                                    {}, receiverRtRgen);
+
+    Slice<uint32_t> receiverRtRmiss{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_probe_rt.rmiss",
+                                    {}, receiverRtRmiss);
+
+    Slice<uint32_t> receiverRtRchit{};
+    engine._shaderManager.get_spirv("../shaders/precomputation/precalculate_probe_rt.rchit",
+                                    {}, receiverRtRchit);
+
+    engine._vulkanRaytracing.create_new_pipeline(rtPipeline, pipelineLayout, receiverRtRgen,
+                                                 receiverRtRmiss, receiverRtRchit);
 
     ComputeInstance matrixCompute = {};
     engine._vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::UNIFORM,
@@ -2410,9 +2432,14 @@ void Precalculation::receiver_raycast(
                                              clusterProbesBuffer);
     engine._vulkanCompute.add_buffer_binding(matrixCompute, ComputeBufferType::STORAGE,
                                              matrixBuffer);
-    engine._vulkanCompute.build(
-        matrixCompute, engine._engineData.descriptorPool,
-        "../../shaders/precomputation/precalculate_construct_receiver_matrix.comp.spv");
+
+    Slice<uint32_t> spirvConstructReceiverMatrix{};
+    engine._shaderManager.get_spirv(
+        "../shaders/precomputation/precalculate_construct_receiver_matrix.comp", {},
+        spirvConstructReceiverMatrix);
+
+    engine._vulkanCompute.build(matrixCompute, engine._engineData.descriptorPool,
+                                spirvConstructReceiverMatrix);
 
     {
         GPUSceneDesc desc = {};

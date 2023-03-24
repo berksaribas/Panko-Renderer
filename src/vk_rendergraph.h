@@ -4,10 +4,12 @@
 #include "vk_cache.h"
 #include "vk_raytracing.h"
 #include "vk_rendergraph_types.h"
+#include "vk_shader.h"
 #include "vk_timer.h"
 #include <functional>
 #include <initializer_list>
 #include <string>
+#include <vcruntime.h>
 #include <vector>
 
 #include "memory/handle_pool.h"
@@ -17,7 +19,7 @@ namespace Vrg
 class RenderGraph
 {
 public:
-    RenderGraph(EngineData* _engineData);
+    RenderGraph(EngineData* _engineData, ShaderManager* _shaderManager);
     void enable_raytracing(VulkanRaytracing* _vulkanRaytracing);
     RenderPass* add_render_pass(RenderPass renderPass);
     Handle<Bindable> register_image_view(AllocatedImage* image, ImageView imageView,
@@ -60,6 +62,7 @@ private:
 
     //
     EngineData* engineData;
+    ShaderManager* shaderManager;
     VulkanRaytracing* vulkanRaytracing;
     FrameAllocator frameAllocator;
 
@@ -74,7 +77,7 @@ private:
     std::unordered_map<ImageMipCache, VkImageLayout, ImageMipCache_hash> bindingImageLayout;
 
     // caches
-    std::unordered_map<std::string, VkPipeline> pipelineCache;
+    std::unordered_map<size_t, VkPipeline> pipelineCache;
     std::unordered_map<std::string, RaytracingPipeline> raytracingPipelineCache;
     std::unordered_map<ImageViewCache, VkImageView, ImageViewCache_hash> imageViewCache;
     std::unordered_map<DescriptorSetCache, VkDescriptorSet, DescriptorSetCache_hash>

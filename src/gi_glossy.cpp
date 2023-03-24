@@ -70,9 +70,9 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
          .pipelineType = Vrg::PipelineType::RAYTRACING_TYPE,
          .raytracingPipeline =
              {
-                 .rgenShader = "../../shaders/reflections/reflections_rt.rgen.spv",
-                 .missShader = "../../shaders/reflections/reflections_rt.rmiss.spv",
-                 .hitShader = "../../shaders/reflections/reflections_rt.rchit.spv",
+                 .rgenShader = "../shaders/reflections/reflections_rt.rgen",
+                 .missShader = "../shaders/reflections/reflections_rt.rmiss",
+                 .hitShader = "../shaders/reflections/reflections_rt.rchit",
                  .width = (uint32_t)_imageSize.width,
                  .height = (uint32_t)_imageSize.height,
              },
@@ -117,8 +117,8 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
                 .name = "GlossyBlurPass",
                 .pipelineType = Vrg::PipelineType::RASTER_TYPE,
                 .rasterPipeline = {
-                    .vertexShader = "../../shaders/fullscreen.vert.spv",
-                    .fragmentShader = "../../shaders/gaussblur.frag.spv",
+                    .vertexShader = "../shaders/fullscreen.vert",
+                    .fragmentShader = "../shaders/gaussblur.frag",
                     .size = mipSize,
                     .depthState = { false, false, VK_COMPARE_OP_NEVER },
                     .cullMode = Vrg::CullMode::NONE,
@@ -155,8 +155,8 @@ void GlossyIllumination::render(EngineData& engineData, SceneData& sceneData, GB
                 .name = "GlossyBlurPass",
                 .pipelineType = Vrg::PipelineType::RASTER_TYPE,
                 .rasterPipeline = {
-                    .vertexShader = "../../shaders/fullscreen.vert.spv",
-                    .fragmentShader = "../../shaders/gaussblur.frag.spv",
+                    .vertexShader = "../shaders/fullscreen.vert",
+                    .fragmentShader = "../shaders/gaussblur.frag",
                     .size = mipSize,
                     .depthState = { false, false, VK_COMPARE_OP_NEVER },
                     .cullMode = Vrg::CullMode::NONE,

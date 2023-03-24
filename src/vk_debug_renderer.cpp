@@ -66,8 +66,8 @@ void VulkanDebugRenderer::render(EngineData& _engineData, SceneData& _sceneData,
              .pipelineType = Vrg::PipelineType::RASTER_TYPE,
              .rasterPipeline =
                  {
-                     .vertexShader = "../../shaders/debug_unlit.vert.spv",
-                     .fragmentShader = "../../shaders/debug_unlit.frag.spv",
+                     .vertexShader = "../shaders/debug_unlit.vert",
+                     .fragmentShader = "../shaders/debug_unlit.frag",
                      .size = size,
                      .inputAssembly = Vrg::InputAssembly::POINT,
                      .polygonMode = Vrg::PolygonMode::POINT,
@@ -102,8 +102,8 @@ void VulkanDebugRenderer::render(EngineData& _engineData, SceneData& _sceneData,
              .pipelineType = Vrg::PipelineType::RASTER_TYPE,
              .rasterPipeline =
                  {
-                     .vertexShader = "../../shaders/debug_unlit.vert.spv",
-                     .fragmentShader = "../../shaders/debug_unlit.frag.spv",
+                     .vertexShader = "../shaders/debug_unlit.vert",
+                     .fragmentShader = "../shaders/debug_unlit.frag",
                      .size = size,
                      .inputAssembly = Vrg::InputAssembly::LINE,
                      .polygonMode = Vrg::PolygonMode::LINE,

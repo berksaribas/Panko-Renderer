@@ -1,5 +1,6 @@
 #pragma once
 
+#include "memory/slice.h"
 #include <vector>
 #include <vk_types.h>
 
@@ -52,9 +53,9 @@ public:
     void add_descriptor_set_layout(ComputeInstance& computeInstance,
                                    VkDescriptorSetLayout descriptorSetLayout);
     void build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool,
-               const char* computeShader);
+               Slice<uint32_t> spirvCompute);
     void compute(ComputeInstance& computeInstance, int x, int y, int z);
-    void rebuildPipeline(ComputeInstance& computeInstance, const char* computeShader);
+    void rebuildPipeline(ComputeInstance& computeInstance, Slice<uint32_t> spirvCompute);
     void destroy_compute_instance(ComputeInstance& computeInstance);
 
 private:

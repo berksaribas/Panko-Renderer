@@ -335,7 +335,7 @@ uint32_t maxRecursion = 1;
 void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
                                  SceneData& sceneData, Shadow& shadow, BRDF& brdfUtils,
                                  std::function<void(VkCommandBuffer cmd)>&& function,
-                                 bool realtimeProbeRaycast)
+                                 bool realtimeProbeRaycast, int numBasisFunctions)
 {
     // GI - Probe relight
     if (!realtimeProbeRaycast)
@@ -348,8 +348,8 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
              .pipelineType = Vrg::PipelineType::RASTER_TYPE,
              .rasterPipeline =
                  {
-                     .vertexShader = "../../shaders/diffuse_probes/lightmap.vert.spv",
-                     .fragmentShader = "../../shaders/diffuse_probes/lightmap.frag.spv",
+                     .vertexShader = "../shaders/diffuse_probes/lightmap.vert",
+                     .fragmentShader = "../shaders/diffuse_probes/lightmap.frag",
                      .size = _lightmapExtent,
                      .depthState = {false, false, VK_COMPARE_OP_NEVER},
                      .cullMode = Vrg::CullMode::NONE,
@@ -388,11 +388,11 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
         engineData.renderGraph->add_render_pass(
             {.name = "DiffuseProbeRelight(Offline)",
              .pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
-             .computePipeline =
-                 {.shader = "../../shaders/diffuse_probes/gi_probe_projection.comp.spv",
-                  .dimX = (uint32_t)groupcount,
-                  .dimY = 1,
-                  .dimZ = 1},
+             .computePipeline = {.shader =
+                                     "../shaders/diffuse_probes/gi_probe_projection.comp",
+                                 .dimX = (uint32_t)groupcount,
+                                 .dimY = 1,
+                                 .dimZ = 1},
              .writes = {{0, _probeRelightOutputBufferBinding}},
              .reads = {{0, _configBufferBinding},
                        {0, _probeRaycastResultOfflineBufferBinding},
@@ -410,10 +410,9 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
                  .pipelineType = Vrg::PipelineType::RAYTRACING_TYPE,
                  .raytracingPipeline =
                      {
-                         .rgenShader =
-                             "../../shaders/diffuse_probes/proberaycast_realtime.rgen.spv",
-                         .missShader = "../../shaders/reflections/reflections_rt.rmiss.spv",
-                         .hitShader = "../../shaders/reflections/reflections_rt.rchit.spv",
+                         .rgenShader = "../shaders/diffuse_probes/proberaycast_realtime.rgen",
+                         .missShader = "../shaders/reflections/reflections_rt.rmiss",
+                         .hitShader = "../shaders/reflections/reflections_rt.rchit",
                          .recursionDepth = 2,
                          .hitSpecialization = specializationInfo,
                          .width = (uint32_t)_config.rayCount,
@@ -450,8 +449,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
                 {.name = "DiffuseProbeRelight(Online)",
                  .pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
                  .computePipeline =
-                     {.shader =
-                          "../../shaders/diffuse_probes/gi_probe_projection_realtime.comp.spv",
+                     {.shader = "../shaders/diffuse_probes/gi_probe_projection_realtime.comp",
                       .dimX = (uint32_t)groupcount,
                       .dimY = 1,
                       .dimZ = 1},
@@ -471,17 +469,18 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
         engineData.renderGraph->add_render_pass(
             {.name = "DiffuseClusterProjection",
              .pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
-             .computePipeline =
-                 {.shader = "../../shaders/diffuse_probes/gi_cluster_projection.comp.spv",
-                  .dimX = (uint32_t)groupcount,
-                  .dimY = 1,
-                  .dimZ = 1},
+             .computePipeline = {.shader =
+                                     "../shaders/diffuse_probes/gi_cluster_projection.comp",
+                                 .dimX = (uint32_t)groupcount,
+                                 .dimY = 1,
+                                 .dimZ = 1},
              .writes = {{0, _clusterProjectionOutputBufferBinding}},
              .reads = {{0, _configBufferBinding},
                        {0, _probeRelightOutputBufferBinding},
                        {0, _clusterProjectionMatricesBufferBinding},
                        {0, _clusterReceiverInfosBinding},
-                       {0, _clusterProbesBinding}}});
+                       {0, _clusterProbesBinding}},
+             .defines = {{"BASIS_SIZE", numBasisFunctions}}});
     }
 
     // GI - Receiver Projection
@@ -494,7 +493,7 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
             {.name = "DiffuseReceiverReconstruction",
              .pipelineType = Vrg::PipelineType::COMPUTE_TYPE,
              .computePipeline =
-                 {.shader = "../../shaders/diffuse_probes/gi_receiver_reconstruction.comp.spv",
+                 {.shader = "../shaders/diffuse_probes/gi_receiver_reconstruction.comp",
                   .dimX = (uint32_t)groupcount,
                   .dimY = 1,
                   .dimZ = 1},
@@ -516,8 +515,8 @@ void DiffuseIllumination::render(VkCommandBuffer cmd, EngineData& engineData,
              .pipelineType = Vrg::PipelineType::RASTER_TYPE,
              .rasterPipeline =
                  {
-                     .vertexShader = "../../shaders/fullscreen.vert.spv",
-                     .fragmentShader = "../../shaders/dilate.frag.spv",
+                     .vertexShader = "../shaders/fullscreen.vert",
+                     .fragmentShader = "../shaders/dilate.frag",
                      .size = _giLightmapExtent,
                      .depthState = {false, false, VK_COMPARE_OP_NEVER},
                      .cullMode = Vrg::CullMode::NONE,
@@ -548,9 +547,9 @@ void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& e
          .pipelineType = Vrg::PipelineType::RAYTRACING_TYPE,
          .raytracingPipeline =
              {.rgenShader =
-                  "../../shaders/diffuse_lightmap_groundtruth/diffusegi_groundtruth.rgen.spv",
-              .missShader = "../../shaders/reflections/reflections_rt.rmiss.spv",
-              .hitShader = "../../shaders/reflections/reflections_rt.rchit.spv",
+                  "../shaders/diffuse_lightmap_groundtruth/diffusegi_groundtruth.rgen",
+              .missShader = "../shaders/reflections/reflections_rt.rmiss",
+              .hitShader = "../shaders/reflections/reflections_rt.rchit",
               .width = _gpuReceiverCount},
          .writes =
              {
@@ -580,8 +579,8 @@ void DiffuseIllumination::render_ground_truth(VkCommandBuffer cmd, EngineData& e
          .pipelineType = Vrg::PipelineType::RASTER_TYPE,
          .rasterPipeline =
              {
-                 .vertexShader = "../../shaders/fullscreen.vert.spv",
-                 .fragmentShader = "../../shaders/dilate.frag.spv",
+                 .vertexShader = "../shaders/fullscreen.vert",
+                 .fragmentShader = "../shaders/dilate.frag",
                  .size = _giLightmapExtent,
                  .depthState = {false, false, VK_COMPARE_OP_NEVER},
                  .cullMode = Vrg::CullMode::NONE,

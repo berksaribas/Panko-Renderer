@@ -93,10 +93,10 @@ void VulkanCompute::add_descriptor_set_layout(ComputeInstance& computeInstance,
 }
 
 void VulkanCompute::build(ComputeInstance& computeInstance, VkDescriptorPool descriptorPool,
-                          const char* computeShader)
+                          Slice<uint32_t> spirvCompute)
 {
     VkShaderModule shader;
-    if (!vkutils::load_shader_module(_device, computeShader, &shader))
+    if (!vkutils::load_shader_module(_device, spirvCompute, &shader))
     {
         assert("Compute Shader Loading Issue");
     }
@@ -201,12 +201,12 @@ void VulkanCompute::compute(ComputeInstance& computeInstance, int x, int y, int 
 }
 
 void VulkanCompute::rebuildPipeline(ComputeInstance& computeInstance,
-                                    const char* computeShader)
+                                    Slice<uint32_t> spirvCompute)
 {
     vkDestroyPipeline(_device, computeInstance.pipeline, nullptr);
 
     VkShaderModule shader;
-    if (!vkutils::load_shader_module(_device, computeShader, &shader))
+    if (!vkutils::load_shader_module(_device, spirvCompute, &shader))
     {
         assert("Compute Shader Loading Issue");
     }

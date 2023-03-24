@@ -275,13 +275,11 @@ void VulkanRaytracing::build_tlas(GltfScene& scene, VkBuildAccelerationStructure
     vmaDestroyBuffer(_allocator, instancesBuffer._buffer, instancesBuffer._allocation);
 }
 
-void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipeline,
-                                           VkPipelineLayout pipelineLayout,
-                                           const char* rgenPath, const char* missPath,
-                                           const char* hitPath, int recursionDepth,
-                                           VkSpecializationInfo* rgenSpecialization,
-                                           VkSpecializationInfo* missSpecialization,
-                                           VkSpecializationInfo* hitSpecialization)
+void VulkanRaytracing::create_new_pipeline(
+    RaytracingPipeline& raytracingPipeline, VkPipelineLayout pipelineLayout,
+    Slice<uint32_t> spirvRgen, Slice<uint32_t> spirvMiss, Slice<uint32_t> spirvHit,
+    int recursionDepth, VkSpecializationInfo* rgenSpecialization,
+    VkSpecializationInfo* missSpecialization, VkSpecializationInfo* hitSpecialization)
 {
     enum StageIndices
     {
@@ -299,17 +297,17 @@ void VulkanRaytracing::create_new_pipeline(RaytracingPipeline& raytracingPipelin
     stage.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     stage.pSpecializationInfo = rgenSpecialization;
     stages[eRaygen] = stage;
-    vkutils::load_shader_module(_device, rgenPath, &stages[eRaygen].module);
+    vkutils::load_shader_module(_device, spirvRgen, &stages[eRaygen].module);
     // Miss
     stage.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
     stage.pSpecializationInfo = missSpecialization;
     stages[eMiss] = stage;
-    vkutils::load_shader_module(_device, missPath, &stages[eMiss].module);
+    vkutils::load_shader_module(_device, spirvMiss, &stages[eMiss].module);
     // Hit Group - Closest Hit
     stage.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     stage.pSpecializationInfo = hitSpecialization;
     stages[eClosestHit] = stage;
-    vkutils::load_shader_module(_device, hitPath, &stages[eClosestHit].module);
+    vkutils::load_shader_module(_device, spirvHit, &stages[eClosestHit].module);
 
     VkRayTracingShaderGroupCreateInfoKHR group{
         VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR};

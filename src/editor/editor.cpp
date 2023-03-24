@@ -243,6 +243,9 @@ void Editor::prepare_renderer_settings(EngineData& engineData, GPUCameraData& ca
         sprintf_s(buffer, "Indirect Diffuse");
         ImGui::Checkbox(buffer, (bool*)&camData.indirectDiffuse);
 
+        sprintf_s(buffer, "Indirect Diffuse - Num Basis Functions");
+        ImGui::InputInt(buffer, &editorSettings.numberOfBasisFunctions);
+
         if (camData.indirectDiffuse)
         {
             sprintf_s(buffer, "Ground Truth");

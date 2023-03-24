@@ -5,7 +5,6 @@
 #include <vk_rendergraph.h>
 #include <vk_utils.h>
 
-
 void Shadow::init_images(EngineData& engineData)
 {
     VkExtent3D depthImageExtent3D = {_shadowMapExtent.width, _shadowMapExtent.height, 1};
@@ -57,8 +56,8 @@ void Shadow::render(EngineData& engineData, SceneData& sceneData,
     engineData.renderGraph->add_render_pass(
         {.name = "ShadowPass",
          .pipelineType = Vrg::PipelineType::RASTER_TYPE,
-         .rasterPipeline = {.vertexShader = "../../shaders/shadow_mapping/evsm.vert.spv",
-                            .fragmentShader = "../../shaders/shadow_mapping/evsm.frag.spv",
+         .rasterPipeline = {.vertexShader = "../shaders/shadow_mapping/evsm.vert",
+                            .fragmentShader = "../shaders/shadow_mapping/evsm.frag",
                             .size = _shadowMapExtent,
                             .blendAttachmentStates =
                                 {

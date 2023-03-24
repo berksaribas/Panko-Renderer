@@ -56,6 +56,8 @@ struct EditorSettings
     bool enableDenoise = true;
     bool enableGroundTruthDiffuse = false;
 
+    int numberOfBasisFunctions = 64;
+
     bool showFileList = false;
     std::vector<std::string> load_files;
     int selected_file = 0;

@@ -41,8 +41,8 @@ void Deferred::render(EngineData& engineData, SceneData& sceneData, GBuffer& gbu
          .pipelineType = Vrg::PipelineType::RASTER_TYPE,
          .rasterPipeline =
              {
-                 .vertexShader = "../../shaders/fullscreen.vert.spv",
-                 .fragmentShader = "../../shaders/deferred.frag.spv",
+                 .vertexShader = "../shaders/fullscreen.vert",
+                 .fragmentShader = "../shaders/deferred.frag",
                  .size = _imageSize,
                  .depthState = {false, false, VK_COMPARE_OP_NEVER},
                  .cullMode = Vrg::CullMode::NONE,

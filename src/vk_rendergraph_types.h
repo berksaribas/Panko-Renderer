@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory/slice.h>
 #include <string>
+#include <string_view>
 #include <vk_types.h>
 
 namespace Vrg
@@ -162,6 +163,23 @@ struct RayPipeline
     uint32_t depth = 1;
 };
 
+struct Define
+{
+    std::string_view str;
+    int value = -999;
+
+    Define(std::string_view name)
+    {
+        str = name;
+    }
+
+    Define(std::string_view name, int val)
+    {
+        str = name;
+        value = val;
+    }
+};
+
 struct RenderPass
 {
     std::string name;
@@ -171,6 +189,7 @@ struct RenderPass
     RayPipeline raytracingPipeline = {};  // type 2
     Slice<DescriptorBinding> writes;
     Slice<DescriptorBinding> reads;
+    Slice<Define> defines;
     Slice<PushConstant> constants;
     Slice<DescriptorSetBinding> extraDescriptorSets;
     uint32_t descriptorSetCount;
